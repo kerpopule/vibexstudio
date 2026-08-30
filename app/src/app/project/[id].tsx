@@ -200,9 +200,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   wideChat: {
-    width: '42%',
+    // Lovable/Bolt-style desk: chat keeps the left third, the live preview
+    // owns the right two-thirds (minWidth keeps the composer usable on
+    // smaller tablets).
+    width: '33.333%',
     minWidth: 340,
-    maxWidth: 520,
+    maxWidth: 480,
     borderRightWidth: StyleSheet.hairlineWidth,
   },
   widePreview: {

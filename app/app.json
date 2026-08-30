@@ -2,7 +2,7 @@
   "expo": {
     "name": "VibeXStudio",
     "slug": "vibexstudio-xhbuhstxrbw2xkidpow9",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "vibex",
@@ -42,9 +42,13 @@
         ],
         "ITSAppUsesNonExemptEncryption": false,
         "NSSpeechRecognitionUsageDescription": "VibeXStudio uses on-device speech recognition to turn your voice into prompts.",
-        "NSMicrophoneUsageDescription": "VibeXStudio uses the microphone so you can dictate prompts."
+        "NSMicrophoneUsageDescription": "VibeXStudio uses the microphone so you can dictate prompts.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true
+        }
       },
-      "buildNumber": "12",
+      "buildNumber": "18",
       "usesIcloudStorage": true,
       "entitlements": {
         "com.apple.developer.icloud-services": [
