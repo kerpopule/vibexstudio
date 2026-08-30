@@ -1,0 +1,116 @@
+{
+  "schema_version": "media_lab.prompt_template.v1",
+  "template_id": "h3-floorplan-to-building-timelapse",
+  "name": "Floor Plan → Finished Building Timelapse",
+  "engine": "h3_fl2va",
+  "status": "source_captured_candidate",
+  "scope": "private_internal",
+  "provenance": {
+    "source_prompt_url": "https://x.com/PhotogenicWeekE/status/2093199674417316316?s=46",
+    "source_example_url": "https://x.com/PhotogenicWeekE/status/2093198730958897335",
+    "source_author": "Photogenic Weekend (@PhotogenicWeekE)",
+    "source_kind": "public MiniMax H3 prompt reply and generated F2VA example video",
+    "source_claimed_runtime": "MiniMax H3 F2VA",
+    "captured_at_source_date": "2026-08-28",
+    "adaptation_note": "The reusable Media Lab prompt isolates the floor-plan-to-finished-building construction sequence. The complete public source prompt is retained verbatim below for provenance; its unrelated second bedroom shot is intentionally excluded from the reusable prompt and preview GIF.",
+    "usage_note": "Retained in Steve Darlow’s private Media Lab as an attributed internal candidate template; not cleared here for redistribution or publication."
+  },
+  "defaults": {
+    "aspect_ratio": "16:9",
+    "duration_seconds": 10,
+    "reference_alignment_seconds": 0.0,
+    "take_structure": "single matched-view transformation from uploaded floor plan through construction stages to a stable finished-building hold",
+    "visual_system": "photoreal cinematic construction timelapse with faithful plan geometry and restrained camera motion",
+    "source_resolution": "1920x1070",
+    "source_duration_seconds": 15.168,
+    "source_video_fps": 24,
+    "source_construction_preview_seconds": 10,
+    "audio": "construction ambience and machinery synchronized to visible work; no dialogue; no non-diegetic music"
+  },
+  "editable_variables": {
+    "floorplan_reference": {
+      "type": "media_reference",
+      "required": true,
+      "description": "One clear architectural floor plan aligned to the 0.00-second frame; the plan is the absolute geometry and layout source of truth."
+    },
+    "building_type": {
+      "type": "string",
+      "default": "the house or building represented by the uploaded floor plan"
+    },
+    "site_context": {
+      "type": "string",
+      "default": "a plausible sunlit site appropriate to the floor plan"
+    },
+    "final_light": {
+      "type": "string",
+      "default": "soft morning light"
+    }
+  },
+  "core_mechanics": [
+    "Picture 1 is aligned to 0.00 seconds and begins as the exact uploaded architectural floor plan.",
+    "The plan dissolves into a matched elevated construction-site view that preserves footprint, orientation, room relationships, openings, and circulation.",
+    "A coherent accelerated build advances through site preparation, foundation, structure, enclosure, exterior and interior completion without adding or deleting major geometry.",
+    "The camera stays mostly anchored to the same elevated three-quarter viewpoint, using one restrained push-in rather than repeated zooms or spinning orbits.",
+    "The timelapse decelerates to real time and ends on a clean stable hold of the completed building."
+  ],
+  "timed_beats": [
+    {
+      "seconds": "0–1.2",
+      "action": "Show the uploaded floor plan clearly and flat at its original orientation; begin one smooth camera push-in."
+    },
+    {
+      "seconds": "1.2–2.8",
+      "action": "Dissolve into the matched real site; survey, excavation, utilities, footings, foundation, and slab appear in coherent order."
+    },
+    {
+      "seconds": "2.8–4.8",
+      "action": "Load-bearing walls, framing, columns, floors, stairs, and room divisions rise precisely along the plan geometry."
+    },
+    {
+      "seconds": "4.8–6.5",
+      "action": "Roof, exterior walls, windows, doors, weatherproofing, and facade materials complete the enclosure."
+    },
+    {
+      "seconds": "6.5–8.5",
+      "action": "Interior partitions, utilities, flooring, lighting, fixtures, and restrained landscaping complete without changing the approved layout."
+    },
+    {
+      "seconds": "8.5–10",
+      "action": "Motion slows to real time and the finished building holds cleanly in soft morning light for at least 1.2 seconds."
+    }
+  ],
+  "preview": {
+    "gif": "static/templates/h3-floorplan-to-building-timelapse.gif",
+    "gif_scope": "0.00–10.00 seconds of the source example, construction sequence only",
+    "full_quality_source": "prompt-templates/source-media/h3-floorplan-to-building-timelapse-source.mp4"
+  },
+  "source_prompt_language": "English",
+  "source_prompt_character_count": 2365,
+  "source_prompt_sha256": "d963334a64e04bdeae663ce1e936568113b0140be3e8e7d164359cfa4d333f41",
+  "source_prompt_verbatim": "Prompt:\nHow the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video.\n\nintegrated_multimodal_description: [Shot 1] Photorealistic, cinematic, a wide establishing shot begins with the architectural floor plan from <Picture 1> displayed as a white blueprint, then the camera pushes in and the blueprint dissolves into a real sunlit construction site. A sped-up timelapse builds the house faithfully following the floor plan in <Picture 1>: the concrete foundation is poured, the wooden framing rises exactly along the plan's walls, rooms, and layout, the roof and exterior walls are installed, windows and siding finish the facade, then interior walls, flooring, and lighting complete every room of the house, as the timelapse slows to real time and the finished house stands in soft morning light. [Shot 2] At 00:10.000, the camera cuts to the entrance of the finished house, where the distant ringing of a classic twin-bell alarm clock is already audible. The camera travels rapidly from the front door through the hallway toward the bedroom, the ringing growing louder, where the alarm clock on the nightstand is ringing loudly, its two metal bells jiggling with a sharp mechanical \"brrrring\" sound. The young Japanese woman in her 20s with soft dark hair and a slender build, medium breasts, lies asleep in the bedroom bed wearing a sheer black camisole whose chest area is made of opaque fabric, keeping her bust fully covered and hidden. Half asleep, she slaps the top of the alarm clock to stop it and the ringing stops instantly, the bells still jiggling for a moment. The camera pushes in with small amplitude at slow speed to a bust-up framing of her chest and face as she rubs her eyes sleepily, looks directly at the camera, and the sleepy young woman (S1) says in a husky morning voice: <d>[Japanese] おはよ。</d> She blinks slowly with a soft sleepy smile as warm sunlight streams through the window.\n\noverall_soundscape: Construction site ambience with hammering and sawing during the timelapse, then the front door opening, the camera moving through the hallway with a loud mechanical bell-type alarm ringing \"brrrring\" growing closer, then stopping the moment her hand slaps it, a soft slap sound, the bells jiggling to a stop, and quiet morning room tone.\n\nnon_diegetic_music: N/A",
+  "prompt": "How the reference pictures align with the target video — Picture 1 aligns with the 0.00-second mark of the target video.\n\nintegrated_multimodal_description: Photorealistic, cinematic, a wide elevated establishing shot begins with the uploaded architectural floor plan from <Picture 1> displayed clearly on a white background at its original orientation. The camera performs one smooth restrained push-in as the floor plan dissolves into a real sunlit construction site occupying the same footprint and orientation. A sped-up coherent construction timelapse builds the house or building faithfully from <Picture 1>: survey and site preparation, excavation, utilities, footings, foundation and slab; then load-bearing walls, framing, columns, floors, stairs, rooms and circulation rise precisely along the plan geometry; then the roof, exterior walls, windows, doors, weatherproofing and facade complete the enclosure; then interior partitions, utilities, flooring, lighting and fixtures finish the building, followed by restrained landscaping appropriate to the site. Preserve the plan’s footprint, room count, wall relationships, openings, circulation, orientation and number of floors. Do not invent, add, remove, mirror, rotate, merge or relocate major rooms, wings, stairs, doors, windows or structural elements. Keep workers, vehicles and machinery small, coherent and correctly scaled, with no duplicated equipment, impossible construction order or unsafe motion. Keep the camera mostly anchored in the same elevated three-quarter viewpoint; no spinning orbit, no repeated zooms, no cutaway interiors and no unrelated second scene. The timelapse decelerates to real time as the finished building stands in soft morning light. End with a clean stable hold of the complete finished exterior for at least 1.2 seconds.\n\noverall_soundscape: Coherent construction-site ambience synchronized to visible work—excavation, concrete, hammering, sawing and restrained machinery—settling into quiet exterior ambience as the finished building holds. No dialogue.\n\nnon_diegetic_music: N/A",
+  "render_contract": {
+    "floorplan_reference_required": true,
+    "reference_alignment_seconds": 0.0,
+    "uploaded_floorplan_is_geometry_source_of_truth": true,
+    "preserve_footprint_orientation_rooms_openings_and_circulation": true,
+    "single_coherent_construction_sequence": true,
+    "construction_order_must_be_plausible": true,
+    "matched_elevated_viewpoint": true,
+    "restrained_camera_motion": true,
+    "no_unrelated_second_scene": true,
+    "stable_final_hold_seconds_minimum": 1.2,
+    "do_not_call_final_before_steve_approval": true,
+    "local_inference_only": true,
+    "no_silent_engine_fallback": true,
+    "fail_closed_without_decodable_floorplan_reference": true
+  },
+  "qa_gates": [
+    "Confirm the first frame clearly shows the uploaded floor plan at the original orientation and the build site preserves its footprint rather than substituting a generic house.",
+    "Confirm room count, major walls, openings, stairs, circulation, wings, floor count, and orientation remain faithful through foundation, structure, enclosure, and finish.",
+    "Confirm construction proceeds in physically plausible order with coherent workers and machinery, no duplicated equipment, impossible motion, exploding geometry, or stage regression.",
+    "Confirm the camera remains mostly anchored with one restrained push-in; reject spinning orbits, repeated zooms, unrelated interior cutaways, or an unrelated second scene.",
+    "Confirm the final building is fully enclosed, visually coherent, and held cleanly for at least 1.2 seconds in real-time motion.",
+    "Treat the public source result as reference evidence, not proof that the local H3 runtime reproduces plan fidelity without a Steve-approved one-take canary."
+  ]
+}

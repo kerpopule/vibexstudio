@@ -1,0 +1,15 @@
+[Unit]
+Description=Media Lab Advanced mode (Maestro GUI proxy :7864->:7862)
+After=network-online.target media-lab-simple.service
+Wants=media-lab-simple.service
+
+[Service]
+Type=simple
+ExecStart=/home/medialab/media-lab-simple/.venv/bin/uvicorn proxy7864:app --host YOUR_TAILNET_IP --port 7864
+EnvironmentFile=/home/medialab/media-lab-simple/proxy7864.env
+WorkingDirectory=/home/medialab/media-lab-simple
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

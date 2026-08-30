@@ -1,0 +1,1023 @@
+/* ------------------------------------------------------------------ */
+/* VibeXStudio launch film — visual system                             */
+/* ≥80% monochrome. One signal color, spent rarely. No gradients.      */
+/* ------------------------------------------------------------------ */
+
+:root {
+  --ink: #090a0a;
+  --paper: #f1efe8;
+  --gray: #b8b8b0;
+  --gray-dark: #222422;
+  --signal: #ff2d9b;
+
+  --font-display: 'Archivo Variable', 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+  --font-ui: 'Instrument Sans Variable', 'Instrument Sans', 'Helvetica Neue', Arial, sans-serif;
+
+  --nav-h: 56px;
+  --gutter: clamp(20px, 4vw, 64px);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  color-scheme: dark;
+  background: var(--ink);
+}
+
+html.is-locked {
+  overflow: hidden;
+}
+
+body {
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.4;
+  overflow-x: clip;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--signal);
+  color: var(--ink);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 3px;
+}
+
+/* ---------------------------------------------------------------- */
+/* Type system                                                        */
+/* ---------------------------------------------------------------- */
+
+.t-mega {
+  font-family: var(--font-display);
+  font-stretch: 125%;
+  font-weight: 800;
+  text-transform: uppercase;
+  line-height: 0.82;
+  letter-spacing: -0.03em;
+}
+
+.t-head {
+  font-family: var(--font-display);
+  font-stretch: 120%;
+  font-weight: 750;
+  text-transform: uppercase;
+  line-height: 0.9;
+  letter-spacing: -0.02em;
+}
+
+.t-label {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-variant-numeric: tabular-nums;
+}
+
+.t-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.t-outline {
+  color: transparent;
+  -webkit-text-stroke: 1.5px currentColor;
+}
+
+/* ---------------------------------------------------------------- */
+/* Utilities                                                          */
+/* ---------------------------------------------------------------- */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  padding: 10px 16px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  transform: translateY(-300%);
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
+/* Decorative geometry is hidden until the motion context reveals it, */
+/* so no-JS and reduced-motion readers get clean document flow.       */
+.deco {
+  visibility: hidden;
+}
+
+/* ---------------------------------------------------------------- */
+/* Loader                                                             */
+/* ---------------------------------------------------------------- */
+
+.loader {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--ink);
+  color: var(--paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loader-brand {
+  position: absolute;
+  top: var(--gutter);
+  left: var(--gutter);
+}
+
+.loader-brand span {
+  display: block;
+}
+
+.loader-line {
+  position: absolute;
+  top: 50%;
+  left: var(--gutter);
+  right: var(--gutter);
+  height: 2px;
+  background: var(--paper);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+.loader-pct {
+  position: absolute;
+  top: calc(50% + 18px);
+  left: var(--gutter);
+}
+
+.loader-meta {
+  position: absolute;
+  bottom: var(--gutter);
+  left: var(--gutter);
+  right: var(--gutter);
+  display: flex;
+  justify-content: space-between;
+  color: var(--gray);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loader {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Fixed chrome: nav + progress rail                                  */
+/* ---------------------------------------------------------------- */
+
+.nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  height: var(--nav-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--gutter);
+  color: var(--paper);
+  mix-blend-mode: normal;
+  transition: color 0.3s linear;
+}
+
+[data-scene-theme='paper'] .nav {
+  color: var(--ink);
+}
+
+[data-scene-theme='signal'] .nav {
+  color: var(--ink);
+}
+
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-stretch: 125%;
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+
+.nav-brand img {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: block;
+}
+
+.nav-final .nav-brand {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.nav-links {
+  display: flex;
+  gap: clamp(14px, 2.5vw, 34px);
+  list-style: none;
+}
+
+.nav-links a {
+  opacity: 0.55;
+  transition: opacity 0.2s linear, color 0.2s linear;
+}
+
+.nav-links a:hover,
+.nav-links a:focus-visible {
+  opacity: 1;
+}
+
+.nav-links a.is-active {
+  opacity: 1;
+  color: var(--signal);
+}
+
+[data-scene-theme='signal'] .nav-links a.is-active {
+  color: var(--ink);
+}
+
+.nav-enter {
+  border-bottom: 1.5px solid currentColor;
+  padding-bottom: 2px;
+}
+
+@media (max-width: 767px) {
+  .nav-links li.nav-idx {
+    display: none;
+  }
+}
+
+.rail {
+  position: fixed;
+  right: calc(var(--gutter) / 2);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 30;
+  height: 34vh;
+  width: 2px;
+  background: color-mix(in srgb, currentColor 25%, transparent);
+  color: var(--paper);
+  transition: color 0.3s linear;
+}
+
+[data-scene-theme='paper'] .rail,
+[data-scene-theme='signal'] .rail {
+  color: var(--ink);
+}
+
+.rail-fill {
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  transform: scaleY(0);
+  transform-origin: top center;
+}
+
+.rail-index {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: -4px;
+  color: currentColor;
+}
+
+@media (max-width: 767px), (prefers-reduced-motion: reduce) {
+  .rail {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Scenes — shared                                                    */
+/* ---------------------------------------------------------------- */
+
+.scene {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100svh;
+  overflow: clip;
+  padding: calc(var(--nav-h) + 24px) var(--gutter) var(--gutter);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.scene[data-theme='dark'] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.scene[data-theme='paper'] {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.scene[data-theme='signal'] {
+  background: var(--signal);
+  color: var(--ink);
+}
+
+.scene-tag {
+  position: absolute;
+  top: calc(var(--nav-h) + 18px);
+  left: var(--gutter);
+  color: inherit;
+  opacity: 0.6;
+}
+
+/* ---------------------------------------------------------------- */
+/* 01 — Hero                                                          */
+/* ---------------------------------------------------------------- */
+
+.hero-word {
+  font-size: clamp(120px, 26vw, 30vw);
+  white-space: nowrap;
+  display: block;
+}
+
+.hero-word .hx {
+  display: inline-block;
+  will-change: transform;
+}
+
+.hero-sub {
+  display: flex;
+  align-items: baseline;
+  gap: clamp(16px, 3vw, 48px);
+  margin-top: clamp(10px, 2vw, 28px);
+}
+
+.hero-studio {
+  font-size: clamp(34px, 6.5vw, 96px);
+}
+
+.hero-rule {
+  height: 2px;
+  background: currentColor;
+  margin-top: clamp(20px, 4vh, 48px);
+  transform-origin: left center;
+}
+
+.hero-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+  color: var(--gray);
+}
+
+.hero-cue {
+  position: absolute;
+  bottom: var(--gutter);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hero-cue::after {
+  content: '';
+  display: block;
+  width: 2px;
+  height: 34px;
+  background: currentColor;
+}
+
+@media (max-width: 767px) {
+  .hero-word {
+    font-size: 31vw;
+  }
+  .hero-cue::after {
+    height: 22px;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* 02 — Inside the X                                                  */
+/* ---------------------------------------------------------------- */
+
+.inx-plane {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 240vmax;
+  height: clamp(40px, 9vh, 110px);
+  margin-left: -120vmax;
+  margin-top: calc(clamp(40px, 9vh, 110px) / -2);
+  pointer-events: none;
+}
+
+.inx-plane-a {
+  transform: rotate(45deg);
+}
+
+.inx-plane-b {
+  transform: rotate(-45deg);
+}
+
+.inx-plane .bar {
+  width: 100%;
+  height: 100%;
+  background: var(--ink);
+}
+
+.inx-measure {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--gray-dark);
+}
+
+.inx-measure .tick {
+  display: block;
+  height: 1px;
+  width: clamp(60px, 10vw, 160px);
+  background: currentColor;
+  transform-origin: left center;
+}
+
+.inx-frag {
+  position: absolute;
+  font-size: clamp(220px, 46vw, 720px);
+  color: transparent;
+  -webkit-text-stroke: 1.5px var(--gray);
+  line-height: 0.8;
+  pointer-events: none;
+  user-select: none;
+}
+
+.inx-lines {
+  position: relative;
+  z-index: 2;
+}
+
+.inx-line {
+  overflow: clip;
+}
+
+.inx-line > span {
+  display: block;
+  font-size: clamp(56px, 12.5vw, 176px);
+}
+
+.inx-line .accent {
+  color: inherit;
+}
+
+.inx-exit-rule {
+  position: absolute;
+  left: var(--gutter);
+  right: var(--gutter);
+  top: 50%;
+  height: 2px;
+  background: var(--ink);
+  transform-origin: left center;
+}
+
+/* ---------------------------------------------------------------- */
+/* 03 — Local-first numbers                                           */
+/* ---------------------------------------------------------------- */
+
+.local-rule {
+  height: 2px;
+  background: currentColor;
+  margin-top: 14px;
+  transform-origin: left center;
+}
+
+.local-track {
+  display: flex;
+  align-items: stretch;
+  margin-top: clamp(24px, 6vh, 72px);
+}
+
+.local-stop {
+  flex: 0 0 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(8px, 2vh, 24px);
+}
+
+.local-figure {
+  font-size: clamp(110px, 24vw, 26vw);
+  white-space: nowrap;
+}
+
+.local-figure .unit {
+  font-size: 0.32em;
+  letter-spacing: 0;
+  vertical-align: 0.16em;
+  margin-left: 0.08em;
+  font-stretch: 110%;
+}
+
+.local-caption {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--gray-dark);
+}
+
+.local-caption::before {
+  content: '';
+  width: 34px;
+  height: 2px;
+  background: var(--signal);
+}
+
+.local-wipe {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 300vmax;
+  height: 300vmax;
+  margin-left: -150vmax;
+  margin-top: -150vmax;
+  background: var(--ink);
+  transform: rotate(45deg) translateY(115%);
+  pointer-events: none;
+  z-index: 5;
+}
+
+@media (max-width: 767px) {
+  .local-track {
+    flex-direction: column;
+  }
+  .local-stop {
+    flex: 0 0 auto;
+    min-height: 60vh;
+  }
+  .local-figure {
+    font-size: 30vw;
+  }
+}
+
+/* Reduced motion / no-JS: stops flow normally in a column. */
+@media (prefers-reduced-motion: reduce) {
+  .local-track {
+    flex-direction: column;
+    gap: 48px;
+  }
+  .local-stop {
+    flex: 0 0 auto;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* 04 — Capabilities                                                  */
+/* ---------------------------------------------------------------- */
+
+.caps-step {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: center;
+  min-height: 62vh;
+}
+
+.caps-index {
+  font-size: clamp(150px, 34vw, 30vw);
+  color: transparent;
+  -webkit-text-stroke: 2px var(--gray-dark);
+  line-height: 0.8;
+  user-select: none;
+}
+
+.caps-word-mask {
+  overflow: clip;
+  margin-top: clamp(-40px, -6vw, -90px);
+}
+
+.caps-word {
+  display: block;
+  font-size: clamp(64px, 14vw, 200px);
+}
+
+.caps-sentence {
+  margin-top: clamp(14px, 3vh, 34px);
+  max-width: 26ch;
+  font-family: var(--font-ui);
+  font-size: clamp(16px, 2vw, 24px);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--gray);
+}
+
+.caps-rule {
+  position: absolute;
+  left: var(--gutter);
+  bottom: 18vh;
+  height: 2px;
+  width: calc(100% - 2 * var(--gutter));
+  background: var(--gray-dark);
+  transform-origin: left center;
+}
+
+/* Motion mode stacks the three steps; static flow shows them in sequence. */
+.scene-caps .caps-steps {
+  position: relative;
+}
+
+@media (min-width: 768px) and (prefers-reduced-motion: no-preference) {
+  .has-motion .scene-caps .caps-steps {
+    width: 100%;
+    height: 68vh;
+  }
+
+  .has-motion .scene-caps .caps-step {
+    position: absolute;
+    inset: 0;
+    min-height: 68vh;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* 05 — X index                                                       */
+/* ---------------------------------------------------------------- */
+
+.xdex-x {
+  position: absolute;
+  left: -6vw;
+  bottom: -14vh;
+  font-size: clamp(340px, 62vh, 900px);
+  line-height: 0.72;
+  color: var(--gray-dark);
+  user-select: none;
+  pointer-events: none;
+}
+
+.xdex-rows {
+  position: relative;
+  z-index: 2;
+  margin-left: auto;
+  width: min(680px, 92%);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 2.2vh, 22px);
+}
+
+.xdex-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid var(--gray-dark);
+  padding-bottom: clamp(8px, 1.6vh, 16px);
+  font-size: clamp(15px, 2.6vw, 28px);
+  font-family: var(--font-display);
+  font-stretch: 118%;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.xdex-row .val {
+  color: var(--gray);
+  font-variant-numeric: tabular-nums;
+}
+
+.xdex-row.is-live {
+  color: var(--signal);
+}
+
+.xdex-row.is-live .val {
+  color: var(--signal);
+}
+
+.xdex-collapse {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 100%;
+  height: 4px;
+  margin-top: -2px;
+  background: var(--signal);
+  z-index: 6;
+  pointer-events: none;
+}
+
+@media (max-width: 1023px) {
+  .xdex-rows {
+    margin-left: 0;
+    width: 100%;
+  }
+  .xdex-x {
+    opacity: 0.55;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* 06 — Climax                                                        */
+/* ---------------------------------------------------------------- */
+
+.scene-climax {
+  z-index: 2;
+}
+
+.climax-stage {
+  will-change: transform;
+}
+
+.climax-line {
+  overflow: clip;
+}
+
+.climax-line > span {
+  display: block;
+  font-size: clamp(40px, 7.4vw, 124px);
+  color: var(--ink);
+}
+
+.climax-final {
+  position: absolute;
+  left: var(--gutter);
+  right: var(--gutter);
+  top: 50%;
+  transform: translateY(-50%);
+  text-align: left;
+  z-index: 7;
+}
+
+/* Revealed over the ink flood, so it reads in paper. */
+.climax-final .word {
+  font-size: clamp(44px, 10.2vw, 160px);
+  color: var(--paper);
+  display: block;
+}
+
+.climax-flood {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 6px;
+  margin-top: -3px;
+  background: var(--ink);
+  z-index: 6;
+  pointer-events: none;
+}
+
+.climax-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.climax-grid i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+/* ---------------------------------------------------------------- */
+/* 07 — Enter / CTA                                                   */
+/* ---------------------------------------------------------------- */
+
+.scene-enter {
+  justify-content: flex-start;
+  padding-top: calc(var(--nav-h) + 10vh);
+  min-height: 100vh;
+}
+
+.enter-mark {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.enter-mark img {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: block;
+}
+
+.enter-title {
+  margin-top: clamp(28px, 6vh, 64px);
+  font-size: clamp(52px, 11vw, 170px);
+}
+
+.enter-tag {
+  margin-top: clamp(10px, 2vh, 22px);
+  font-size: clamp(24px, 4.6vw, 64px);
+  color: var(--gray);
+}
+
+.enter-actions {
+  display: flex;
+  align-items: center;
+  gap: clamp(18px, 4vw, 44px);
+  margin-top: clamp(30px, 6vh, 70px);
+  flex-wrap: wrap;
+}
+
+.enter-cta {
+  display: inline-block;
+  border: 2px solid var(--paper);
+  padding: clamp(16px, 2.4vw, 26px) clamp(24px, 4vw, 52px);
+  font-family: var(--font-display);
+  font-stretch: 120%;
+  font-weight: 750;
+  font-size: clamp(16px, 2.2vw, 26px);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  transition: background-color 0.2s linear, color 0.2s linear;
+}
+
+.enter-cta:hover,
+.enter-cta:focus-visible {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.enter-alt {
+  border-bottom: 1.5px solid var(--gray);
+  padding-bottom: 3px;
+  color: var(--gray);
+  transition: color 0.2s linear, border-color 0.2s linear;
+}
+
+.enter-alt:hover,
+.enter-alt:focus-visible {
+  color: var(--paper);
+  border-color: var(--paper);
+}
+
+.enter-footnote {
+  margin-top: 18px;
+  color: var(--gray);
+  max-width: 52ch;
+}
+
+.enter-meta {
+  margin-top: clamp(48px, 10vh, 120px);
+  padding-top: 22px;
+  border-top: 1px solid var(--gray-dark);
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  color: var(--gray);
+  position: relative;
+  z-index: 2;
+}
+
+.enter-x {
+  position: relative;
+  height: clamp(180px, 38vh, 460px);
+  overflow: clip;
+  margin: clamp(30px, 6vh, 80px) calc(-1 * var(--gutter)) calc(-1 * var(--gutter));
+}
+
+.enter-x span {
+  position: absolute;
+  left: 50%;
+  top: 6%;
+  transform: translateX(-50%);
+  font-size: clamp(340px, 64vh, 900px);
+  line-height: 0.72;
+  color: var(--gray-dark);
+  user-select: none;
+}
+
+@media (max-width: 430px) {
+  .enter-title {
+    font-size: 11.5vw;
+    letter-spacing: -0.045em;
+  }
+
+  .enter-tag {
+    font-size: clamp(22px, 7.5vw, 30px);
+  }
+
+  .enter-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .enter-cta {
+    width: 100%;
+    padding-inline: 18px;
+    text-align: center;
+    letter-spacing: 0.02em;
+  }
+
+  .enter-meta {
+    justify-content: flex-start;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Page wiring: markup-specific placement + no-JS fallbacks           */
+/* ---------------------------------------------------------------- */
+
+.loader[hidden] {
+  display: none;
+}
+
+/* Without JS there is no horizontal pin: stack the number stops. */
+html:not(.js) .local-track {
+  flex-direction: column;
+  gap: 48px;
+}
+
+html:not(.js) .local-stop {
+  flex: 0 0 auto;
+}
+
+.local-title {
+  font-size: clamp(30px, 5.2vw, 76px);
+  max-width: 16ch;
+}
+
+.inx-frag {
+  top: 2%;
+  right: -8vw;
+}
+
+.inx-measure-a {
+  top: 22%;
+  right: var(--gutter);
+}
+
+.inx-measure-b {
+  bottom: 16%;
+  left: var(--gutter);
+}
+
+.inx-line--wide > span {
+  font-size: clamp(32px, 6.6vw, 96px);
+}
+
+/* ---------------------------------------------------------------- */
+/* Reduced motion: everything reads in plain document flow            */
+/* ---------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .nav {
+    position: absolute;
+  }
+  .scene {
+    min-height: 0;
+    padding-top: 96px;
+    padding-bottom: 96px;
+  }
+  .hero-cue {
+    display: none;
+  }
+  .caps-step {
+    min-height: 0;
+    margin-bottom: 72px;
+  }
+  .xdex-x,
+  .enter-x {
+    display: none;
+  }
+}

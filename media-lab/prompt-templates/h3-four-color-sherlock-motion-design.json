@@ -1,0 +1,101 @@
+{
+  "schema_version": "media_lab.prompt_template.v1",
+  "template_id": "h3-four-color-sherlock-motion-design",
+  "name": "Four-Color Sherlock Mystery",
+  "engine": "h3_t2v",
+  "status": "source_captured_candidate",
+  "scope": "private_internal",
+  "provenance": {
+    "source_prompt_url": "https://x.com/Mayz1169/status/2092598128637772112",
+    "source_example_url": "https://x.com/Mayz1169/status/2092597548863402041",
+    "source_author": "Kiki (@Mayz1169)",
+    "source_kind": "public MiniMax H3 prompt and generated example video",
+    "inspiration_url": "https://x.com/renataro9/status/2090573248752934994",
+    "inspiration_author": "meropan (@renataro9)",
+    "captured_at_source_date": "2026-08-26",
+    "usage_note": "Retained in Steve Darlow’s private Media Lab as an attributed internal template; not cleared here for redistribution or publication."
+  },
+  "defaults": {
+    "aspect_ratio": "16:9",
+    "duration_seconds": 15.2,
+    "take_structure": "nine rapid graphic motion-design beats",
+    "setting": "Sherlock Holmes mystery in Victorian London",
+    "source_resolution": "1920x1080",
+    "source_duration_seconds": 15.11619,
+    "source_video_fps": 30,
+    "audio": "urgent noir score with synchronized Victorian action sound effects and no dialogue"
+  },
+  "core_mechanics": [
+    "Use a strict four-color palette: deep black, warm white, electric cobalt blue, and sharp acid yellow.",
+    "Use flat 2D silhouettes, bold geometric shapes, extreme negative space, screen-printed texture, rough diagonal hatching, hard-edged shadows, and occasional thin white outlines.",
+    "Keep Sherlock Holmes and Dr. Watson recognizable through their specified silhouettes and Victorian wardrobe in every beat.",
+    "Preserve rapid editing, compositions, silhouette animation, aggressive hard cuts, circular iris wipes, object-matched transitions, graphic zooms, and scratch-texture flashes.",
+    "Synchronize picture cuts, movement, transitions, score, and sound effects precisely across all nine beats."
+  ],
+  "timed_beats": [
+    {
+      "seconds": "0–1.3",
+      "action": "Extreme profile close-up on acid yellow: Holmes strikes a match and lights his pipe; white flame flickers and smoke curls into a question mark."
+    },
+    {
+      "seconds": "1.3–3.8",
+      "action": "Circular iris collapses to black; Holmes walks toward camera under a Victorian gas lamp while a graphic London street unfolds around him."
+    },
+    {
+      "seconds": "3.8–5.7",
+      "action": "A black-gloved hand sweeps a magnifying glass over a blue fingerprint, torn paper edge, and tiny yellow footprint; the lens fills the frame."
+    },
+    {
+      "seconds": "5.7–7.6",
+      "action": "In blue-black rain, Holmes and Watson share an alternating blue-and-black umbrella while Holmes follows glowing white footprints."
+    },
+    {
+      "seconds": "7.6–9.4",
+      "action": "On acid yellow, Holmes stops two approaching suspects with his cane and links clue symbols until one yellow clue identifies the guilty suspect."
+    },
+    {
+      "seconds": "9.4–11.2",
+      "action": "A black Victorian locomotive races across white; Holmes runs along the platform and swings onto the last carriage as steam wipes the frame."
+    },
+    {
+      "seconds": "11.2–12.8",
+      "action": "A cloaked suspect vaults a rooftop railing; Holmes follows and lands in a crouch amid sharp white impact rays."
+    },
+    {
+      "seconds": "12.8–14.1",
+      "action": "A black hansom cab slides into a rain-soaked blue street; Holmes and Watson step out as gas lamps and London rooftops appear."
+    },
+    {
+      "seconds": "14.1–15.2",
+      "action": "Poster composition: Holmes, Watson, and captured suspect cast three long shadows; Holmes raises a magnifying glass containing a flashing yellow fingerprint, then cut to black."
+    }
+  ],
+  "preview": {
+    "gif": "static/templates/h3-four-color-sherlock-motion-design.gif",
+    "full_quality_source": "prompt-templates/source-media/h3-four-color-sherlock-motion-design-source.mp4"
+  },
+  "source_prompt_language": "English",
+  "source_prompt_character_count": 3721,
+  "prompt": "Create a 15-second horizontal 16:9 graphic motion-design film themed around a Sherlock Holmes mystery in Victorian London. Preserve the reference video’s rapid editing, compositions, silhouette animation and graphic transitions, but replace all modern espionage, firearms, subway trains and cars with Victorian detective imagery. Use a strict four-color palette: deep black, warm white, electric cobalt blue and sharp acid yellow. Flat 2D silhouettes, bold geometric shapes, extreme negative space, screen-printed texture, rough diagonal hatching, hard-edged shadows and occasional thin white outlines. No realistic faces or detailed rendering. Sherlock Holmes is always identifiable by his tall slender silhouette, deerstalker hat, Inverness cape, pipe, cane and magnifying glass. Dr. Watson has a stockier build, bowler hat, short moustache silhouette, waistcoat and walking stick. Timeline:0–1.3s — Extreme profile close-up against an acid-yellow background. Holmes strikes a match and lights his curved pipe. The white flame flickers while a thin ribbon of smoke curls upward into a question-mark shape.1.3–3.8s — The yellow field collapses through a circular iris into black. Holmes appears alone beneath a white Victorian gas lamp. A stylized London street rapidly unfolds around him in black, white and blue perspective as he walks toward the camera, coat tails moving behind him.3.8–5.7s — Smash cut to an extreme close-up of a black-gloved hand holding a magnifying glass. The lens sweeps across a white surface, enlarging a blue fingerprint, a torn paper edge and a tiny yellow footprint. The circular lens expands until it fills the frame and becomes the next transition.5.7–7.6s — Blue-black rain scene. Holmes and Watson stand beneath a large alternating blue-and-black umbrella while diagonal rain lines fill the background. Holmes kneels and follows a trail of glowing white footprints across the wet street toward a distant gas lamp.7.6–9.4s — Hard cut to an acid-yellow confrontation. Holmes stands centered while two black suspect silhouettes approach from both sides. He extends his cane horizontally, stops them, then rapidly connects clue symbols above their heads with thin blue lines. A single yellow clue flashes over the guilty suspect.9.4–11.2s — A black Victorian steam locomotive races across a white background with blue windows and spinning graphic wheels. Holmes runs along the platform, grabs the rear rail and swings onto the final carriage as steam wipes across the screen.11.2–12.8s — The cloaked suspect vaults over a rooftop railing in silhouette. Holmes follows and lands in a crouch; sharp white impact rays explode behind him while the suspect’s hat flies through the air.12.8–14.1s — A black hansom cab slides into a rain-soaked blue street, its wheels producing concentric graphic ripples. Holmes and Watson step out as gas lamps and London rooftops appear in the background.14.1–15.2s — Final poster-like composition: Holmes stands beneath the central white spotlight, Watson at his left and the captured suspect at his right. Three long shadows stretch toward the foreground. Holmes raises the magnifying glass; a small yellow fingerprint flashes inside it before the image cuts to black. Use aggressive hard cuts, circular iris wipes, object-matched transitions, graphic zooms and brief scratch-texture flashes, synchronized precisely to the soundtrack. Audio: urgent noir percussion, ticking clock, tense violin ostinato, match strike, pipe inhale, rain, footsteps, steam whistle, train clatter, cab-wheel skid and a final orchestral sting. No dialogue, subtitles, modern technology, guns, contemporary vehicles, photorealism, gradients or inconsistent character silhouettes.",
+  "render_contract": {
+    "text_to_video_only": true,
+    "strict_four_color_palette": true,
+    "exactly_nine_timed_beats": true,
+    "consistent_character_silhouettes": true,
+    "no_dialogue_or_subtitles": true,
+    "no_modern_technology_guns_or_contemporary_vehicles": true,
+    "no_photorealism_or_gradients": true,
+    "do_not_call_final_before_steve_approval": true,
+    "local_inference_only": true,
+    "no_silent_engine_fallback": true
+  },
+  "qa_gates": [
+    "Confirm every frame stays within deep black, warm white, electric cobalt blue, and sharp acid yellow, allowing only texture-level antialiasing.",
+    "Confirm Holmes and Watson remain immediately recognizable through stable silhouettes, hats, garments, and props across all nine beats.",
+    "Confirm each transition and action lands within its specified timeline and that no beat is omitted or merged into an unreadable montage.",
+    "Confirm the result remains flat 2D graphic motion design with screen-print texture, rough hatching, hard shadows, and no realistic faces, photorealism, gradients, or polished 3D rendering.",
+    "Confirm no modern technology, firearms, subway trains, cars, contemporary vehicles, dialogue, or subtitles appear.",
+    "Confirm the noir score and specified sound effects synchronize precisely with the corresponding picture actions.",
+    "Treat the public source result as reference evidence, not as proof that the local H3 runtime reproduces it without a pinned-seed canary."
+  ]
+}

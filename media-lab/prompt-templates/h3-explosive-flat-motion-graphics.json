@@ -1,0 +1,67 @@
+{
+  "schema_version": "media_lab.prompt_template.v1",
+  "template_id": "h3-explosive-flat-motion-graphics",
+  "name": "Explosive Flat Motion Graphics",
+  "engine": "h3_t2v",
+  "status": "source_captured_candidate",
+  "scope": "private_internal",
+  "provenance": {
+    "source_url": "https://x.com/studio_oneroom/status/2092220604309205341?s=46",
+    "source_author": "AIスタジオワンルーム (@studio_oneroom)",
+    "source_kind": "public MiniMax H3 prompt and generated example video",
+    "source_claimed_runtime": "Domo AI MiniMax H3 (2k)",
+    "captured_at_source_date": "2026-08-25",
+    "usage_note": "Retained in Steve Darlow’s private Media Lab as an attributed internal template; not cleared here for redistribution or publication."
+  },
+  "defaults": {
+    "aspect_ratio": "16:9",
+    "duration_seconds": 15,
+    "accent_color": "high-saturation orange",
+    "palette": [
+      "off-white",
+      "ink black",
+      "accent color"
+    ],
+    "shot_count": 9,
+    "source_resolution": "2560x1440",
+    "source_duration_seconds": 15.083
+  },
+  "editable_text_strings": {
+    "text_1": "MiniMax H3",
+    "text_2": "MOTION",
+    "text_3": "GRAPHICS",
+    "text_4": "NO EDIT",
+    "text_5": "ONE SHOT",
+    "text_6": "コピペで",
+    "text_7": "超簡単！",
+    "text_8": "ONEROOM",
+    "text_9": "AI STUDIO"
+  },
+  "preview": {
+    "gif": "static/templates/h3-explosive-flat-motion-graphics.gif",
+    "full_quality_source": "prompt-templates/source-media/h3-explosive-flat-motion-graphics-source.mp4"
+  },
+  "source_prompt_language": "Japanese",
+  "source_prompt_character_count": 2918,
+  "prompt": "subject_definitions:\nこの映像の設定は以下の通りである。\nアクセント色は彩度の高いオレンジである。\n第1の文字列は \"MiniMax H3\" である。\n第2の文字列は \"MOTION\" である。\n第3の文字列は \"GRAPHICS\" である。\n第4の文字列は \"NO EDIT\" である。\n第5の文字列は \"ONE SHOT\" である。\n第6の文字列は \"コピペで\" である。\n第7の文字列は \"超簡単！\" である。\n第8の文字列は \"ONEROOM\" である。\n第9の文字列は \"AI STUDIO\" である。\n画面を3分割する縦棒は、第1の文字列に含まれる大文字 H の縦棒である。\n\n画面に登場する文字列は上の9つだけであり、これ以外の文字・単語・記号・数字は一切出現しない。すべて上に書いた通りの綴りで、大文字と小文字の別も空白の有無もそのまま正確に保ち、平坦・鮮明・安定した状態で描画する。崩れたり、文字が増減したり、文字化けしたりすることは決してない。\n「第1の文字列」「第2の文字列」などの呼び方は、この指示書の中だけで使う呼称である。画面に描くのは必ずその呼称に割り当てられた文字列そのものであり、「第1」「文字列」といった呼称の語や数字が画面に描かれることは決してない。\n書体は太いジオメトリックサンセリフ1種類のみで、欧文はすべて大文字。ただし固有名詞にもともと小文字が含まれる場合は、その混在をそのまま正確に保つ。日本語は太いゴシック体1種類のみ。\n色はオフホワイト、インクブラック、アクセント色の3色のみ。この3色以外は一切使わない。地の色は映像の途中で白と黒のあいだで3回反転し、そのたびに文字色も反転する。\n画面には常に3つの層がある。奥の背景層、中間の装飾層、手前の文字層。この3層は必ず異なる速度で動き、3層すべてが同時に静止する瞬間は最後のホールドだけである。\n背景層には第8の文字列が、塗りのない輪郭線だけで描かれ、画面幅の3倍の大きさで横倒しに寝そべり、右から左へ超低速で流れ続けている。これは背景の壁紙であり、手前の文字層とは別物である。重複した単語ではない。\n中間の装飾層には、細いバーコードの帯、極小のUIティックの列、レジストレーションマーク、ハーフトーンのドット網、テクニカルな円弧、データ数値のティックが常時いずれか複数存在し、文字層とは別の速度で動いている。\n\nsummary:\n15秒の爆発的なフラットグラフィック・モーションデザイン。9つのカットすべてが構図的に全く異なり、地の白黒が3回反転し、背景の巨大なアウトライン文字が全編流れ続ける。文字は硬い物体として叩きつけられ、圧縮され、砕け、跳ね返り、増殖し、最後に激突する。ばらばらの線分が第1の文字列を組み上げ、縦棒が画面を3分割し、第2の文字列が叩き込まれ、第3の文字列がワイヤーフレームのグリッド上で増殖し、カードが連打され、収束した光点から第8の文字列が左右から激突して生まれ、最後に第9の文字列を上、第8の文字列を下に置いた2行のロックアップで着地する。\n\nretention_analysis:\n各文字列が出現するショットは次の通りであり、増殖・複製された文字もすべて同じ綴りを保つ。\n第1の文字列は [Shot 2]、[Shot 3]、[Shot 4] に出現する。\n第2の文字列は [Shot 5] に出現する。\n第3の文字列は [Shot 6] に出現する。\n第4、第5、第6、第7の文字列は [Shot 7] に出現し、いずれも完全に読める状態で保持される。\n第8の文字列は背景層に全編出現し、手前の文字層としては [Shot 8]、[Shot 9] に出現する。背景層のものは輪郭線のみ、手前のものは塗りつぶしであり、同じ綴りだが別の層である。誤って重複した単語として扱わない。\n第9の文字列は [Shot 9] に出現する。\n\ndetailed_description:\n本映像は高密度で攻撃的なフラットグラフィックモーションデザインである。エネルギーはすべてタイポグラフィの物理から生み出す。9つのショットはすべて構図が異なっていなければならず、同じ構図、同じスケール、同じ配置を二度使わない。各ショットの演出の細部はここでは指定しない。\n\n[Shot 1] 地は黒。黒い線分の群れが四辺すべてから爆発的に飛び込み、渦を巻きながら中央へ加速して吸い込まれていく。巨大なアクセント色の円が画面外から叩きつけられて着弾し、強いインパクトシェイクが走る。\n\n[Shot 2] At 00:01.000, 渦の中心で線分が一斉に噛み合い、第1の文字列が画面いっぱいに組み上がる。組み上がった瞬間、地が黒から白へ一気に反転する。第1の文字列の最後の1字だけがアクセント色である。\n\n[Shot 3] At 00:02.600, スナップズームでそのアクセント色の1字へ急速に寄り、その1字が画面全体を覆い尽くすまで巨大化する。画面全体が一度だけフリーズする。\n\n[Shot 4] At 00:03.400, 地は白。縦棒が上下へ伸び上がって画面の全高を貫き、画面を3つの縦列に切り分ける。第1の文字列の残りの文字は左へ弾き飛ばされて画面外へ消える。3つの縦列はそれぞれ異なる速度で上下にスクロールする。\n\n[Shot 5] At 00:05.200, 3つの縦列が一斉に急停止し、第2の文字列が画面いっぱいに正面から叩き込まれ、完全に読める状態で静止する。\n\n[Shot 6] At 00:06.400, ハードカットで黒地へ反転する。巨大な白いワイヤーフレームのグリッドが3次元的に傾きながら奥へ伸び、その面に沿って第3の文字列が格子状に増殖して手前へ流れてくる。\n\n[Shot 7] At 00:08.000, グラフィックカードが4枚、ハードカットで連打される。1枚ごとに構図もスケールも配置も異なり、第4、第5、第6、第7の文字列が1枚に1つずつ、画面の中央に大きく現れる。各カードの切り替わりはシャッターフラッシュで区切られる。\n\n[Shot 8] At 00:10.000, 4枚のカードが中央へ一気に吸い込まれ、1つのアクセント色の光点に凝縮する。光点から左右へ、第8の文字列が2つの塊に分かれて超高速で飛び込み、画面中央で激突して一行に綴られる。アクセント色の同心円の衝撃波が中央から外へ炸裂し、砕けた平面の破片がガラスのように四方へ飛び散る。\n\n[Shot 9] At 00:12.000, 破片が画面外へ抜け、第8の文字列が画面の下半分へ落下して着地し、その真上により小さいサイズで第9の文字列が固定される。2行が中央揃えで積み重なる。地が黒から白へ最終反転する。2行のあいだに短いアクセント色の罫線が1本割り込む。00:13.800 から 00:15.000 まで、背景層も含めて画面上のすべてが一切動かない状態を保持する。字形がランダムにグリッチすることは決してない。",
+  "render_contract": {
+    "text_to_video_only": true,
+    "exactly_nine_shots": true,
+    "exact_text_only": true,
+    "three_motion_layers": true,
+    "three_background_inversions": true,
+    "final_hold_seconds": [
+      13.8,
+      15.0
+    ],
+    "do_not_call_final_before_steve_approval": true,
+    "local_inference_only": true,
+    "no_silent_engine_fallback": true
+  },
+  "qa_gates": [
+    "Confirm every requested text string is legible and exact, including capitalization and spaces.",
+    "Confirm the nine compositions are visibly distinct and the three layers move at different speeds.",
+    "Confirm the final lockup holds without random glyph glitches from 13.8 to 15.0 seconds.",
+    "Treat the source result as reference evidence, not as proof that the local H3 runtime reproduces it without a canary."
+  ]
+}

@@ -1,0 +1,257 @@
+{
+  "name": "Steve-Heather DGX ads and Heather woman-in-red overnight refinement",
+  "starts": "2026-08-20T23:00:00-05:00",
+  "deadline": "2026-08-21T10:00:00-05:00",
+  "policy": {
+    "queue": "canonical Media Lab only",
+    "gpu_lock": "/run/user/1000/spark-gpu.lock",
+    "one_job_at_a_time": true,
+    "publication_state": "private internal draft",
+    "failure_behavior": "preserve failure, retry transient once, never switch engine/model silently",
+    "creative_lock": "same sources, prompt, seed and orientation within each H3/LTX pair"
+  },
+  "jobs": [
+    {
+      "label": "flux2-age-only-r1",
+      "kind": "maestro",
+      "title": "OVERNIGHT 01 Flux2 preserve good composition, correct Steve Heather age only",
+      "settings": {
+        "model_type": "flux2_dev",
+        "prompt": "Edit the first image as one real photograph. Preserve its exact camera, composition, crop, room, lighting, clothing, body poses, hands, and NVIDIA device placement. Change only Steve and Heather's faces, hair and visible skin age so they match the second and third references exactly: Steve's same real mature face, lean proportions, brown eyes, short dark-brown hair with grey at the sides, light stubble and natural smile lines; Heather's same real mature face, softly rounded cheeks and jaw, blue eyes, long warm-blonde hair with darker roots, and natural smile lines. They must look their actual reference ages, not older, not elderly, not de-aged, not generic actors. Keep natural skin texture without exaggerating wrinkles or whitening Steve's hair. The fourth reference is the exact NVIDIA DGX Spark; do not redesign it. No new objects, no text, no collage, no CGI skin.",
+        "image_start": "/data/overnight/flux2-good-composition.jpg",
+        "image_refs": [
+          "/data/steve-darlow-source.png",
+          "/data/heather-darlow-source.jpg",
+          "/data/dgx-unit.png"
+        ],
+        "image_prompt_type": "KI",
+        "image_mode": 1,
+        "resolution": "1360x768",
+        "batch_size": 1,
+        "embedded_guidance_scale": 4,
+        "sampling_steps": 30,
+        "num_inference_steps": 30,
+        "seed": 20260826
+      }
+    },
+    {
+      "label": "flux2-age-product-r1",
+      "kind": "maestro",
+      "title": "OVERNIGHT 02 Flux2 age-correct identities plus exact DGX Spark scale",
+      "settings": {
+        "model_type": "flux2_dev",
+        "prompt": "Edit the first image as one real photograph. Preserve its exact camera, crop, warm living-room light, clothing, body positions, natural interaction and balanced two-person composition. Correct Steve and Heather to the exact people and actual mature ages in references two and three: Steve keeps his real lean face, brown eyes, short dark-brown hair with grey only at the sides, light stubble and natural smile lines; Heather keeps her real softly rounded cheeks and jaw, blue eyes, long warm-blonde hair with darker roots and natural smile lines. Do not make either person older, elderly, heavily wrinkled, grey-haired, younger, beauty-smoothed, narrow-faced or generic. Replace the oversized invented computer with the exact compact metallic silver-gray NVIDIA DGX Spark in reference four, preserving its true approximately 150 mm square desktop scale, textured enclosure, front ports, proportions and branding. Place it securely on a substantial black pedestal between them; neither person holds it. No new objects, no extra people, no text beyond existing product branding, no collage, no CGI skin.",
+        "image_start": "/data/overnight/flux2-good-composition.jpg",
+        "image_refs": [
+          "/data/steve-darlow-source.png",
+          "/data/heather-darlow-source.jpg",
+          "/data/dgx-unit.png"
+        ],
+        "image_prompt_type": "KI",
+        "image_mode": 1,
+        "resolution": "1360x768",
+        "batch_size": 1,
+        "embedded_guidance_scale": 4,
+        "sampling_steps": 30,
+        "num_inference_steps": 30,
+        "seed": 20260826
+      }
+    },
+    {
+      "label": "qwen-plus2-age-product-r1",
+      "kind": "maestro",
+      "title": "OVERNIGHT 03 Qwen Plus2 same composition age and DGX correction",
+      "settings": {
+        "model_type": "qwen_image_edit_plus2_20B",
+        "prompt": "Edit image one while preserving the same camera, crop, room, light, clothing, body positions and two-person composition. References two and three are the exact Steve and Heather identity and actual-age truth. Restore their exact real faces and age without making them older, elderly, grey-haired, younger, beauty-smoothed, narrow-faced or generic. Reference four is the exact compact NVIDIA DGX Spark. Replace only the oversized invented computer with that exact small metallic silver-gray desktop device at its true scale, resting on a black pedestal between them, not held. Preserve natural skin, realistic hands and the good photographic composition. No extra people, no text beyond existing product branding, no collage, no split screen, no CGI.",
+        "resolution": "1360x768",
+        "batch_size": 1,
+        "image_start": "/data/overnight/flux2-good-composition.jpg",
+        "image_refs": [
+          "/data/steve-darlow-source.png",
+          "/data/heather-darlow-source.jpg",
+          "/data/dgx-unit.png"
+        ],
+        "image_prompt_type": "KI",
+        "seed": 20260826
+      }
+    },
+    {
+      "label": "qwen-plus2-age-product-r2",
+      "kind": "maestro",
+      "title": "OVERNIGHT 04 Qwen Plus2 replicate with one seed change",
+      "settings": {
+        "model_type": "qwen_image_edit_plus2_20B",
+        "prompt": "Edit image one while preserving the same camera, crop, room, light, clothing, body positions and two-person composition. References two and three are the exact Steve and Heather identity and actual-age truth. Restore their exact real faces and age without making them older, elderly, grey-haired, younger, beauty-smoothed, narrow-faced or generic. Reference four is the exact compact NVIDIA DGX Spark. Replace only the oversized invented computer with that exact small metallic silver-gray desktop device at its true scale, resting on a black pedestal between them, not held. Preserve natural skin, realistic hands and the good photographic composition. No extra people, no text beyond existing product branding, no collage, no split screen, no CGI.",
+        "resolution": "1360x768",
+        "batch_size": 1,
+        "image_start": "/data/overnight/flux2-good-composition.jpg",
+        "image_refs": [
+          "/data/steve-darlow-source.png",
+          "/data/heather-darlow-source.jpg",
+          "/data/dgx-unit.png"
+        ],
+        "image_prompt_type": "KI",
+        "seed": 20260827
+      }
+    },
+    {
+      "label": "dgx-ad-ltx-r1",
+      "kind": "generate",
+      "depends_on": "flux2-age-product-r1",
+      "source_from": "flux2-age-product-r1",
+      "payload": {
+        "prompt": "Private internal draft for an NVIDIA DGX Spark local AI solution ad. One continuous photorealistic five-second product moment. Preserve Steve and Heather's exact faces, actual mature ages, hair, skin, clothing, body proportions, room and exact compact silver-gray DGX Spark from the supplied frame. The device remains perfectly rigid on the pedestal at the same true scale. Steve makes one restrained open-hand presenting gesture without touching it; Heather looks from the device to Steve with a warm controlled smile. Subtle breathing and eye motion, stable eye-level camera, very slow clean push-in, realistic background parallax. No speaking, no face morph, no product morph, no extra fingers, no extra people, no captions, no generated text, no logo changes, no religious imagery.",
+        "style": "none",
+        "model": "ltx25",
+        "duration": "5",
+        "orientation": "landscape",
+        "face_fix": false,
+        "cast": [],
+        "seed": 2026082101
+      }
+    },
+    {
+      "label": "dgx-ad-h3-r1",
+      "kind": "generate",
+      "depends_on": "flux2-age-product-r1",
+      "source_from": "flux2-age-product-r1",
+      "payload": {
+        "prompt": "Private internal draft for an NVIDIA DGX Spark local AI solution ad. One continuous photorealistic five-second product moment. Preserve Steve and Heather's exact faces, actual mature ages, hair, skin, clothing, body proportions, room and exact compact silver-gray DGX Spark from the supplied frame. The device remains perfectly rigid on the pedestal at the same true scale. Steve makes one restrained open-hand presenting gesture without touching it; Heather looks from the device to Steve with a warm controlled smile. Subtle breathing and eye motion, stable eye-level camera, very slow clean push-in, realistic background parallax. No speaking, no face morph, no product morph, no extra fingers, no extra people, no captions, no generated text, no logo changes, no religious imagery.",
+        "style": "none",
+        "model": "h3",
+        "duration": "5",
+        "orientation": "landscape",
+        "face_fix": false,
+        "cast": [],
+        "seed": 2026082101
+      }
+    },
+    {
+      "label": "heather-red-verse-ltx-r1",
+      "kind": "say",
+      "payload": {
+        "character_id": "1e9c9090d4a4",
+        "line": "The supplied soundtrack drives the performance; do not synthesize or clone a new voice.",
+        "scene": "Heather is the woman in red from the first DGX Spark music video: intimate warm amber stage, vintage microphone, deep-red wardrobe and lipstick, shallow depth of field and circular bokeh. Preserve Heather's exact actual mature face, softly rounded cheeks and jaw, blue eyes, long warm-blonde hair with darker roots, natural skin and smile lines. Keep her face large and frontal for useful mouth and eye tokens.",
+        "motion": "Restrained singing only: small believable mouth shapes locked to the supplied vocal, relaxed eyes, subtle breathing, gentle head sway and one small hand rise. Slow clean push-in. End with lips naturally together. No exaggerated expression, no younger or slimmer face, no camera rush.",
+        "engine": "ltx",
+        "orientation": "landscape",
+        "source": "/media/phase1-heather-close-1280x704.png",
+        "source_scene_complete": true,
+        "audio_source": "/media/heather-verse1-valid-12.0417-17.6417.wav",
+        "audio_scale": 1.0,
+        "seed": 240819361
+      }
+    },
+    {
+      "label": "heather-red-verse-h3-r1",
+      "kind": "say",
+      "payload": {
+        "character_id": "1e9c9090d4a4",
+        "line": "The supplied soundtrack drives the performance; do not synthesize or clone a new voice.",
+        "scene": "Heather is the woman in red from the first DGX Spark music video: intimate warm amber stage, vintage microphone, deep-red wardrobe and lipstick, shallow depth of field and circular bokeh. Preserve Heather's exact actual mature face, softly rounded cheeks and jaw, blue eyes, long warm-blonde hair with darker roots, natural skin and smile lines. Keep her face large and frontal for useful mouth and eye tokens.",
+        "motion": "Restrained singing only: small believable mouth shapes locked to the supplied vocal, relaxed eyes, subtle breathing, gentle head sway and one small hand rise. Slow clean push-in. End with lips naturally together. No exaggerated expression, no younger or slimmer face, no camera rush.",
+        "engine": "h3",
+        "orientation": "landscape",
+        "source": "/media/phase1-heather-close-1280x704.png",
+        "source_scene_complete": true,
+        "audio_source": "/media/heather-verse1-valid-12.0417-17.6417.wav",
+        "seed": 240819361
+      }
+    },
+    {
+      "label": "heather-red-chorus-ltx-r1",
+      "kind": "say",
+      "payload": {
+        "character_id": "1e9c9090d4a4",
+        "line": "The supplied chorus soundtrack drives the performance; do not synthesize or clone a new voice.",
+        "scene": "Same Heather, actual mature identity and age, same deep-red stage wardrobe, red lipstick, vintage microphone, warm amber haze and circular bokeh as the locked woman-in-red music-video world. Keep her face large, sharp and frontal.",
+        "motion": "Joyful but restrained chorus singing to the supplied audio, precise small mouth shapes, relaxed eyes, subtle breathing and one controlled hand gesture. Gentle arc, no face drift, no expression exaggeration, no younger or slimmer face. End with lips together.",
+        "engine": "ltx",
+        "orientation": "landscape",
+        "source": "/media/phase1-heather-close-1280x704.png",
+        "source_scene_complete": true,
+        "audio_source": "/media/heather-chorus-40.0-47.5.wav",
+        "audio_scale": 1.0,
+        "seed": 240819362
+      }
+    },
+    {
+      "label": "heather-red-chorus-h3-r1",
+      "kind": "say",
+      "payload": {
+        "character_id": "1e9c9090d4a4",
+        "line": "The supplied chorus soundtrack drives the performance; do not synthesize or clone a new voice.",
+        "scene": "Same Heather, actual mature identity and age, same deep-red stage wardrobe, red lipstick, vintage microphone, warm amber haze and circular bokeh as the locked woman-in-red music-video world. Keep her face large, sharp and frontal.",
+        "motion": "Joyful but restrained chorus singing to the supplied audio, precise small mouth shapes, relaxed eyes, subtle breathing and one controlled hand gesture. Gentle arc, no face drift, no expression exaggeration, no younger or slimmer face. End with lips together.",
+        "engine": "h3",
+        "orientation": "landscape",
+        "source": "/media/phase1-heather-close-1280x704.png",
+        "source_scene_complete": true,
+        "audio_source": "/media/heather-chorus-40.0-47.5.wav",
+        "seed": 240819362
+      }
+    },
+    {
+      "label": "heather-red-drive-ltx-r1",
+      "kind": "generate",
+      "payload": {
+        "prompt": "One continuous woman-in-red music-video driving shot. Preserve Heather's exact actual mature identity, softly rounded face, blue eyes, long warm-blonde hair, crimson dress and red lipstick, and preserve the exact red convertible and coastal road in the source frame. She drives smoothly through blue hour; both hands stay natural on the wheel, hair moves gently, dashboard light travels across the interior. Stable passenger-side camera with visible background parallax. No singing, no abrupt head turn, no face drift, no younger or slimmer face, no extra people, no text, no religious imagery.",
+        "style": "none",
+        "model": "ltx25",
+        "duration": "8",
+        "orientation": "landscape",
+        "face_fix": false,
+        "cast": [],
+        "source": "/media/a52eebd56bc9.png",
+        "seed": 240819363
+      }
+    },
+    {
+      "label": "heather-red-drive-h3-r1",
+      "kind": "generate",
+      "payload": {
+        "prompt": "One continuous woman-in-red music-video driving shot. Preserve Heather's exact actual mature identity, softly rounded face, blue eyes, long warm-blonde hair, crimson dress and red lipstick, and preserve the exact red convertible and coastal road in the source frame. She drives smoothly through blue hour; both hands stay natural on the wheel, hair moves gently, dashboard light travels across the interior. Stable passenger-side camera with visible background parallax. No singing, no abrupt head turn, no face drift, no younger or slimmer face, no extra people, no text, no religious imagery.",
+        "style": "none",
+        "model": "h3",
+        "duration": "8",
+        "orientation": "landscape",
+        "face_fix": false,
+        "cast": [],
+        "source": "/media/a52eebd56bc9.png",
+        "seed": 240819363
+      }
+    },
+    {
+      "label": "heather-red-stage-ltx-r2",
+      "kind": "generate",
+      "payload": {
+        "prompt": "One continuous silent performance cutaway preserving Heather's exact actual mature identity and the supplied woman-in-red stage frame. Warm amber bokeh, vintage microphone, deep-red wardrobe, red lipstick, restrained almost-smile, subtle breathing and a very slow lateral drift with background parallax. No singing, no open-mouth exaggeration, no age drift, no face morph, no camera rush, no extra people, no text, no religious imagery.",
+        "style": "none",
+        "model": "ltx25",
+        "duration": "5",
+        "orientation": "landscape",
+        "face_fix": false,
+        "cast": [],
+        "source": "/media/phase1-heather-close-1280x704.png",
+        "seed": 240819364
+      }
+    },
+    {
+      "label": "heather-red-stage-h3-r2",
+      "kind": "generate",
+      "payload": {
+        "prompt": "One continuous silent performance cutaway preserving Heather's exact actual mature identity and the supplied woman-in-red stage frame. Warm amber bokeh, vintage microphone, deep-red wardrobe, red lipstick, restrained almost-smile, subtle breathing and a very slow lateral drift with background parallax. No singing, no open-mouth exaggeration, no age drift, no face morph, no camera rush, no extra people, no text, no religious imagery.",
+        "style": "none",
+        "model": "h3",
+        "duration": "5",
+        "orientation": "landscape",
+        "face_fix": false,
+        "cast": [],
+        "source": "/media/phase1-heather-close-1280x704.png",
+        "seed": 240819364
+      }
+    }
+  ]
+}

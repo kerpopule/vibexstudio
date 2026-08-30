@@ -1,0 +1,93 @@
+{
+  "schema_version": "media_lab.prompt_template.v1",
+  "template_id": "h3-alcatraz-stickman-doodle-history",
+  "name": "Alcatraz Stickman Doodle History",
+  "engine": "h3_t2v",
+  "status": "source_captured_candidate",
+  "scope": "private_internal",
+  "provenance": {
+    "source_prompt_url": "https://x.com/koldo2k/status/2092722673847574965?s=46",
+    "source_example_url": "https://x.com/koldo2k/status/2092722673847574965?s=46",
+    "source_author": "Koldo Huici (@koldo2k)",
+    "source_kind": "public MiniMax H3 prompt and generated example video",
+    "source_claimed_runtime": "MiniMax H3",
+    "captured_at_source_date": "2026-08-26",
+    "usage_note": "Retained in Steve Darlow’s private Media Lab as an attributed internal template; not cleared here for redistribution or publication."
+  },
+  "defaults": {
+    "aspect_ratio": "16:9",
+    "duration_seconds": 15,
+    "take_structure": "seven hard-cut whiteboard-history beats with a final freeze hold",
+    "visual_system": "pure-white background, single-weight black marker linework, no color fill",
+    "source_resolution": "1344x768",
+    "source_duration_seconds": 15.168,
+    "source_video_fps": 24,
+    "audio": "original unresolved tension cue with synchronized escape-action sound effects"
+  },
+  "core_mechanics": [
+    "Minimalist stickman whiteboard history with one consistent black-ink line weight across people, prison, tools, raft, water, fog, and typography.",
+    "Seven escalating action beats move from prison exterior through the vent, shaft, rooftop, drainpipe, shoreline, and unresolved raft escape.",
+    "Fast hard cuts, whip-pan snaps, zoom punches, marker-scribble wipes, and stamp cuts carry momentum without soft dissolves or morphs.",
+    "Only the exact tags “ALCATRAZ” and “JUNE 1962” may appear, each once, sharp and stable.",
+    "The final raft-in-fog frame freezes for 1.2–1.4 seconds while the music trails into an unresolved low tone."
+  ],
+  "timed_beats": [
+    {
+      "seconds": "0–2",
+      "action": "Prison-island establishing shot, sweeping guard beam, patrol figure, and fast “ALCATRAZ” stamp."
+    },
+    {
+      "seconds": "2–4",
+      "action": "Cell escapee claws at the vent with a sharpened spoon while dust flies and a dummy head remains in bed."
+    },
+    {
+      "seconds": "4–6",
+      "action": "Three figures strain one by one through the narrow vent into the utility shaft."
+    },
+    {
+      "seconds": "6–8",
+      "action": "Figures scramble rapidly up the cramped vertical shaft, bracing elbows and knees against the walls."
+    },
+    {
+      "seconds": "8–10",
+      "action": "Low rooftop sprint followed by a fast drainpipe slide."
+    },
+    {
+      "seconds": "10–12",
+      "action": "Makeshift raft is shoved into choppy water and boarded in one motion."
+    },
+    {
+      "seconds": "12–15",
+      "action": "Desperate paddling into fog, “JUNE 1962” stamp, then a 1.2–1.4 second unresolved freeze hold."
+    }
+  ],
+  "preview": {
+    "gif": "static/templates/h3-alcatraz-stickman-doodle-history.gif",
+    "full_quality_source": "prompt-templates/source-media/h3-alcatraz-stickman-doodle-history-source.mp4"
+  },
+  "source_prompt_language": "English",
+  "source_prompt_character_count": 4971,
+  "prompt": "Create a 15-second, 16:9 stickman doodle history piece on the June 1962 Alcatraz escape, maximum physical action and tension throughout, told as one continuous escalating escape sequence. Draw from pure white background, hand-drawn whiteboard explainer, single-weight black ink linework, minimalist stickman figures, uniform simplicity across figures, prison, tools, raft and text, no color fill anywhere, rough marker texture, no gradients, no shading, no 3D volume, no photorealism. Never differing line weights, never soft shadows, never painterly rendering, never gore or real injury, never a static or resting pose - every figure in every beat is mid-strain, mid-motion, fully committed to the escape. Aim for 75% relentless physical tension and 25% mounting dread as the sequence builds toward the open, unresolved ending - dynamic diagonal compositions, tight framing, never a flat centered shot. Build the sequence as a hand-drawn whiteboard explainer, drawn and animated with urgency: every element - figures, prison structure, tools, water and text - snaps into place in the same single black ink line weight, as if a hand is sketching frantically fast under pressure. TYPOGRAPHY & CREDITS: All on-screen text must remain perfectly sharp, stable and legible whenever it appears. Keep text minimal - only two moments of text in the whole video, so the action never pauses for exposition. Use only the exact text provided. No Chinese characters, no garbled, warped, stretched or misspelled text. Each line appears only once. Line 1 (early, quick tag): \"ALCATRAZ\" Line 2 (final tag): \"JUNE 1962\" Animation style: both tags stamp on fast and hard, single confident strokes, no slow build-up. Hold the final frame motionless for 1.2-1.4 seconds. Act structure (sync to beats): 0-2s: Establishing shot - a stark prison silhouette sits on a rocky island in a dark bay, a guard tower beam sweeping the water; a stickman guard walks patrol below with a flashlight; tag \"ALCATRAZ\" stamps on quick. 2-4s: Cut to a cramped cell - a stickman figure claws frantically at a vent grate with a sharpened spoon-tool, concrete-dust and chips flying, sweat-drop doodles flicking off; a dummy head with painted-on hair sits still in the bed behind him. 4-6s: Cut - three stickman figures squeeze one by one through the narrow vent opening into a dark utility shaft, bodies contorting hard to fit, strain-lines radiating off them. 6-8s: Cut - the figures scramble frantically up a cramped vertical shaft, hand over hand, elbows and knees braced against the walls, fast climbing motion-lines trailing behind. 8-10s: Cut - bursting out onto the open rooftop under moonlight, sprinting low and fast across it, then swiftly sliding down a drainpipe to the ground far below. 10-12s: Cut - frantically shoving a makeshift raft doodle into the choppy water at the shoreline, scrambling aboard in one fast motion. 12-15s (freeze-hold anchor, unresolved ending): The figures paddle with desperate, blurred-motion arm strokes out into the dark bay, the prison silhouette shrinking behind them, thick fog rolling in around the raft; tag \"JUNE 1962\" stamps on; hold everything motionless mid-stroke, swallowed by fog and dark water - deliberately open, no resolution, no rescue, no capture. Vary the transitions and mix freely from this palette, favoring only the fastest and most tense options: whip-pan snaps, hard cuts on the beat, quick zoom punches, freeze-frame stamp cuts, marker-scribble wipes, impact-shake cuts. Keep every transition instant, rhythmic, tense and strictly hand-drawn - never soft dissolves, fluid morphs, gentle fades or organic morphing. BGM: an original 15-second cue, 75% relentless driving tension and 25% mounting dread, deliberately trailing off unresolved at the very end rather than resolving. Instrumentation: low pulsing strings, tight suspenseful percussion, a single sharp string hit reserved for the vent-breakthrough. Timeline: 0-2s: a low, quiet suspenseful pulse under the establishing shot. 2-4s: percussion tightens, quick scraping string hits under the digging. 4-6s: a sharp string stab synced to the squeeze through the vent. 6-8s: rapid, driving percussion under the shaft climb. 8-10s: tempo peaks, urgent strings under the rooftop sprint and drainpipe slide. 10-12s: a final surge of percussion under the raft launch. 12-15s: the pulse thins out and fades into the fog, ending on a sustained, unresolved low tone rather than a final chord - trailing into near-silence under the freeze-hold. Keep it tense, physical and driving throughout, never triumphant, never fully resolving. Do not imitate any existing melody. Add precise, short sounds synchronized to the key beats - scraping-metal on the vent digging, a soft body-squeeze grunt on the shaft entry, quick scrabbling hand-holds on the climb, a sharp slide-friction sound on the drainpipe, and a rhythmic paddle-splash fading into fog and silence at la niebla y el silencio at the very end.",
+  "render_contract": {
+    "text_to_video_only": true,
+    "stickman_whiteboard_style": true,
+    "single_weight_black_linework": true,
+    "exact_text_only": [
+      "ALCATRAZ",
+      "JUNE 1962"
+    ],
+    "final_freeze_hold_seconds": "1.2–1.4",
+    "unresolved_ending": true,
+    "do_not_call_final_before_steve_approval": true,
+    "local_inference_only": true,
+    "no_silent_engine_fallback": true
+  },
+  "qa_gates": [
+    "Confirm all seven chronological beats are present and action escalates continuously rather than settling into static exposition.",
+    "Confirm one uniform black marker weight, pure-white background, no color fill, no gradients, no shading, no 3D volume, and no photorealism.",
+    "Confirm “ALCATRAZ” and “JUNE 1962” are the only on-screen text, each appears once, and both remain sharp, stable, and correctly spelled.",
+    "Confirm no gore, realistic injury, Chinese characters, extra labels, garbled text, soft dissolves, gentle fades, or organic morphs appear.",
+    "Confirm the final raft action freezes for 1.2–1.4 seconds and the score ends unresolved near silence rather than triumphantly resolving.",
+    "Treat the public source result as reference evidence, not as proof that the local H3 runtime reproduces it without a pinned-seed canary."
+  ]
+}

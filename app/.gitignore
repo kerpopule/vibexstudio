@@ -1,0 +1,53 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+.eas-local/
+
+# typescript
+*.tsbuildinfo
+
+example
+
+# generated native folders
+/ios
+/android
+
+# Generated Android placeholder icons (see scripts/generate-assets.js).
+# The iOS icon/splash/favicon are real artwork (the neon VibeX sign) and ARE
+# committed — keep the negations below.
+assets/images/*
+!assets/images/icon.png
+!assets/images/splash-icon.png
+!assets/images/favicon.png
+.flowdeck/

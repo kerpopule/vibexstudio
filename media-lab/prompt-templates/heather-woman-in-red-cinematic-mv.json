@@ -1,0 +1,128 @@
+{
+  "schema_version": "media_lab.prompt_template.v1",
+  "template_id": "heather-woman-in-red-cinematic-mv",
+  "name": "Heather — Woman in Red Cinematic Narrative MV",
+  "engine": "h3_ref2va_or_ltx25",
+  "status": "promoted_creative_direction",
+  "scope": "private_internal",
+  "provenance": {
+    "recovered_from": "/Users/vibex/Projects/hermes-team/reports/maestro-media-lab-2026-08-14/phase3-music-video/production/STORYBOARD.json",
+    "recovered_storyboard_date": "2026-08-14",
+    "source_creator": "Dead Sun (@deadsun_0)",
+    "source_caption_url": "https://x.com/deadsun_0/status/2088358220721205700",
+    "source_video_url": "https://x.com/deadsun_0/status/2088358218862899247",
+    "source_verified_at": "2026-08-26",
+    "source_observed_workflow": "MiniMax Music 3 plus LTX 2.5, generated locally",
+    "source_reference_duration_seconds": 24.311293,
+    "source_credit_status": "Verified directly from Steve's authenticated X Bookmarks page and the source conversation. Credit and link when referencing the inspiration; do not bundle or redistribute the third-party clip.",
+    "adaptation": "Media Lab-owned Heather identity, continuity, shot-balance, engine, audio, and QA contract built from the exact prior production storyboard and Steve's current creative direction."
+  },
+  "creative_contract": {
+    "world": "A dark, smoky, late-night woman-in-red music-video world: intimate nightclub stage, vintage microphone, deep-red wardrobe and lipstick, warm yellow and soft-white light with amber bokeh, haze, rain-softened city light, wet roads, reflective glass, loneliness and restrained emotion. The warm yellow/soft-white lighting language is continuous across every scene.",
+    "not_a_talking_head_video": true,
+    "performance_shot_max_fraction": 0.4,
+    "narrative_environment_min_fraction": 0.6,
+    "camera_language": [
+      "wide establishing frames",
+      "slow push-ins reserved for emotional peaks",
+      "passenger-side moving-car profile with real background parallax",
+      "aerial view of a small lone car on a broad wet highway",
+      "slow orbital chorus shot",
+      "backlit dancing silhouette through spotlight smoke",
+      "mirror and dark-window reflections",
+      "rain-streaked glass foreground",
+      "close detail inserts and clean cinematic cuts"
+    ],
+    "forbidden_default": "Do not reduce the music video to Heather's face speaking or singing straight into the camera. A frontal close-up is allowed only as one short, audio-synchronized performance beat within the larger narrative sequence."
+  },
+  "identity_lock": "Use Heather's QA-approved separate Ref2VA face references. Preserve her exact actual mature identity and age, softly rounded cheeks and jaw, blue eyes, long warm-blonde hair with darker roots, natural skin texture and smile lines. No younger, slimmer, beauty-smoothed or generic replacement face.",
+  "look": "Photoreal cinematic music video, shallow depth of field, subtle 35mm film grain, deep blacks, warm yellow and soft-white practical lighting with amber stage bokeh, crimson accents, gently rain-softened night exteriors, realistic skin and fabric, nostalgic bittersweet atmosphere. Preserve this warm lighting language in every scene. No text, no logos, no watermark, no religious imagery.",
+  "shot_sequence": [
+    {
+      "beat": "intro",
+      "sync": false,
+      "prompt": "Inside-car viewpoint looking forward through the front windshield at night. No person is visible. An empty dark road recedes ahead as warm yellow and soft-white city lights melt into bokeh. Raindrops strike and bead on the windshield while the wipers sweep slowly. The road and lights remain slightly unfocused through the wet glass, quiet, lonely, melancholic and dreamy."
+    },
+    {
+      "beat": "verse performance",
+      "sync": true,
+      "prompt": "Half-side-view medium close-up of Heather singing into a vintage stage microphone on a dim smoky nightclub stage. The camera sees her mature profile and enough of both eyes for likeness QA. Intimate restrained emotion, precise small mouth shapes following the approved vocal, gentle head sway, relaxed eyes closing and opening."
+    },
+    {
+      "beat": "car reflection",
+      "sync": false,
+      "prompt": "Heather in a moving car at night, passenger-side profile as she gazes through the rain-streaked side window, her reflection ghosted in the glass, passing streetlights washing soft warm waves across her mature face, reflective and wistful, real exterior parallax."
+    },
+    {
+      "beat": "chorus performance",
+      "sync": true,
+      "prompt": "Wide shot slowly pushing toward Heather singing into the vintage microphone, one restrained hand rise, stage haze glowing behind her, strong backlit rim light and emotional peak, accurate lip timing without exaggerated expression."
+    },
+    {
+      "beat": "silhouette dance",
+      "sync": false,
+      "prompt": "Heather and one man dance together in an otherwise empty smoky dark ballroom or nightclub; there is nobody else in the room. A single warm spotlight cuts through the haze, her deep-red wardrobe visible at the lit edges. Heather continues singing naturally while dancing, with restrained synchronized mouth movement. Dust drifts through the beam; romantic, lonely and faded."
+    },
+    {
+      "beat": "mirror and window",
+      "sync": true,
+      "prompt": "Heather stands directly in front of a mirror positioned beside and in front of a rain-darkened window, framed by faded-gold velvet curtains. She sings softly while her true reflection appears in the mirror and a faint secondary reflection ghosts across the window glass. Quiet and intimate, with small believable synchronized mouth and eye motion."
+    },
+    {
+      "beat": "empty road",
+      "sync": false,
+      "prompt": "Very wide aerial night shot of one small car driving alone on a broad rain-slick empty highway, red taillights tracing a gentle curve through darkness, sparse city glow far on the horizon, wet rather than violently stormy, cinematic drone movement expressing loneliness."
+    },
+    {
+      "beat": "inside the car",
+      "sync": false,
+      "prompt": "Interior passenger-side shot of Heather driving smoothly at night, both hands natural on the wheel, looking briefly through the side window while keeping safe attention on the road, dashboard light and passing streetlights moving across her face, rain beads on the glass, believable background parallax."
+    },
+    {
+      "beat": "final chorus orbit",
+      "sync": true,
+      "prompt": "Slow controlled orbital shot around Heather singing into the vintage microphone, warm hair light, smoky stage haze and amber bokeh rotating behind her, restrained full emotional delivery, precise lip timing and identity held through the move."
+    },
+    {
+      "beat": "outro",
+      "sync": false,
+      "prompt": "Heather finishes the final soft note with a bittersweet almost-smile and steps back into the darkness; cut to the lone car receding down the wet road, taillights shrinking to two red points beneath one last amber streetlight, gentle rain, fade toward black."
+    }
+  ],
+  "render_contract": {
+    "separate_identity_references": true,
+    "build_each_scene_as_an_identity_locked_still_before_animation": true,
+    "preserve_approved_audio_master": true,
+    "pin_seed_within_each_ab_pair": true,
+    "one_variable_per_test": true,
+    "expression_restraint": true,
+    "h3_face_large_on_sync_beats": true,
+    "audio_scale_ltx_only": true,
+    "existing_or_running_jobs_unchanged": true,
+    "never_final_without_steve_approval": true
+  },
+  "forbidden": [
+    "whole-video talking head",
+    "static straight-to-camera framing as the default",
+    "plastic or beauty-smoothed skin",
+    "exaggerated singing mouth",
+    "identity or age drift",
+    "camera rushes or physically impossible moves",
+    "fake car motion without background parallax",
+    "violent storm spectacle that overwhelms the loneliness",
+    "extra people unless a beat explicitly requests them",
+    "contact sheets as video frames",
+    "grey-canvas completion",
+    "silent engine fallback",
+    "religious imagery"
+  ],
+  "qa": [
+    "Confirm at least 60 percent of the cut is narrative, environmental or reflective imagery rather than frontal performance.",
+    "Compare Heather's face with the real source portrait and approved close crops.",
+    "Check every synchronized beat for restrained mouth shapes, natural blinks and audio timing.",
+    "Check window and mirror reflections for duplicate or malformed faces.",
+    "Check car shots for natural hands, safe gaze, wheel contact and exterior parallax.",
+    "Decode the full-quality source, inspect audio, and make a verified Telegram derivative under 10 MB before delivery.",
+    "Retain all A/B evidence and do not mark final before Steve approves."
+  ]
+}

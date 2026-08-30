@@ -1,0 +1,208 @@
+{
+  "schema_version": "media_lab.prompt_template.v1",
+  "template_id": "character-reveal-kinetic-typography",
+  "name": "Character Reveal / Kinetic Typography",
+  "engine": "h3",
+  "status": "candidate",
+  "scope": "private_internal",
+  "provenance": {
+    "source_url": "https://x.com/shamsamin56/status/2089699235017199807?s=46",
+    "source_kind": "prompt-structure inspiration",
+    "adaptation": "Media Lab-owned variable schema and original ten-cut wording; no attached source media copied"
+  },
+  "defaults": {
+    "aspect_ratio": "16:9",
+    "duration_seconds": 15,
+    "cut_count": 10,
+    "visual_quality": "premium AAA game cinematic with high-end editorial campaign polish",
+    "typography_style": "oversized condensed monochrome display type",
+    "graphics_style": "minimal thin lines, grids, brackets, circles, and registration marks",
+    "motion_style": "controlled, deliberate, weighty motion; no frantic movement",
+    "palette": "deep black, warm off-white, restrained steel gray",
+    "seed": 41720318
+  },
+  "editable_variables": {
+    "character_name": {
+      "type": "string",
+      "default": "THE CHARACTER"
+    },
+    "character_reference": {
+      "type": "media_reference",
+      "required": true,
+      "description": "Uploaded single-character reference; absolute visual source of truth"
+    },
+    "character_lock": {
+      "type": "string",
+      "default": "Preserve the exact face, age, hairstyle, facial markings, anatomy, body proportions, wardrobe, materials, accessories, jewelry, carried objects, and silhouette from the uploaded reference."
+    },
+    "world_style": {
+      "type": "string",
+      "default": "dark premium historical-fantasy campaign"
+    },
+    "cinematography": {
+      "type": "string",
+      "default": "photoreal AAA cinematic, physically based materials, dramatic editorial lighting, shallow depth of field"
+    },
+    "typography_style": {
+      "type": "string",
+      "default": "oversized condensed monochrome display type"
+    },
+    "graphics_style": {
+      "type": "string",
+      "default": "minimal lines, grids, brackets, circles, and registration marks"
+    },
+    "motion_style": {
+      "type": "string",
+      "default": "controlled, deliberate, weighty motion"
+    },
+    "palette": {
+      "type": "string",
+      "default": "deep black, warm off-white, restrained steel gray"
+    },
+    "aspect_ratio": {
+      "type": "enum",
+      "values": ["16:9", "9:16", "1:1"],
+      "default": "16:9"
+    },
+    "duration_seconds": {
+      "type": "number",
+      "minimum": 10,
+      "maximum": 30,
+      "default": 15,
+      "description": "Cut times scale proportionally from the 15-second baseline"
+    },
+    "seed": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 999999999,
+      "default": 41720318
+    },
+    "text_01": {"type": "string", "default": "A LEGEND"},
+    "text_02": {"type": "string", "default": "FORGED"},
+    "text_03": {"type": "string", "default": "IN SILENCE"},
+    "text_04": {"type": "string", "default": "DISCIPLINE"},
+    "text_05": {"type": "string", "default": "LEAVES A MARK"},
+    "text_06": {"type": "string", "default": "UNBROKEN"},
+    "text_07": {"type": "string", "default": "UNMOVED"},
+    "text_08": {"type": "string", "default": "UNFORGOTTEN"},
+    "text_09": {"type": "string", "default": "THE NAME"},
+    "text_10": {"type": "string", "default": "{{character_name}}"}
+  },
+  "render_contract": {
+    "uploaded_reference_is_absolute_truth": true,
+    "exactly_ten_cuts": true,
+    "text_source": "Only render the ten supplied text variables; do not invent lettering",
+    "character_count": 1,
+    "camera_language": "Each cut has one explicit camera move and one restrained character action",
+    "forbidden": [
+      "character redesign",
+      "extra characters",
+      "duplicate character",
+      "face or age drift",
+      "anatomy changes",
+      "body-proportion changes",
+      "costume changes",
+      "weapon or carried-object changes",
+      "accessory changes",
+      "unrequested color",
+      "busy decoration",
+      "illegible or invented text",
+      "logos",
+      "watermarks",
+      "religious imagery"
+    ]
+  },
+  "cuts": [
+    {
+      "cut": 1,
+      "start_seconds": 0.0,
+      "end_seconds": 1.2,
+      "camera": "Extreme macro glide across one reference-accurate material detail, then a precise rack focus toward the character silhouette.",
+      "action": "The character remains almost still; only fabric, hair, or a hanging accessory settles naturally.",
+      "text_variable": "text_01",
+      "graphics": "One thin bracket and a short horizontal rule lock to the frame edge."
+    },
+    {
+      "cut": 2,
+      "start_seconds": 1.2,
+      "end_seconds": 2.5,
+      "camera": "Low-angle lateral track revealing the exact boots, stance, and lower-costume construction from the reference.",
+      "action": "One controlled weight shift; no stride and no costume deformation.",
+      "text_variable": "text_02",
+      "graphics": "A sparse baseline grid appears behind the subject and stops before touching the body."
+    },
+    {
+      "cut": 3,
+      "start_seconds": 2.5,
+      "end_seconds": 4.0,
+      "camera": "Medium rear three-quarter arc that preserves the exact silhouette and carried objects.",
+      "action": "A restrained shoulder turn begins; all accessories and weapons remain unchanged.",
+      "text_variable": "text_03",
+      "graphics": "Two registration circles expand once and hold."
+    },
+    {
+      "cut": 4,
+      "start_seconds": 4.0,
+      "end_seconds": 5.6,
+      "camera": "Locked symmetrical medium shot with a slow, nearly imperceptible push toward the torso.",
+      "action": "The character settles into the canonical stance; calm breathing only.",
+      "text_variable": "text_04",
+      "graphics": "A single vertical rule divides negative space without crossing the character."
+    },
+    {
+      "cut": 5,
+      "start_seconds": 5.6,
+      "end_seconds": 7.0,
+      "camera": "Tight profile reveal, lens sliding from foreground obstruction to the exact face and facial markings.",
+      "action": "One natural blink; expression stays restrained and reference-accurate.",
+      "text_variable": "text_05",
+      "graphics": "Corner brackets frame negative space beside the face, never the face itself."
+    },
+    {
+      "cut": 6,
+      "start_seconds": 7.0,
+      "end_seconds": 8.5,
+      "camera": "Top-lit frontal close-up with a short controlled dolly-in and no lens distortion.",
+      "action": "The gaze lifts to camera while the mouth remains relaxed and closed.",
+      "text_variable": "text_06",
+      "graphics": "A thin circular reticle resolves behind the head and remains visually separate from it."
+    },
+    {
+      "cut": 7,
+      "start_seconds": 8.5,
+      "end_seconds": 10.2,
+      "camera": "Wide hero frame with a slow clockwise orbit of less than fifteen degrees.",
+      "action": "One precise hand adjustment on an existing garment, accessory, or carried object; nothing is added.",
+      "text_variable": "text_07",
+      "graphics": "Two short rules slide into alignment with the horizon and stop."
+    },
+    {
+      "cut": 8,
+      "start_seconds": 10.2,
+      "end_seconds": 11.6,
+      "camera": "Compressed telephoto detail of hands and one canonical prop or weapon, keeping anatomy exact.",
+      "action": "Fingers tighten once and release to a natural resting pose.",
+      "text_variable": "text_08",
+      "graphics": "A minimal measurement grid marks empty space only."
+    },
+    {
+      "cut": 9,
+      "start_seconds": 11.6,
+      "end_seconds": 13.0,
+      "camera": "Fast but clean editorial cut to a centered full-body hero composition; camera then locks.",
+      "action": "The character completes the turn and holds the definitive reference silhouette.",
+      "text_variable": "text_09",
+      "graphics": "Large condensed type enters behind the character, fully legible and never covering the face."
+    },
+    {
+      "cut": 10,
+      "start_seconds": 13.0,
+      "end_seconds": 15.0,
+      "camera": "Final slow push from full-body hero frame to a strong three-quarter portrait, ending on a stable composition.",
+      "action": "The character holds a calm final pose with subtle breathing and a natural blink; no flourish.",
+      "text_variable": "text_10",
+      "graphics": "The character name resolves in oversized condensed monochrome type with one bracket and one rule, then holds cleanly."
+    }
+  ],
+  "prompt_template": "Use {{character_reference}} as the absolute visual source of truth. {{character_lock}} Create a {{duration_seconds}}-second {{aspect_ratio}} premium character reveal with exactly 10 timed cuts. Visual language: {{cinematography}}; world: {{world_style}}; typography: {{typography_style}}; graphics: {{graphics_style}}; motion: {{motion_style}}; palette: {{palette}}. Execute every cut exactly as specified in cuts[1..10], including its camera, restrained action, text variable, and minimal graphic treatment. Maintain strict identity and design continuity in every frame. Render only the supplied text variables. No redesign, extra characters, duplicate subject, anatomy or body-proportion changes, face or age drift, costume, accessory, jewelry, weapon or carried-object changes, logos, watermarks, or religious imagery. Seed {{seed}}."
+}

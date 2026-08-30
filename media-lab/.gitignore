@@ -1,0 +1,12 @@
+# Local credentials and generated private material
+.env
+.env.*
+!.env.example
+providers.json
+vapid_private.pem
+
+# Python caches
+__pycache__/
+*.py[cod]
+__pycache__/
+*.pyc

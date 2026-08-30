@@ -1,0 +1,126 @@
+{
+  "schema_version": "media_lab.prompt_template.v1",
+  "template_id": "h3-storyboard-sequential-beats",
+  "name": "H3 Storyboard → Sequential Beats",
+  "engine": "h3_ref2va",
+  "status": "candidate",
+  "scope": "private_internal",
+  "provenance": {
+    "source_url": "https://x.com/aimikoda/status/2090556776156742071?s=46",
+    "source_author": "Kōda (@aimikoda)",
+    "source_kind": "public workflow and prompt-structure evidence",
+    "adaptation": "Media Lab-owned normalized template, safety gates, variables, and QA contract; no source media, character artwork, dialogue, or attached prompts copied"
+  },
+  "evidence_summary": "A storyboard reference can give MiniMax H3 sequential shot guidance without repeating every scene description in the text prompt, provided the prompt explicitly says each panel is a separate beat and the storyboard is not one static image.",
+  "defaults": {
+    "aspect_ratio": "16:9",
+    "duration_seconds": 12,
+    "panel_order": "left-to-right, then top-to-bottom unless panels are numbered",
+    "reference_detail": "max",
+    "seed": 209055677
+  },
+  "editable_variables": {
+    "storyboard_reference": {
+      "type": "media_reference",
+      "required": true,
+      "description": "One storyboard/contact-sheet image carried as an H3 Ref2VA reference—not image_start and not a first frame"
+    },
+    "character_reference": {
+      "type": "media_reference",
+      "required": true,
+      "description": "A separate QA-passed single-subject character image; never concatenate it into the storyboard"
+    },
+    "panel_order": {
+      "type": "string",
+      "default": "Follow numbered panels; if unnumbered, read left-to-right and then top-to-bottom."
+    },
+    "performance_or_dialogue": {
+      "type": "string",
+      "default": "Natural restrained performance across the depicted actions; no exaggerated expression or movement."
+    },
+    "continuity_lock": {
+      "type": "string",
+      "default": "Preserve the exact character identity, age, face, hair, body proportions, wardrobe, recurring objects, set geography, lighting direction and color palette across every beat."
+    },
+    "camera_rule": {
+      "type": "string",
+      "default": "Use each panel's framing and camera intent; transitions are clean cuts or physically plausible short moves, never a morph between panel layouts."
+    },
+    "audio_rule": {
+      "type": "string",
+      "default": "When supplied, preserve the exact approved audio timing and synchronize visible speech/action without rewriting dialogue."
+    },
+    "aspect_ratio": {
+      "type": "enum",
+      "values": ["16:9", "9:16", "1:1"],
+      "default": "16:9"
+    },
+    "duration_seconds": {
+      "type": "number",
+      "minimum": 5,
+      "maximum": 15,
+      "default": 12
+    },
+    "seed": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 999999999,
+      "default": 209055677
+    }
+  },
+  "reference_transport": {
+    "required_variant": "minimax_h3_ref2va",
+    "storyboard": {
+      "mode": "reference",
+      "role": "Storyboard: sequential shot guidance only",
+      "image_intent": "composition",
+      "forbidden_modes": ["image_start", "first_frame", "image_end", "static_scene"]
+    },
+    "character": {
+      "mode": "reference",
+      "role": "Character: exact identity, age and continuity",
+      "image_intent": "identity"
+    },
+    "fail_closed": "If H3 Ref2VA is not resident, or either required reference is absent or undecodable, do not fall back to FL2VA, LTX, text-only, or a grey canvas."
+  },
+  "prompt_template": "Use {{storyboard_reference}} as sequential shot guidance, not as a static image. Do not treat the storyboard as one image and do not reproduce panel borders, gutters, labels, or the complete board in any frame. {{panel_order}} Follow each panel as a separate chronological beat. Use {{character_reference}} only as the exact character identity reference. {{continuity_lock}} {{camera_rule}} {{performance_or_dialogue}} {{audio_rule}} The storyboard already defines the scene content, framing and action, so do not invent additional scenes or redundantly reinterpret every panel. End on the final storyboard beat as a clean stable shot.",
+  "render_contract": {
+    "storyboard_is_reference_not_frame": true,
+    "separate_storyboard_and_identity_references": true,
+    "scene_descriptions_optional": true,
+    "panel_order_explicit": true,
+    "seed_required": true,
+    "single_variable_comparisons": true,
+    "forbidden": [
+      "animating the complete storyboard sheet as one frame",
+      "visible storyboard borders or gutters",
+      "split-screen output unless a panel explicitly requests it",
+      "panel-to-panel morphing",
+      "panel reordering",
+      "invented scenes",
+      "identity or age drift",
+      "wardrobe drift",
+      "recurring-object redesign",
+      "unapproved dialogue changes",
+      "silent engine fallback",
+      "grey canvas completion",
+      "religious imagery"
+    ]
+  },
+  "qa": {
+    "before_render": [
+      "Verify storyboard and character are two separate references.",
+      "Verify storyboard is not assigned to image_start/image_end.",
+      "Verify H3 Ref2VA is resident and the canonical GPU lock is held.",
+      "Pin the seed and preserve the full-resolution storyboard source."
+    ],
+    "after_render": [
+      "Decode the full clip.",
+      "Compare each chronological beat with the corresponding storyboard panel.",
+      "Check identity, age, wardrobe, recurring objects, camera and set continuity.",
+      "Reject any frame showing the board, panel gutters, duplicates or grey canvas.",
+      "For dialogue, inspect lip timing and preserve the approved audio master.",
+      "Retain A/B evidence and never mark final before Steve approves."
+    ]
+  }
+}

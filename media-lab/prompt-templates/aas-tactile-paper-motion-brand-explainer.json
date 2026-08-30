@@ -1,0 +1,478 @@
+{
+  "schema_version": "media_lab.prompt_template.v1",
+  "template_id": "aas-tactile-paper-motion-brand-explainer",
+  "name": "Tactile Paper-Motion Brand Explainer — 32-Beat System",
+  "engine": "ltx_h3_hybrid_storyboard",
+  "status": "proven_internal_candidate",
+  "scope": "private_internal",
+  "provenance": {
+    "source_kind": "Media Lab-owned production template derived from the Automated AI Solutions 112-second paper-motion explainer",
+    "source_project": "productions/aas-motion-explainer-2026-08-27/v2",
+    "source_storyboard": "productions/aas-motion-explainer-2026-08-27/v2/storyboard-media-lab-full-32.json",
+    "source_master": "prompt-templates/source-media/aas-tactile-paper-motion-brand-explainer-source.mp4",
+    "adaptation_note": "Generalizes the proven 32-beat company, four-offer, ecosystem, leadership, and closing structure into editable brand slots while retaining the validated tactile motion, pacing, deterministic-text, assembly, and QA contracts.",
+    "usage_note": "Private/internal template. The example master remains a review candidate until Steve approves it; template registration does not convert it into an approved final or public asset."
+  },
+  "defaults": {
+    "aspect_ratio": "16:9",
+    "target_duration_seconds": 112,
+    "beat_count": 32,
+    "beat_duration_range_seconds": "3.2–3.8",
+    "fps": 24,
+    "primary_engine": "ltx",
+    "premium_engine": "h3",
+    "audio": "continuous narration and score assembled in post, with shot-specific tactile Foley",
+    "visual_system": "layered tactile paper collage with deterministic printed text and physically plausible stop-motion object movement"
+  },
+  "editable_variables": {
+    "brand_name": {
+      "type": "string",
+      "default": "YOUR BRAND"
+    },
+    "brand_promise": {
+      "type": "string",
+      "default": "A clear promise stated in one sentence"
+    },
+    "offer_a": {
+      "type": "string",
+      "default": "OFFER A"
+    },
+    "offer_b": {
+      "type": "string",
+      "default": "OFFER B"
+    },
+    "offer_c": {
+      "type": "string",
+      "default": "OFFER C"
+    },
+    "offer_d": {
+      "type": "string",
+      "default": "OFFER D"
+    },
+    "leader_1": {
+      "type": "string",
+      "default": "LEADER 1"
+    },
+    "leader_2": {
+      "type": "string",
+      "default": "LEADER 2"
+    },
+    "leader_3": {
+      "type": "string",
+      "default": "LEADER 3"
+    },
+    "leader_4": {
+      "type": "string",
+      "default": "LEADER 4"
+    },
+    "closing_line": {
+      "type": "string",
+      "default": "YOUR CLOSING PROMISE"
+    },
+    "palette": {
+      "type": "string",
+      "default": "warm parchment, torn black cardstock, monochrome photography, restrained teal and copper accents"
+    },
+    "narration_script": {
+      "type": "long_text",
+      "required": true,
+      "description": "A time-coded narration script spanning all 32 beats."
+    },
+    "score_or_music": {
+      "type": "media_reference",
+      "required": false,
+      "description": "Optional continuous score or supplied song used during deterministic assembly."
+    }
+  },
+  "engine_routing": {
+    "ltx_default": "Use LTX for the full first pass, object-led paper movement, wide and medium shots, and rapid same-seed iteration.",
+    "h3_upgrade": "Use H3 only for selected hero, identity-critical, or difficult high-detail beats that fail the LTX quality gate.",
+    "deterministic_post": "Use deterministic compositing for exact text, captions, logos, narration, score, Foley, transitions, and the full 112-second assembly.",
+    "single_flight_gpu": true,
+    "same_seed_ab_required_before_swap": true,
+    "no_silent_engine_fallback": true
+  },
+  "storyboard_blueprint": [
+    {
+      "beat": 1,
+      "id": "S01",
+      "chapter_slot": "company",
+      "duration_seconds": 3.2,
+      "title": "Brand title reveal",
+      "purpose": "Reveal {{brand_name}} as deterministic printed artwork.",
+      "camera_default": "locked overhead wide",
+      "motion_reference": "A black torn-paper strip rips open across parchment and reveals the company title lockup.",
+      "foley_reference": "one dry paper tear, cardstock scrape, quiet room tone"
+    },
+    {
+      "beat": 2,
+      "id": "S02",
+      "chapter_slot": "company",
+      "duration_seconds": 3.3,
+      "title": "Leadership introduction",
+      "purpose": "Introduce up to four {{leaders}} with equal visual treatment.",
+      "camera_default": "locked frontal medium",
+      "motion_reference": "Four equally monochrome portrait clippings land one by one at four different depths.",
+      "foley_reference": "four distinct soft paper slaps, pin clicks"
+    },
+    {
+      "beat": 3,
+      "id": "S03",
+      "chapter_slot": "company",
+      "duration_seconds": 3.7,
+      "title": "Operating roles",
+      "purpose": "Pair the leaders with teaching, operations, building, and education role objects.",
+      "camera_default": "short lateral move right-to-left",
+      "motion_reference": "A teaching note, operations ledger, technical diagram, and classroom card slide beside the four leaders.",
+      "foley_reference": "card slides, pencil ticks, one binder clip click"
+    },
+    {
+      "beat": 4,
+      "id": "S04",
+      "chapter_slot": "company",
+      "duration_seconds": 3.8,
+      "title": "Brand-to-offer transition",
+      "purpose": "Transform the company seal into the first offer or capability symbol.",
+      "camera_default": "locked macro",
+      "motion_reference": "A circular company seal turns a quarter rotation and its copper center becomes the Source4AI local-AI sphere.",
+      "foley_reference": "paper wheel rub, low felt thump"
+    },
+    {
+      "beat": 5,
+      "id": "S05",
+      "chapter_slot": "source4ai",
+      "duration_seconds": 3.4,
+      "title": "Offer A setup",
+      "purpose": "Unfold the {{offer_a}} workflow and its central promise.",
+      "camera_default": "locked wide",
+      "motion_reference": "The blank workflow card unfolds; stitched threads pull toward the glowing local-AI sphere.",
+      "foley_reference": "cardstock hinge creak, paper fiber rasp, thread skitter"
+    },
+    {
+      "beat": 6,
+      "id": "S06",
+      "chapter_slot": "source4ai",
+      "duration_seconds": 3.4,
+      "title": "Offer A mechanism",
+      "purpose": "Show how {{offer_a}} moves from input through local or private execution to human review.",
+      "camera_default": "macro slider left-to-right",
+      "motion_reference": "A graphite path travels from a paper server to a laptop and stops at a human checkpoint token.",
+      "foley_reference": "pencil trace, tiny relay ticks, cloth drag"
+    },
+    {
+      "beat": 7,
+      "id": "S07",
+      "chapter_slot": "source4ai",
+      "duration_seconds": 3.5,
+      "title": "Offer A trust proof",
+      "purpose": "Show the approval, safety, or accountability checkpoint.",
+      "camera_default": "locked close-up",
+      "motion_reference": "An approval card slides into frame and a wax-paper seal presses once, then settles.",
+      "foley_reference": "card slide, single felt-and-paper stamp thump"
+    },
+    {
+      "beat": 8,
+      "id": "S08",
+      "chapter_slot": "source4ai",
+      "duration_seconds": 3.7,
+      "title": "Offer A range",
+      "purpose": "Show local, hybrid, and cloud options without breaking the supervised workflow.",
+      "camera_default": "small physical crane upward",
+      "motion_reference": "Layered local, hybrid, and cloud paper zones separate while one supervised thread remains continuous.",
+      "foley_reference": "vellum lift, thread tension, soft wooden table creak"
+    },
+    {
+      "beat": 9,
+      "id": "S09",
+      "chapter_slot": "autoedu",
+      "duration_seconds": 3.2,
+      "title": "Offer B entry",
+      "purpose": "Open the {{offer_b}} chapter with a distinctive ticket, card, or physical token.",
+      "camera_default": "locked angled medium",
+      "motion_reference": "A teal meetup ticket flips open into the first learning card.",
+      "foley_reference": "ticket flick, card hinge, pencil dot"
+    },
+    {
+      "beat": 10,
+      "id": "S10",
+      "chapter_slot": "autoedu",
+      "duration_seconds": 3.4,
+      "title": "Offer B practice",
+      "purpose": "Show practical workshop, notebook, or hands-on learning objects.",
+      "camera_default": "brief lateral move right-to-left",
+      "motion_reference": "Workshop cards, a notebook, and a tiny agent token move into a practical table layout.",
+      "foley_reference": "index cards sliding, notebook page turn, token tap"
+    },
+    {
+      "beat": 11,
+      "id": "S11",
+      "chapter_slot": "autoedu",
+      "duration_seconds": 3.6,
+      "title": "Offer B progression",
+      "purpose": "Expand one useful outcome into a coordinated multi-part system.",
+      "camera_default": "locked overhead close-up",
+      "motion_reference": "One useful-agent card opens into four coordinated cards connected by stitched teal thread.",
+      "foley_reference": "four paper folds, thread pulls, soft pin clicks"
+    },
+    {
+      "beat": 12,
+      "id": "S12",
+      "chapter_slot": "autoedu",
+      "duration_seconds": 3.8,
+      "title": "Offer B completion",
+      "purpose": "Complete a visible learning or adoption path and land on a team outcome.",
+      "camera_default": "low slider left-to-right",
+      "motion_reference": "A learning path climbs across four raised cards and ends on a circular team badge.",
+      "foley_reference": "embossed dots tapping in sequence, paper edge brushes"
+    },
+    {
+      "beat": 13,
+      "id": "S13",
+      "chapter_slot": "mealreels",
+      "duration_seconds": 3.2,
+      "title": "Offer C input",
+      "purpose": "Fold a messy real-world source into the {{offer_c}} interface.",
+      "camera_default": "locked frontal wide",
+      "motion_reference": "A torn recipe-source card folds physically into the paper iPhone.",
+      "foley_reference": "thin paper fold, cardstock phone click"
+    },
+    {
+      "beat": 14,
+      "id": "S14",
+      "chapter_slot": "mealreels",
+      "duration_seconds": 3.5,
+      "title": "Offer C transformation",
+      "purpose": "Return a clean structured result from the interface.",
+      "camera_default": "short macro slider right-to-left",
+      "motion_reference": "A clean recipe card slides out of the phone while ingredient sketches pin themselves around it.",
+      "foley_reference": "card rail slide, three ingredient taps, pencil scratch"
+    },
+    {
+      "beat": 15,
+      "id": "S15",
+      "chapter_slot": "mealreels",
+      "duration_seconds": 3.6,
+      "title": "Offer C planning",
+      "purpose": "Arrange the transformed result into a useful plan, grid, or checklist.",
+      "camera_default": "locked overhead medium",
+      "motion_reference": "Meal-plan blocks drop into a week grid and check dots descend along a shopping list.",
+      "foley_reference": "soft block drops, paper check taps in rhythm"
+    },
+    {
+      "beat": 16,
+      "id": "S16",
+      "chapter_slot": "mealreels",
+      "duration_seconds": 3.7,
+      "title": "Offer C outcome",
+      "purpose": "Assemble the plan into a satisfying real-world result.",
+      "camera_default": "small physical pullback",
+      "motion_reference": "Paper ingredients assemble into a finished dinner plate and one tissue-paper steam curl rises.",
+      "foley_reference": "plate set-down, ingredient rustles, gentle steam hiss"
+    },
+    {
+      "beat": 17,
+      "id": "S17",
+      "chapter_slot": "co-agent",
+      "duration_seconds": 3.3,
+      "title": "Offer D entry",
+      "purpose": "Introduce {{offer_d}} beside its primary desktop or device surface.",
+      "camera_default": "low lateral move left-to-right",
+      "motion_reference": "The black knight cutout lands beside a raised desktop window and wakes the cursor trail.",
+      "foley_reference": "wooden token set-down, cardstock window lift, mouse glide"
+    },
+    {
+      "beat": 18,
+      "id": "S18",
+      "chapter_slot": "co-agent",
+      "duration_seconds": 3.4,
+      "title": "Offer D listening",
+      "purpose": "Show voice, audio, or context being captured and structured.",
+      "camera_default": "locked macro",
+      "motion_reference": "A waveform strip unspools beneath the desktop and resolves into blank transcript lines.",
+      "foley_reference": "paper reel turn, pencil chatter, one key click"
+    },
+    {
+      "beat": 19,
+      "id": "S19",
+      "chapter_slot": "co-agent",
+      "duration_seconds": 3.6,
+      "title": "Offer D approval",
+      "purpose": "Move the action to a visible human approval checkpoint.",
+      "camera_default": "locked angled close-up",
+      "motion_reference": "The cursor follows a stitched path to an approval card; the approved side depresses once.",
+      "foley_reference": "mouse glide, cardstock button press, shield tap"
+    },
+    {
+      "beat": 20,
+      "id": "S20",
+      "chapter_slot": "co-agent",
+      "duration_seconds": 3.7,
+      "title": "Offer D companion",
+      "purpose": "Extend the approved workflow to a companion device without losing continuity.",
+      "camera_default": "side move right-to-left",
+      "motion_reference": "A mobile-companion card peels out from the monitor seam and settles beside the desktop.",
+      "foley_reference": "adhesive paper peel, card slide, soft magnetic click"
+    },
+    {
+      "beat": 21,
+      "id": "S21",
+      "chapter_slot": "ecosystem",
+      "duration_seconds": 3.4,
+      "title": "Ecosystem islands",
+      "purpose": "Place the four offers as distinct physical islands.",
+      "camera_default": "locked overhead wide",
+      "motion_reference": "Learn, build, cook, and work objects land as four distinct paper islands.",
+      "foley_reference": "four different tactile object landings"
+    },
+    {
+      "beat": 22,
+      "id": "S22",
+      "chapter_slot": "ecosystem",
+      "duration_seconds": 3.4,
+      "title": "Ecosystem connection",
+      "purpose": "Connect the offers in narration order with one continuous thread.",
+      "camera_default": "macro track around the table",
+      "motion_reference": "A single stitched thread connects all four islands in narration order.",
+      "foley_reference": "continuous thread pull, four pin clicks"
+    },
+    {
+      "beat": 23,
+      "id": "S23",
+      "chapter_slot": "ecosystem",
+      "duration_seconds": 3.6,
+      "title": "Ecosystem motion",
+      "purpose": "Rotate or orbit the connected system a small physical distance.",
+      "camera_default": "locked medium",
+      "motion_reference": "The company wheel rotates one quarter turn while the four islands orbit a small physical distance.",
+      "foley_reference": "paper wheel friction, four soft table scrapes"
+    },
+    {
+      "beat": 24,
+      "id": "S24",
+      "chapter_slot": "ecosystem",
+      "duration_seconds": 3.6,
+      "title": "Ecosystem settle",
+      "purpose": "Land on one clear integrated tableau and let the system settle.",
+      "camera_default": "gentle physical crane downward",
+      "motion_reference": "The connected ecosystem settles into one clear tableau and the thread tension relaxes.",
+      "foley_reference": "paper layers settling, quiet room tone"
+    },
+    {
+      "beat": 25,
+      "id": "S25",
+      "chapter_slot": "leaders",
+      "duration_seconds": 3.4,
+      "title": "Leader 1 role",
+      "purpose": "Feature {{leader_1}} and a deterministic role label.",
+      "camera_default": "locked portrait medium",
+      "motion_reference": "Steve's monochrome portrait pins beside a teaching card; the TEACH role ribbon is deterministic overlay.",
+      "foley_reference": "photo slap, pin click, index-card brush"
+    },
+    {
+      "beat": 26,
+      "id": "S26",
+      "chapter_slot": "leaders",
+      "duration_seconds": 3.4,
+      "title": "Leader 2 role",
+      "purpose": "Feature {{leader_2}} with the same scale, treatment, and role-label system.",
+      "camera_default": "short slider left-to-right",
+      "motion_reference": "Heather's equally monochrome portrait arrives beside an operations ledger; OPERATE is deterministic overlay.",
+      "foley_reference": "ledger page turn, portrait slide, binder clip"
+    },
+    {
+      "beat": 27,
+      "id": "S27",
+      "chapter_slot": "leaders",
+      "duration_seconds": 3.4,
+      "title": "Leader 3 role",
+      "purpose": "Feature {{leader_3}} with the same scale, treatment, and role-label system.",
+      "camera_default": "locked portrait close-up",
+      "motion_reference": "Derek's equally monochrome portrait locks beside a technical blueprint; BUILD is deterministic overlay.",
+      "foley_reference": "blueprint unfold, pencil tap, pin click"
+    },
+    {
+      "beat": 28,
+      "id": "S28",
+      "chapter_slot": "leaders",
+      "duration_seconds": 3.4,
+      "title": "Leader 4 role",
+      "purpose": "Feature {{leader_4}} with the same scale, treatment, and role-label system.",
+      "camera_default": "short slider right-to-left",
+      "motion_reference": "Jamie's equally monochrome portrait enters beside classroom notes; EDUCATE is deterministic overlay.",
+      "foley_reference": "paper note fan, chalk tick, portrait brush"
+    },
+    {
+      "beat": 29,
+      "id": "S29",
+      "chapter_slot": "leaders",
+      "duration_seconds": 3.4,
+      "title": "Leadership unity",
+      "purpose": "Bring all leaders together around the company seal.",
+      "camera_default": "locked frontal wide",
+      "motion_reference": "All four same-treatment portraits slide together around the company seal.",
+      "foley_reference": "four synchronized paper slides, seal thump"
+    },
+    {
+      "beat": 30,
+      "id": "S30",
+      "chapter_slot": "closing",
+      "duration_seconds": 3.6,
+      "title": "Offer recap",
+      "purpose": "Snap the four offer cards into one clean two-by-two arrangement.",
+      "camera_default": "locked overhead wide",
+      "motion_reference": "The four company chapter cards snap into a clean two-by-two arrangement.",
+      "foley_reference": "four crisp cardstock snaps"
+    },
+    {
+      "beat": 31,
+      "id": "S31",
+      "chapter_slot": "closing",
+      "duration_seconds": 3.6,
+      "title": "Closing promise",
+      "purpose": "Reveal {{brand_name}} and {{closing_line}} as deterministic printed overlays.",
+      "camera_default": "small lateral settle left-to-right",
+      "motion_reference": "A central black torn strip lands; the exact company title and final line appear as deterministic overlays.",
+      "foley_reference": "paper strip slap, graphite underline"
+    },
+    {
+      "beat": 32,
+      "id": "S32",
+      "chapter_slot": "closing",
+      "duration_seconds": 3.8,
+      "title": "Final hold",
+      "purpose": "Let residual paper motion settle, hold cleanly, then fade to black only at the end.",
+      "camera_default": "locked final composition",
+      "motion_reference": "Residual paper edges settle for 1.5 seconds, then all motion stops; fade to black only in the final half-second.",
+      "foley_reference": "one last paper fiber settle, warm room tone"
+    }
+  ],
+  "prompt": "Create exactly one current storyboard beat inside a repeatable premium tactile paper-motion brand explainer. Do not attempt the entire long-form program in one generation. Use the supplied plate as the exact starting composition and render only this beat's stated 3–4 second action. Preserve the same physical tabletop set, parchment, torn black cardstock, monochrome pinned photography, kraft paper, restrained accent colors, visible fibers, realistic shadows, object identities, lighting, lens, crop, and layered handcrafted depth across every take. Existing company names, product names, role labels, captions, and logos are fixed printed artwork or deterministic post-production overlays; never redraw, misspell, or invent lettering. Keep motion object-led and physically plausible: one primary paper action, realistic inertia, restrained camera movement, clean native cadence, no synthetic 3D gloss, no random zoom, no scene substitution, no extra objects, no duplicate people, and no visual drift. Follow the beat's camera direction, action, duration, and Foley literally. Complete the main action early enough to leave a clean settling hold. Use LTX for fast production-quality object-led shots and iteration. Upgrade only identity-critical, hero, or difficult high-detail beats to H3, preserving the same plate, timing, and seed family. Return a shot that can cut directly between adjacent beats without changing the shared visual world.",
+  "preview": {
+    "gif": "static/templates/aas-tactile-paper-motion-brand-explainer.gif",
+    "gif_scope": "Ten representative one-second samples distributed across the complete 112-second production.",
+    "full_quality_source": "prompt-templates/source-media/aas-tactile-paper-motion-brand-explainer-source.mp4"
+  },
+  "render_contract": {
+    "one_generation_per_beat": true,
+    "full_program_assembled_in_edit": true,
+    "exactly_32_beats_by_default": true,
+    "shared_visual_world_across_beats": true,
+    "deterministic_text_only": true,
+    "supplied_plate_is_composition_source_of_truth": true,
+    "ltx_is_default_fast_lane": true,
+    "h3_is_selective_premium_lane": true,
+    "native_24fps_delivery": true,
+    "audio_assembled_without_regeneration": true,
+    "local_inference_only": true,
+    "no_silent_engine_fallback": true,
+    "do_not_call_final_before_steve_approval": true
+  },
+  "qa_gates": [
+    "Verify all 32 beats exist, remain in order, match narration timing, and sum to the intended program duration before assembly.",
+    "Verify paper stock, palette, scale, lighting, crop, object identities, and physical depth remain continuous across adjacent beats.",
+    "Reject invented or misspelled lettering; all names, labels, captions, and logos must come from deterministic overlays or supplied printed plates.",
+    "Reject random camera drift, synthetic 3D gloss, duplicate people, extra objects, scene substitution, impossible paper physics, or motion that does not settle cleanly.",
+    "Verify the assembled master contains decodable 24 fps H.264 video and AAC audio, full narration, score, Foley, no frozen gaps, and a clean final hold.",
+    "Treat the example as a proven internal review candidate, not as Steve-approved final or publication clearance."
+  ]
+}

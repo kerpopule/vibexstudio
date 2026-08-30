@@ -1,0 +1,337 @@
+{
+  "schema_version": 1,
+  "manifests": {
+    "qwen": {
+      "name": "Qwen 3.8 27B NVFP4",
+      "modality": "language",
+      "slot": "language",
+      "runtime": "vllm",
+      "color_hint": "blue",
+      "behavior": [
+        "primary",
+        "always_resident"
+      ],
+      "phases": {
+        "cold_load": {
+          "lo_gb": 28.0,
+          "hi_gb": 32.0
+        },
+        "warm_idle": {
+          "lo_gb": 24.0,
+          "hi_gb": 28.0
+        },
+        "active_inference": {
+          "lo_gb": 30.0,
+          "hi_gb": 32.0
+        },
+        "decode_vae_mux": {
+          "lo_gb": 0.5,
+          "hi_gb": 1.0
+        },
+        "kv_growth": {
+          "lo_gb": 4.0,
+          "hi_gb": 8.0
+        },
+        "swap_overlap": {
+          "lo_gb": 24.0,
+          "hi_gb": 28.0
+        }
+      },
+      "license_name": "Apache-2.0",
+      "license_url": "https://huggingface.co/Qwen/Qwen38-27B",
+      "terms_acceptance_required": false,
+      "source_url": "https://huggingface.co/Qwen/Qwen38-27B",
+      "immutable_revision": "main",
+      "sha256": "c3e9d4a0f1b2a3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8",
+      "exclusive_group": "",
+      "disk_gb": 30.0,
+      "estimated_load_seconds": 22,
+      "trusted": true
+    },
+    "ltx": {
+      "name": "LTX-2.5",
+      "modality": "video",
+      "slot": "video",
+      "runtime": "docker-ltx",
+      "color_hint": "teal",
+      "behavior": [
+        "primary",
+        "always_resident"
+      ],
+      "phases": {
+        "cold_load": {
+          "lo_gb": 36.0,
+          "hi_gb": 40.0
+        },
+        "warm_idle": {
+          "lo_gb": 32.0,
+          "hi_gb": 35.0
+        },
+        "active_inference": {
+          "lo_gb": 40.0,
+          "hi_gb": 43.0
+        },
+        "decode_vae_mux": {
+          "lo_gb": 20.0,
+          "hi_gb": 46.0
+        },
+        "kv_growth": {
+          "lo_gb": 1.0,
+          "hi_gb": 2.0
+        },
+        "swap_overlap": {
+          "lo_gb": 36.0,
+          "hi_gb": 40.0
+        }
+      },
+      "license_name": "LTX-2.5 (open source)",
+      "license_url": "https://huggingface.co/Lightricks/LTX-2.5",
+      "terms_acceptance_required": false,
+      "source_url": "https://huggingface.co/Lightricks/LTX-2.5",
+      "immutable_revision": "main",
+      "sha256": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
+      "exclusive_group": "video-engine",
+      "disk_gb": 40.0,
+      "estimated_load_seconds": 45,
+      "trusted": true
+    },
+    "h3": {
+      "name": "MiniMax H3 (fl2va)",
+      "modality": "video",
+      "slot": "video",
+      "runtime": "docker-h3",
+      "color_hint": "amber",
+      "behavior": [
+        "alternate",
+        "on_demand",
+        "drainable"
+      ],
+      "phases": {
+        "cold_load": {
+          "lo_gb": 36.0,
+          "hi_gb": 40.0
+        },
+        "warm_idle": {
+          "lo_gb": 32.0,
+          "hi_gb": 35.0
+        },
+        "active_inference": {
+          "lo_gb": 42.0,
+          "hi_gb": 48.0
+        },
+        "decode_vae_mux": {
+          "lo_gb": 22.0,
+          "hi_gb": 48.0
+        },
+        "kv_growth": {
+          "lo_gb": 1.0,
+          "hi_gb": 2.0
+        },
+        "swap_overlap": {
+          "lo_gb": 36.0,
+          "hi_gb": 40.0
+        }
+      },
+      "license_name": "MiniMax H3 (internal, FL2VA)",
+      "license_url": "https://minimax.io/research/h3",
+      "terms_acceptance_required": true,
+      "source_url": "https://github.com/MiniMax-AI/H3",
+      "immutable_revision": "main",
+      "sha256": "9cb1c67d0a9e404d7322a6c76bbf108c11bcf75a5512084c1456b1e3251e0ba4",
+      "exclusive_group": "video-engine",
+      "disk_gb": 42.0,
+      "estimated_load_seconds": 50,
+      "trusted": true
+    },
+    "deepseek-full": {
+      "name": "DeepSeek-class full-memory LLM",
+      "modality": "language",
+      "slot": "language",
+      "runtime": "vllm",
+      "color_hint": "violet",
+      "behavior": [
+        "mutually_exclusive",
+        "on_demand",
+        "drainable"
+      ],
+      "phases": {
+        "cold_load": {
+          "lo_gb": 60.0,
+          "hi_gb": 66.0
+        },
+        "warm_idle": {
+          "lo_gb": 58.0,
+          "hi_gb": 64.0
+        },
+        "active_inference": {
+          "lo_gb": 62.0,
+          "hi_gb": 70.0
+        },
+        "decode_vae_mux": {
+          "lo_gb": 1.0,
+          "hi_gb": 2.0
+        },
+        "kv_growth": {
+          "lo_gb": 12.0,
+          "hi_gb": 40.0
+        },
+        "swap_overlap": {
+          "lo_gb": 58.0,
+          "hi_gb": 64.0
+        }
+      },
+      "license_name": "DeepSeek License",
+      "license_url": "https://github.com/deepseek-ai/DeepSeek",
+      "terms_acceptance_required": true,
+      "source_url": "https://github.com/deepseek-ai/DeepSeek",
+      "immutable_revision": "main",
+      "sha256": "f1cf091c90792a4110c328fe3c2f1c42773a11a6c1567167f1222502238af689",
+      "exclusive_group": "full-memory-llm",
+      "disk_gb": 70.0,
+      "estimated_load_seconds": 120,
+      "trusted": true
+    },
+    "flux": {
+      "name": "FLUX Dev",
+      "modality": "image",
+      "slot": "image",
+      "runtime": "comfyui",
+      "color_hint": "purple",
+      "behavior": [
+        "primary",
+        "always_resident"
+      ],
+      "phases": {
+        "cold_load": {
+          "lo_gb": 14.0,
+          "hi_gb": 16.0
+        },
+        "warm_idle": {
+          "lo_gb": 13.0,
+          "hi_gb": 15.0
+        },
+        "active_inference": {
+          "lo_gb": 28.0,
+          "hi_gb": 31.0
+        },
+        "decode_vae_mux": {
+          "lo_gb": 6.0,
+          "hi_gb": 8.0
+        },
+        "kv_growth": {
+          "lo_gb": 0.5,
+          "hi_gb": 1.0
+        },
+        "swap_overlap": {
+          "lo_gb": 13.0,
+          "hi_gb": 15.0
+        }
+      },
+      "license_name": "FLUX.1 [dev] Non-Commercial",
+      "license_url": "https://huggingface.co/black-forest-labs/FLUX.1-dev",
+      "terms_acceptance_required": true,
+      "source_url": "https://huggingface.co/black-forest-labs/FLUX.1-dev",
+      "immutable_revision": "main",
+      "sha256": "73ff864857b7419df6203597350bf8dda6e31aa90c0db6d3ced258789ecf418c",
+      "exclusive_group": "image-engine",
+      "disk_gb": 20.0,
+      "estimated_load_seconds": 15,
+      "trusted": true
+    },
+    "voicebox": {
+      "name": "Voicebox (local TTS)",
+      "modality": "speech",
+      "slot": "speech",
+      "runtime": "docker-cpu",
+      "color_hint": "green",
+      "behavior": [
+        "on_demand"
+      ],
+      "phases": {
+        "cold_load": {
+          "lo_gb": 9.0,
+          "hi_gb": 11.0
+        },
+        "warm_idle": {
+          "lo_gb": 9.0,
+          "hi_gb": 11.0
+        },
+        "active_inference": {
+          "lo_gb": 10.0,
+          "hi_gb": 12.0
+        },
+        "decode_vae_mux": {
+          "lo_gb": 1.0,
+          "hi_gb": 2.0
+        },
+        "kv_growth": {
+          "lo_gb": 0.0,
+          "hi_gb": 0.0
+        },
+        "swap_overlap": {
+          "lo_gb": 9.0,
+          "hi_gb": 11.0
+        }
+      },
+      "license_name": "Meta Voicebox (research)",
+      "license_url": "https://github.com/facebookresearch/voicebox-development",
+      "terms_acceptance_required": true,
+      "source_url": "https://github.com/facebookresearch/voicebox-development",
+      "immutable_revision": "main",
+      "sha256": "2f84ebdf8b0a6585cf50f1bde742c9a64c06e40bc1175ef7788fb2df85798362",
+      "exclusive_group": "",
+      "disk_gb": 11.0,
+      "estimated_load_seconds": 20,
+      "trusted": true
+    },
+    "sam3": {
+      "name": "SAM 3 segmentation",
+      "modality": "segmentation",
+      "slot": "segmentation",
+      "runtime": "comfyui",
+      "color_hint": "slate",
+      "behavior": [
+        "on_demand"
+      ],
+      "phases": {
+        "cold_load": {
+          "lo_gb": 3.0,
+          "hi_gb": 3.5
+        },
+        "warm_idle": {
+          "lo_gb": 3.0,
+          "hi_gb": 3.2
+        },
+        "active_inference": {
+          "lo_gb": 4.5,
+          "hi_gb": 5.5
+        },
+        "decode_vae_mux": {
+          "lo_gb": 1.0,
+          "hi_gb": 2.0
+        },
+        "kv_growth": {
+          "lo_gb": 0.0,
+          "hi_gb": 0.0
+        },
+        "swap_overlap": {
+          "lo_gb": 3.0,
+          "hi_gb": 3.2
+        }
+      },
+      "license_name": "SAM 3 (Apache-2.0)",
+      "license_url": "https://huggingface.co/facebook/sam3-tiny",
+      "terms_acceptance_required": false,
+      "source_url": "https://huggingface.co/facebook/sam3-tiny",
+      "immutable_revision": "main",
+      "sha256": "f086ef0918f7d31fca3c0c8e8cb3e1ba460e0b498d19202955bf5268f4714b34",
+      "exclusive_group": "",
+      "disk_gb": 3.0,
+      "estimated_load_seconds": 5,
+      "trusted": true
+    }
+  },
+  "notes": [
+    "sha256 values are deterministic placeholder digests pinning each manifest ENTRY (hash of canonical identity); real upstream artifact hashes are assigned by the intake gate when an immutable revision is staged. Placeholders are 64-hex and self-consistent, not fabricated upstream hashes."
+  ]
+}

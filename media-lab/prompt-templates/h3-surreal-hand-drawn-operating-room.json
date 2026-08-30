@@ -1,0 +1,82 @@
+{
+  "schema_version": "media_lab.prompt_template.v1",
+  "template_id": "h3-surreal-hand-drawn-operating-room",
+  "name": "Surreal Hand-Drawn Operating Room",
+  "engine": "h3_t2v",
+  "status": "source_captured_candidate",
+  "scope": "private_internal",
+  "provenance": {
+    "source_prompt_url": "https://x.com/azed_ai/status/2092313996242337988?s=46",
+    "source_example_url": "https://x.com/azed_ai/status/2092313983131042093",
+    "source_author": "Amira Zairi (@azed_ai)",
+    "source_kind": "public MiniMax H3 prompt and generated example video",
+    "source_claimed_runtime": "Hailuo H3",
+    "captured_at_source_date": "2026-08-25",
+    "usage_note": "Retained in Steve Darlow’s private Media Lab as an attributed internal template; not cleared here for redistribution or publication."
+  },
+  "defaults": {
+    "aspect_ratio": "16:9",
+    "duration_seconds": 15,
+    "take_structure": "one uninterrupted handheld smartphone take",
+    "setting": "empty surgical operating room after hours",
+    "source_resolution": "1280x720",
+    "source_duration_seconds": 15.168,
+    "source_video_fps": 24,
+    "audio": "environmental audio only"
+  },
+  "core_mechanics": [
+    "Live-action environment with unmistakably handmade crayon, chalk, colored-pencil, dry-brush, pastel, and scribbled-ink VFX.",
+    "Every illustrated transformation preserves physical continuity by flattening, unraveling, stretching, fragmenting, folding, tangling, spreading, reconnecting, and reshaping.",
+    "The animation initiates movement and the imperfect handheld camera reacts slightly late.",
+    "One physically connected path moves from instrument tray to operating table to monitor to surgical lamp to ceiling.",
+    "Realistic depth, reflections, surface contact, and occlusion anchor drawings to metal, fabric, glass, equipment, and ceiling surfaces."
+  ],
+  "timed_beats": [
+    {
+      "seconds": "0–3",
+      "action": "Instrument contact releases a turquoise pencil line that continuously reshapes into a tiny hand-drawn bird."
+    },
+    {
+      "seconds": "3–6",
+      "action": "Bird unravels across a blue drape, turns orange, and reshapes into a four-legged thread creature."
+    },
+    {
+      "seconds": "6–10",
+      "action": "Creature flattens into the monitor, stretches into a waveform, fragments into pink birds, and merges into a floating crayon whale."
+    },
+    {
+      "seconds": "10–13",
+      "action": "Whale collapses onto the surgical lamp, which becomes a crooked character and then a giant illustrated flower."
+    },
+    {
+      "seconds": "13–15",
+      "action": "Flower unravels across the ceiling into a hand-drawn night sky; a crescent moon reveals a waving astronaut."
+    }
+  ],
+  "preview": {
+    "gif": "static/templates/h3-surreal-hand-drawn-operating-room.gif",
+    "full_quality_source": "prompt-templates/source-media/h3-surreal-hand-drawn-operating-room-source.mp4"
+  },
+  "source_prompt_language": "English",
+  "source_prompt_character_count": 6169,
+  "prompt": "15-second, 16:9 horizontal video. A fusion of live-action empty surgical operating room footage and surreal hand-drawn animated VFX.\n\nA clean but realistically used operating room after hours, illuminated by cool overhead surgical lights, small monitor screens, equipment indicators, and faint light from the corridor. An empty operating table sits in the center surrounded by instrument trays, cables, stools, an anesthesia machine, folded surgical drapes, stainless-steel surfaces, and medical equipment. No patient, surgery, blood, wounds, or graphic medical imagery is visible. The footage feels like spontaneous one-handed smartphone recording, with natural hand shake, low-light sensor noise in darker corners, autofocus hunting between equipment, slight motion blur, imperfect framing, and subtle auto-exposure fluctuations around the bright surgical lamps.\n\n0–3 seconds: A gloved hand places a metal surgical instrument onto a stainless-steel tray. At the instant the instrument touches the surface, a thin turquoise colored-pencil line leaks from beneath it and rapidly sketches itself across the reflective metal. The line loops around the instruments, breaks into rough vibrating fragments, then those same strokes curl upward and continuously reshape into a tiny hand-drawn bird made from turquoise chalk and crayon marks. The bird flaps off the tray toward the operating table. It moves first, while the camera reacts a fraction of a second later, lifting abruptly and following with an imperfect handheld pan.\n\n3–6 seconds: The bird lands on a folded blue surgical drape. Its wings flatten against the fabric, unravel into dozens of turquoise scribbles, then spread through the folds like animated embroidery. The lines turn orange as they twist together, rise from the fabric, and continuously reshape into a tiny four-legged creature made from loose thread-like strokes. It runs across the operating table and leaps toward a nearby patient monitor. The creature moves first while the camera hesitates, briefly focuses on the drape, then quickly pans after it.\n\n6–10 seconds: The creature touches the dark monitor screen and instantly flattens into a rough two-dimensional drawing trapped behind the glass. It races through the screen while its orange body stretches into a jagged animated waveform. The waveform bends, fragments, loops around itself, then continuously reshapes into dozens of tiny pink hand-drawn birds. They burst visually out of the screen, circle the surgical lamp, then collide together above the operating table. Their wings unravel into chaotic pink, yellow, and blue brushstrokes that twist and continuously merge into an enormous floating origami-like whale made entirely from unstable crayon drawings. The whale swims slowly through the air toward the surgical lights. The animation moves first, forcing the camera operator to step backward around the operating table and tilt upward slightly late to keep it in frame.\n\n10–13 seconds: The illustrated whale brushes against the large circular surgical lamp. Its body collapses into hundreds of colorful scribbled strokes that spread around the lamp's real circular structure. Small illustrated arms suddenly grow from its edges, followed by crooked cartoon legs, eyebrows, and a playful mouth, turning the surgical lamp into a strange hand-drawn character. It rotates toward the camera, but its expression suddenly distorts. The mouth stretches into looping brushstrokes, the arms multiply, and its colored marks spiral outward until the entire lamp continuously reshapes into a giant floating flower-like creature with dozens of uneven illustrated petals. The creature rapidly opens above the operating table. The camera reacts late, jerks upward, briefly loses focus against the bright light, then struggles to correct the exposure.\n\n13–15 seconds: The giant illustrated flower closes around the surgical lamp, then its petals unravel into long multicolored crayon strokes. The strokes crawl across the ceiling in every direction, travel around fixtures, then converge directly above the operating table. They continuously reorganize into an enormous hand-drawn night sky covering the ceiling, filled with rough stars, tiny planets, scribbled clouds, and a huge crescent moon. At the final moment, the crescent moon bends downward like a paper flap, revealing a tiny illustrated astronaut behind it who casually waves at the camera. The drawing acts first while the camera slowly tilts upward a fraction too late, ending with slightly imperfect framing.\n\nAll animated elements remain unmistakably handmade, using rough crayon, chalk, colored-pencil, dry-brush, pastel, scribbled ink, irregular outlines, uneven coloring, visible stroke grain, imperfect fills, fuzzy edges, uneven opacity, slight color bleeding, and constant frame-by-frame line wobble. Every transformation maintains visible physical continuity through flattening, unraveling, stretching, fragmenting, folding, tangling, spreading, reconnecting, and reshaping, never disappearing and being replaced by another object. The animation always initiates movement first while the camera reacts slightly late. Maintain one uninterrupted smartphone take through the same physically connected operating room, moving naturally from instrument tray → operating table → monitor → surgical lamp → ceiling. Preserve realistic depth, reflections, surface contact, and occlusion as drawings travel across fabric, metal, glass, equipment, and ceiling surfaces. No patients, blood, wounds, exposed anatomy, graphic surgery, overly precise 3D CGI, excessively smooth vector lines, neon-tube-like visuals, perfectly stabilized gimbal footage, overly cinematic lighting, polished advertising-style compositions, perfect symmetrical framing, instant object replacement, teleportation, cuts, scene transitions, subtitles, logos, or background music. Environmental audio only: quiet operating-room ventilation, distant equipment hum, subtle monitor beeps, metal instrument sounds, footsteps, fabric movement, phone handling noise, faint pencil scratching, chalk scraping, and soft crayon sounds synchronized with the transformations.",
+  "render_contract": {
+    "text_to_video_only": true,
+    "one_uninterrupted_take": true,
+    "animation_leads_camera": true,
+    "continuous_physical_transformations": true,
+    "environmental_audio_only": true,
+    "no_patients_or_graphic_medical_imagery": true,
+    "do_not_call_final_before_steve_approval": true,
+    "local_inference_only": true,
+    "no_silent_engine_fallback": true
+  },
+  "qa_gates": [
+    "Confirm the five timed transformation beats remain continuous rather than teleporting or cutting between replacement objects.",
+    "Confirm the hand-drawn marks retain rough frame-by-frame wobble, visible stroke grain, imperfect fills, fuzzy edges, and slight color bleeding rather than smooth 3D or vector polish.",
+    "Confirm animation leads and camera response remains fractionally late with plausible autofocus and exposure behavior.",
+    "Confirm drawings maintain convincing contact, reflections, depth, and occlusion on the live-action surfaces.",
+    "Confirm the operating room remains empty and contains no patient, blood, wounds, anatomy, subtitles, logos, or background music.",
+    "Treat the public source result as reference evidence, not as proof that the local H3 runtime reproduces it without a pinned-seed canary."
+  ]
+}

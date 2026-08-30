@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "policy_name": "pplx-27b-protected-primary-one-companion",
+  "protected_primary": {
+    "id": "pplx-computer-qwen-3-8-27b-dflash2-20260824",
+    "alias": "media-lab-text",
+    "endpoint": "http://127.0.0.1:8004",
+    "always_resident": true,
+    "evictable_by_media": false,
+    "gpu_memory_utilization": 0.28,
+    "max_model_len": 65536,
+    "max_num_seqs": 2
+  },
+  "companion_slot": {
+    "cardinality": "exactly_one_when_idle_or_rendering",
+    "default": "ltx",
+    "members": [
+      "ltx",
+      "h3",
+      "qwen-image",
+      "flux-kontext",
+      "music3",
+      "voicebox-tts"
+    ],
+    "service_shells_do_not_count_when_models_are_unloaded": true,
+    "swap_rules": [
+      "acquire the media-lab inference transaction before model mutation",
+      "never interrupt a companion reporting busy",
+      "stand down every non-target companion before loading the target",
+      "verify PPLX :8004 health before and after each companion transaction",
+      "release outgoing ComfyUI or Voicebox weights before loading incoming weights",
+      "restore LTX only after the complete companion queue is idle"
+    ]
+  },
+  "measured_or_bounded_gib": {
+    "pplx-27b": {
+      "runtime_allocation_observed": 33.0,
+      "status": "live-observed-2026-08-26"
+    },
+    "ltx": {
+      "warm_idle": 35.0,
+      "active": 43.0,
+      "decode": 46.0,
+      "qualified_with_pplx": true,
+      "qualification_min_memavailable": 36.124
+    },
+    "h3": {
+      "warm_idle": 35.0,
+      "active_upper_bound": 48.0,
+      "qualified_with_pplx": false
+    },
+    "qwen-image": {
+      "warm_idle_range": [15.0, 20.0],
+      "active_upper_bound": 31.0,
+      "cold_headroom_observed": 51.0,
+      "qualified_with_pplx": false
+    },
+    "flux-kontext": {
+      "warm_idle_range": [15.0, 20.0],
+      "active_upper_bound": 31.0,
+      "qualified_with_pplx": false
+    },
+    "music3": {
+      "warm_idle": 15.0,
+      "active_upper_bound": null,
+      "qualified_with_pplx": false
+    },
+    "voicebox-tts": {
+      "service_shell": "cpu",
+      "model_active_upper_bound": 12.0,
+      "installed_variants": ["qwen-tts-1.7B", "kokoro"],
+      "governed_audio_helpers": ["faster-whisper", "resemble-enhance"],
+      "unload_api": "/models/{model_name}/unload",
+      "qualified_with_pplx": false
+    }
+  },
+  "operational_floor_gib": 24.0,
+  "qualification_rule": "A companion is promoted only after a short visible-queue canary proves artifact validity, continuous PPLX replies, no OOM evidence, and MemAvailable never below the operational floor."
+}
