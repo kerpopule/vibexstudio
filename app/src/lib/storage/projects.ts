@@ -34,6 +34,19 @@ export function cloudSyncActive(): boolean {
 }
 
 /**
+ * Root of the on-device Media Lab gallery — a sibling of the projects tree,
+ * so it lives in the same iCloud container (and syncs between the user's
+ * Apple devices) whenever the projects do.
+ */
+export function mediaLabRoot(): Directory {
+  const dir = cloudDocuments
+    ? new Directory(cloudDocuments, 'media-lab')
+    : new Directory(Paths.document, 'media-lab');
+  if (!dir.exists) dir.create({ intermediates: true });
+  return dir;
+}
+
+/**
  * One-time move of pre-sync local projects into the iCloud container (runs
  * on every hydrate; no-op when local storage is empty or iCloud is off).
  * Projects that exist on both sides keep the cloud copy.

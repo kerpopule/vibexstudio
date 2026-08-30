@@ -42,9 +42,14 @@ your device to your chosen provider and nowhere else.
   Drive**. No VibeX account exists to sign into. ([How sync works](docs/SYNC.md))
 - **Publishing is yours too.** One tap pushes the project to your GitHub
   and serves it on GitHub Pages with a shareable link.
-- **Media Lab inside.** Pair a [Media Lab](https://github.com/kerpopule/media-lab-studio)
-  (the desktop app can host one, or your own GPU box) and a Media Lab tab
-  appears — image, video, music, and character pipelines, no cloud required.
+- **Media Lab inside.** The Media Lab tab works out of the box: an
+  **on-device studio** generates images (Gemini / GPT Image / Grok Imagine —
+  API key or your Grok subscription) and video (Veo) straight into a
+  persistent gallery, no server needed. Pair a full
+  [Media Lab](https://github.com/kerpopule/media-lab-studio) (the desktop app
+  can host one, or your own GPU box) and the tab also hosts its complete web
+  UI — image, video, music, and character pipelines — with a toggle between
+  the two.
 
 ## The VibeXStudio family
 

@@ -1,7 +1,8 @@
 /**
  * Pair a Media Lab server. The user pastes the URL the desktop app (or
  * Spark) shows — pairing succeeds when the server's gate-exempt
- * /manifest.json answers. The Media Lab tab appears once paired.
+ * /manifest.json answers. Once paired, the Media Lab tab gains a "Server"
+ * view hosting the full web UI (the on-device studio is always there).
  */
 import { router } from 'expo-router';
 import { useState } from 'react';

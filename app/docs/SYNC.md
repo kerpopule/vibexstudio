@@ -17,6 +17,11 @@ media — sync through the user's iCloud Drive automatically.
   just without sync).
 - Migration: `migrateLocalProjectsToCloud()` runs on hydrate and moves any
   pre-sync local projects into the container once.
+- The on-device Media Lab gallery (`src/lib/storage/media-gallery.ts`)
+  lives in a `media-lab/` folder **beside** the projects tree, rooted via
+  `mediaLabRoot()` in projects.ts — so on Apple it rides the same iCloud
+  container and syncs whenever projects do. On Android and web it is
+  local-only for now (IndexedDB on web; not part of the SAF mirror).
 - Entitlements: `app.json → ios.usesIcloudStorage + ios.entitlements`
   (CloudDocuments + the container id). They reach the Xcode project via
   prebuild; the container must also be added to the App ID in the Apple

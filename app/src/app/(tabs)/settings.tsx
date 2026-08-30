@@ -175,7 +175,7 @@ export default function SettingsScreen() {
           ) : (
             <Row
               title="Pair a Media Lab"
-              subtitle="Point VibeX at your desktop app or Spark — a Media Lab tab appears"
+              subtitle="Point VibeX at your desktop app or Spark — its full web UI joins the Media Lab tab"
               left={<EmojiTile emoji="🎬" size={36} />}
               onPress={() => router.push('/connect-media-lab')}
             />

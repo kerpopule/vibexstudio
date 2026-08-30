@@ -78,6 +78,27 @@ export async function notifyProjectEvent(project: ProjectMeta, event: ProjectEve
   }
 }
 
+/**
+ * Generic background-only notice (used by the on-device Media Lab studio).
+ * Same rules as project events: silent while the app is active, best-effort.
+ */
+export async function notifyEvent(title: string, body: string): Promise<void> {
+  if (AppState.currentState === 'active') return;
+  if (permission !== 'granted') return;
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+        ...(Platform.OS === 'android' ? { color: '#5EC2FF' } : {}),
+      },
+      trigger: null,
+    });
+  } catch {
+    // Best-effort only.
+  }
+}
+
 /** The projectId a tapped notification points at, or null. */
 export function projectIdFromResponse(response: Notifications.NotificationResponse): string | null {
   const id = response.notification.request.content.data?.projectId;

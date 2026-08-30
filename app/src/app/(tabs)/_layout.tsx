@@ -4,11 +4,9 @@ import { Platform } from 'react-native';
 
 import { Fonts } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { useApp } from '@/lib/store';
 
 export default function TabsLayout() {
   const theme = useTheme();
-  const mediaLab = useApp((s) => s.mediaLab);
   return (
     <Tabs
       screenOptions={{
@@ -33,12 +31,12 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => <Ionicons name="color-wand" color={color} size={size} />,
         }}
       />
-      {/* The Media Lab tab exists only once a server is paired in Settings. */}
+      {/* Always present: the on-device studio works with no server paired,
+          and a paired server adds its full web UI behind a toggle. */}
       <Tabs.Screen
         name="media-lab"
         options={{
           title: 'Media Lab',
-          href: mediaLab ? undefined : null,
           tabBarIcon: ({ color, size }) => <Ionicons name="film" color={color} size={size} />,
         }}
       />

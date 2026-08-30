@@ -10,6 +10,7 @@
  */
 import { PROVIDERS } from '@/lib/ai/registry';
 import { extractApiError } from '@/lib/ai/sse';
+import { SUBSCRIPTION_PROVIDERS } from '@/lib/ai/subscriptionOauth';
 import type { ProviderConnection } from '@/lib/types';
 
 export const GEMINI_IMAGE_MODEL = 'gemini-2.5-flash-image';
@@ -23,10 +24,14 @@ export interface GeneratedImage {
 }
 
 export function canGenerateImages(connection: ProviderConnection): boolean {
+  // xAI subscription logins (SuperGrok / X Premium+) reach the same
+  // /images/generations endpoint their API keys do.
+  if (connection.subscription) return connection.subscription === 'xai-oauth';
   return PROVIDERS[connection.kind].capabilities.image;
 }
 
 export function canGenerateVideo(connection: ProviderConnection): boolean {
+  if (connection.subscription) return false;
   return PROVIDERS[connection.kind].capabilities.video;
 }
 
@@ -35,13 +40,18 @@ export async function generateImage(
   secret: string,
   prompt: string
 ): Promise<GeneratedImage> {
+  if (connection.subscription === 'xai-oauth') {
+    const baseUrl = connection.baseUrl || SUBSCRIPTION_PROVIDERS['xai-oauth'].inferenceBaseUrl;
+    return openAiStyleImage(baseUrl, secret, prompt, XAI_IMAGE_MODEL);
+  }
+  const baseUrl = connection.baseUrl || PROVIDERS[connection.kind].baseUrl;
   switch (connection.kind) {
     case 'gemini':
       return geminiImage(connection, secret, prompt);
     case 'xai':
-      return openAiStyleImage(connection, secret, prompt, XAI_IMAGE_MODEL);
+      return openAiStyleImage(baseUrl, secret, prompt, XAI_IMAGE_MODEL);
     case 'openai':
-      return openAiStyleImage(connection, secret, prompt, OPENAI_IMAGE_MODEL);
+      return openAiStyleImage(baseUrl, secret, prompt, OPENAI_IMAGE_MODEL);
     default:
       throw new Error(`${PROVIDERS[connection.kind].name} can't generate images. Connect Gemini, OpenAI, or Grok.`);
   }
@@ -64,12 +74,12 @@ async function geminiImage(connection: ProviderConnection, secret: string, promp
 }
 
 async function openAiStyleImage(
-  connection: ProviderConnection,
+  rawBaseUrl: string,
   secret: string,
   prompt: string,
   model: string
 ): Promise<GeneratedImage> {
-  const baseUrl = (connection.baseUrl || PROVIDERS[connection.kind].baseUrl).replace(/\/+$/, '');
+  const baseUrl = rawBaseUrl.replace(/\/+$/, '');
   const res = await fetch(`${baseUrl}/images/generations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${secret}` },

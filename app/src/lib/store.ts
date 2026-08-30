@@ -163,7 +163,8 @@ export const useApp = create<AppState>((set, get) => ({
       subscription,
       tokenExpiresAt: expiresAt,
       defaultModel,
-      capabilities: { chat: true, image: false, video: false },
+      // xAI subscriptions can hit /images/generations like an API key can.
+      capabilities: { chat: true, image: subscription === 'xai-oauth', video: false },
       createdAt: Date.now(),
     };
     await secrets.setProviderSecret(connection.id, accessToken);

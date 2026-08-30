@@ -116,6 +116,23 @@ export interface ProviderConnection {
 }
 
 // ---------------------------------------------------------------------------
+// On-device Media Lab gallery
+// ---------------------------------------------------------------------------
+
+/** One generated image/video in the on-device Media Lab gallery. */
+export interface GalleryItem {
+  id: string;
+  kind: 'image' | 'video';
+  prompt: string;
+  /** Human label of the provider that generated it (e.g. "xAI (Grok)"). */
+  providerLabel: string;
+  createdAt: number;
+  /** Display/share URI — file:// on device, a data: URI on web. */
+  uri: string;
+  mimeType: string;
+}
+
+// ---------------------------------------------------------------------------
 // GitHub account
 // ---------------------------------------------------------------------------
 
