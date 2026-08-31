@@ -76,6 +76,8 @@ If you do not include at least one \`file=\` block on a build/edit request, you 
 
 ${buildMediaSection(mediaLab)}
 
+${WEB_RESEARCH_SECTION}
+
 ## Current project files
 ${fileList}
 
@@ -117,6 +119,25 @@ A cinematic wide shot of a neon-lit arcade at night
 Describe the shot like a director: who is on camera, what they say or do, setting, tone.
 \`\`\`${characters}`;
 }
+
+/**
+ * The `web` fence protocol (docs/AGENT-WEB.md) — how the model researches
+ * the live web before building. Text-only like the medialab fence, so it
+ * works on every provider. The loop in vibe.ts executes the requests and
+ * streams a continuation; budgets live in src/lib/ai/web-tools-core.ts.
+ */
+const WEB_RESEARCH_SECTION = `## Web research (optional tool)
+You can look things up on the live web before you build, with a special fence (the body is ignored — the request lives in the info string):
+
+\`\`\`web search=best free weather api no key
+\`\`\`
+
+\`\`\`web url=https://developer.example.com/docs/quickstart
+\`\`\`
+
+- WHEN to research: the user references a specific site, library, or API you are not sure about; the app needs current facts (prices, versions, docs, live-data endpoints); or the user asks you to match the look/content of some site. For everything you already know, skip research and just build — most turns need zero web fences.
+- Discipline: research FIRST, build SECOND. A research reply should contain only the web fences (up to 4) plus one short line about what you're checking — no file blocks yet. The results come back in the next message; then output the files. You get at most 2 research rounds per request — after your research, you MUST output the complete file blocks.
+- search= takes a short query (≤200 chars). url= must be a full https:// URL (never http, never a bare domain). Only cite, copy, or rely on content you actually fetched — never invent URLs, API shapes, or facts and attribute them to the web.`;
 
 export function fileBlockHeader(path: string): string {
   const ext = path.split('.').pop() ?? '';

@@ -12,6 +12,7 @@
  *   - a plain html block that starts with <!doctype html>/<html> is the app —
  *     it becomes index.html
  */
+import { parseWebFence, webRequestKey, type WebRequest } from '@/lib/ai/web-tools-core';
 import { isValidMediaTarget, type MediaRequest } from '@/lib/medialab-core';
 import type { ProjectFile } from '@/lib/types';
 
@@ -29,12 +30,15 @@ export interface ParsedReply {
   files: ProjectFile[];
   /** Parsed ```medialab fences — generation requests, not file contents. */
   media: MediaRequest[];
+  /** Parsed ```web fences — research requests the turn loop may execute. */
+  web: WebRequest[];
 }
 
 export function parseAssistantReply(raw: string): ParsedReply {
   const lines = raw.split('\n');
   const files: ProjectFile[] = [];
   const media: MediaRequest[] = [];
+  const web: WebRequest[] = [];
   const textParts: string[] = [];
 
   let i = 0;
@@ -59,6 +63,25 @@ export function parseAssistantReply(raw: string): ParsedReply {
       if (request) {
         media.push(request);
         textParts.push(`🎬 Requested ${request.kind} → \`${request.file}\``);
+        i = end + 1;
+        continue;
+      }
+      textParts.push(...lines.slice(i, Math.min(end + 1, lines.length)));
+      i = end + 1;
+      continue;
+    }
+
+    // A ```web fence is a research REQUEST (docs/AGENT-WEB.md) — the body is
+    // ignored by contract. Malformed ones stay in the visible text.
+    if (open[1].toLowerCase() === 'web') {
+      const request = parseWebFence(open[2]);
+      if (request) {
+        web.push(request);
+        textParts.push(
+          request.type === 'search'
+            ? `🔎 Web search: \`${request.query}\``
+            : `📄 Web page: ${request.url}`
+        );
         i = end + 1;
         continue;
       }
@@ -112,11 +135,14 @@ export function parseAssistantReply(raw: string): ParsedReply {
   for (const file of files) byPath.set(file.path, file);
   const mediaByFile = new Map<string, MediaRequest>();
   for (const request of media) mediaByFile.set(request.file, request);
+  const webByKey = new Map<string, WebRequest>();
+  for (const request of web) webByKey.set(webRequestKey(request), request);
 
   return {
     text: textParts.join('\n').replace(/\n{3,}/g, '\n\n').trim(),
     files: [...byPath.values()],
     media: [...mediaByFile.values()],
+    web: [...webByKey.values()],
   };
 }
 

@@ -7,6 +7,8 @@ import { streamChat, type WireMessage } from '@/lib/ai/chat';
 import { parseAssistantReply } from '@/lib/ai/parser';
 import { buildSystemPrompt } from '@/lib/ai/prompts';
 import { expectsFileOutput, resolveAssistantText } from '@/lib/ai/turn-intent';
+import { executeWebRequests } from '@/lib/ai/web-tools';
+import { buildWebResultsMessage, EMPTY_WEB_BUDGET, planWebRound, type WebBudget } from '@/lib/ai/web-tools-core';
 import { getMediaLabPromptContext, handleMediaRequests } from '@/lib/medialab-tool';
 import { listFiles, newId, readChat, writeChat, writeFile } from '@/lib/storage/projects';
 import type { ChatMessage, ProjectMeta, ProviderConnection } from '@/lib/types';
@@ -68,34 +70,73 @@ export async function runVibeTurn(opts: {
 
   let assistant: ChatMessage = { id: newId(), role: 'assistant', text: '', createdAt: Date.now() };
   try {
+    // The agentic loop mutates a working copy of the wire conversation:
+    // research replies + their results ride along as extra turns, but only
+    // the LAST reply becomes the chat message (docs/AGENT-WEB.md).
+    const conversation: WireMessage[] = [...wire];
+    // Research activity lines shown above the live stream so the build card
+    // keeps moving while the model reads the web.
+    let progress = '';
+    const onDelta = (partial: string) =>
+      callbacks.onStream(progress ? `${progress}\n\n${partial}` : partial);
+
     let raw = await streamChat({
       connection,
       secret,
       model,
       system,
-      messages: wire,
+      messages: conversation,
       signal,
-      onDelta: callbacks.onStream,
+      onDelta,
     });
 
     const expectedFileOutput = expectsFileOutput(userText, files.length > 0);
     let parsed = parseAssistantReply(raw);
+
+    // Bounded web-research loop: execute the reply's ```web fences, feed the
+    // results back, and stream a continuation. Budgets in web-tools-core cap
+    // rounds and requests; when they run out, the reply stands as-is.
+    let webBudget: WebBudget = EMPTY_WEB_BUDGET;
+    for (;;) {
+      const round = planWebRound(parsed.web, webBudget);
+      if (!round) break;
+      webBudget = round.next;
+      const results = await executeWebRequests(round.execute, {
+        signal,
+        onProgress: (label) => {
+          progress = progress ? `${progress}\n${label}` : label;
+          callbacks.onStream(progress);
+        },
+      });
+      conversation.push({ role: 'assistant', content: raw });
+      conversation.push({ role: 'user', content: buildWebResultsMessage(results, round.exhausted) });
+      raw = await streamChat({
+        connection,
+        secret,
+        model,
+        system,
+        messages: conversation,
+        signal,
+        onDelta,
+      });
+      parsed = parseAssistantReply(raw);
+    }
     // A media fence IS real output — never trigger the fileless retry over
     // a reply that requested media, even without code blocks.
     if (parsed.files.length === 0 && parsed.media.length === 0 && expectedFileOutput) {
-      callbacks.onStream(`${raw}\n\n⚡ Tightening the build format…`);
+      onDelta(`${raw}\n\n⚡ Tightening the build format…`);
       raw = await streamChat({
         connection,
         secret,
         model,
         system,
         messages: [
-          ...wire,
+          ...conversation,
           { role: 'assistant', content: raw },
           { role: 'user', content: FILELESS_BUILD_RETRY },
         ],
         signal,
-        onDelta: callbacks.onStream,
+        onDelta,
       });
       parsed = parseAssistantReply(raw);
     }

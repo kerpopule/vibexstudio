@@ -169,6 +169,59 @@ describe('medialab fences', () => {
   });
 });
 
+describe('web fences', () => {
+  it('parses a search fence (body ignored)', () => {
+    const raw = ['Checking the docs first!', '```web search=chart.js cdn latest', '```'].join('\n');
+    const out = parseAssistantReply(raw);
+    expect(out.web).toEqual([{ type: 'search', query: 'chart.js cdn latest' }]);
+    expect(out.files).toEqual([]);
+    expect(out.text).toContain('🔎 Web search: `chart.js cdn latest`');
+    expect(out.text).toContain('Checking the docs first!');
+  });
+
+  it('parses a url fence and ignores any body', () => {
+    const raw = ['```web url=https://developer.mozilla.org/canvas', 'this body is ignored', '```'].join(
+      '\n'
+    );
+    const out = parseAssistantReply(raw);
+    expect(out.web).toEqual([{ type: 'fetch', url: 'https://developer.mozilla.org/canvas' }]);
+    expect(out.text).toContain('📄 Web page: https://developer.mozilla.org/canvas');
+    expect(out.text).not.toContain('this body is ignored');
+  });
+
+  it('collects multiple fences and de-dupes repeats (last wins, like files)', () => {
+    const raw = [
+      '```web search=a',
+      '```',
+      '```web url=https://a.com/x',
+      '```',
+      '```web search=A',
+      '```',
+    ].join('\n');
+    const out = parseAssistantReply(raw);
+    expect(out.web).toEqual([
+      { type: 'search', query: 'A' },
+      { type: 'fetch', url: 'https://a.com/x' },
+    ]);
+  });
+
+  it('keeps invalid fences (http url, missing attr) in the chat text', () => {
+    for (const info of ['url=http://insecure.com', 'lookup=cats', '']) {
+      const raw = [`\`\`\`web ${info}`.trimEnd(), 'body', '```'].join('\n');
+      const out = parseAssistantReply(raw);
+      expect(out.web).toEqual([]);
+      expect(out.text).toContain('body');
+    }
+  });
+
+  it('a web fence is never treated as a project file', () => {
+    const raw = ['```web url=https://a.com', '<!doctype html><html></html>', '```'].join('\n');
+    const out = parseAssistantReply(raw);
+    expect(out.files).toEqual([]);
+    expect(out.web).toEqual([{ type: 'fetch', url: 'https://a.com' }]);
+  });
+});
+
 describe('sanitizePath' , () => {
   it('accepts normal relative paths', () => {
     expect(sanitizePath('index.html')).toBe('index.html');
