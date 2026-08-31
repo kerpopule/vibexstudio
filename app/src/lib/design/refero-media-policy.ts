@@ -63,6 +63,30 @@ export const REFERO_MEDIA_POLICY_SCRIPT = `
     }
   };
 
+  // Refero starts playback from script as cards scroll into view, which
+  // sails past attribute stripping. Gate play() itself: it only works
+  // within a second of a real touch on the page.
+  let lastTouch = 0;
+  const markTouch = () => { lastTouch = Date.now(); };
+  document.addEventListener('touchend', markTouch, { capture: true, passive: true });
+  document.addEventListener('click', markTouch, { capture: true, passive: true });
+  const mediaPrototype = window.HTMLMediaElement && HTMLMediaElement.prototype;
+  if (mediaPrototype && !mediaPrototype.__vibexPlayGate) {
+    const nativePlay = mediaPrototype.play;
+    try {
+      Object.defineProperty(mediaPrototype, 'play', {
+        configurable: true,
+        writable: true,
+        value: function gatedPlay() {
+          if (Date.now() - lastTouch < 1000) return nativePlay.call(this);
+          try { this.pause(); } catch {}
+          return Promise.resolve();
+        },
+      });
+      mediaPrototype.__vibexPlayGate = true;
+    } catch {}
+  }
+
   installFullscreenGuards();
   normalize(document);
   document.addEventListener('DOMContentLoaded', () => normalize(document), { once: true });

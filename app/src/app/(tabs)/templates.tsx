@@ -53,6 +53,11 @@ export default function TemplatesScreen() {
   const [currentUrl, setCurrentUrl] = useState(REFERO_HOME);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // A slow first load must never become a dead spinner: one automatic
+  // reload after 12s, then a visible Retry.
+  const [stalled, setStalled] = useState(false);
+  const stallTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoRetried = useRef(false);
   const [capturing, setCapturing] = useState(false);
   const [pendingChoice, setPendingChoice] = useState<DesignReference | null>(null);
   const captureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -166,6 +171,16 @@ export default function TemplatesScreen() {
   };
 
   const onNavigationStateChange = (navigation: WebViewNavigation) => {
+    // Navigation policy runs POST-hoc: the synchronous
+    // onShouldStartLoadWithRequest gate raced WebKit's decision handler on
+    // cold starts (busy JS thread → decision timeout → permanent 50% stall).
+    // Off-site navigations bounce back and open externally instead.
+    if (navigation.url && classifyReferoNavigation(navigation.url) === 'external') {
+      webRef.current?.goBack();
+      openExternal(navigation.url);
+      return;
+    }
+
     pendingCapture.current = null;
     if (captureTimer.current) clearTimeout(captureTimer.current);
     captureTimer.current = null;
@@ -195,12 +210,10 @@ export default function TemplatesScreen() {
           ref={webRef}
           source={{ uri: REFERO_HOME }}
           {...referoWebViewMediaProps}
-          injectedJavaScriptBeforeContentLoaded={REFERO_MEDIA_POLICY_SCRIPT}
           injectedJavaScript={REFERO_MEDIA_POLICY_SCRIPT}
           style={styles.webView}
           onMessage={onMessage}
           onNavigationStateChange={onNavigationStateChange}
-          onShouldStartLoadWithRequest={(request) => allowNavigation(request.url)}
           onOpenWindow={(event) => {
             const url = event.nativeEvent.targetUrl;
             if (classifyReferoNavigation(url) === 'external') openExternal(url);
@@ -209,8 +222,22 @@ export default function TemplatesScreen() {
           onLoadStart={() => {
             setLoading(true);
             setLoadError(null);
+            setStalled(false);
+            if (stallTimer.current) clearTimeout(stallTimer.current);
+            stallTimer.current = setTimeout(() => {
+              if (!autoRetried.current) {
+                autoRetried.current = true;
+                webRef.current?.reload();
+              } else {
+                setStalled(true);
+              }
+            }, 12_000);
           }}
-          onLoadEnd={() => setLoading(false)}
+          onLoadEnd={() => {
+            if (stallTimer.current) clearTimeout(stallTimer.current);
+            autoRetried.current = false;
+            setLoading(false);
+          }}
           onError={(event) => {
             setLoading(false);
             setLoadError(event.nativeEvent.description || 'Refero could not be reached.');
@@ -228,9 +255,14 @@ export default function TemplatesScreen() {
         />
 
         {loading && !loadError ? (
-          <View style={[styles.overlay, { backgroundColor: theme.background }]} pointerEvents="none">
+          <View style={[styles.overlay, { backgroundColor: theme.background }]} pointerEvents={stalled ? 'auto' : 'none'}>
             <ActivityIndicator color={theme.tint} />
             <ThemedText type="small" themeColor="textSecondary">Loading Refero styles…</ThemedText>
+            {stalled ? (
+              <Pressable onPress={() => { autoRetried.current = false; webRef.current?.reload(); }} hitSlop={8}>
+                <ThemedText type="smallBold" themeColor="tint">Taking a while — tap to retry</ThemedText>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
 

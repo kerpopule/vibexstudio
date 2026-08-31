@@ -52,7 +52,7 @@
           "NSAllowsLocalNetworking": true
         }
       },
-      "buildNumber": "20",
+      "buildNumber": "21",
       "usesIcloudStorage": true,
       "entitlements": {
         "com.apple.developer.icloud-services": [
