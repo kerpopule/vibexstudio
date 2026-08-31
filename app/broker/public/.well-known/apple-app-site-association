@@ -1,0 +1,15 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["2D4KQ5RBVQ.studio.vibex.app"],
+        "components": [
+          {
+            "/": "/connect/*",
+            "comment": "Only VibeXStudio private invite links"
+          }
+        ]
+      }
+    ]
+  }
+}

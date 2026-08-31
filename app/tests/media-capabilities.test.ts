@@ -39,6 +39,10 @@ describe('canGenerateImages', () => {
     expect(canGenerateImages(conn({ kind: 'custom' }))).toBe(false);
   });
 
+  it('allows fal.ai connections (cloud rendering)', () => {
+    expect(canGenerateImages(conn({ kind: 'fal' }))).toBe(true);
+  });
+
   it('lets a Grok subscription make images, but not other subscriptions', () => {
     expect(canGenerateImages(conn({ subscription: 'xai-oauth' }))).toBe(true);
     expect(canGenerateImages(conn({ subscription: 'kimi-oauth' }))).toBe(false);
@@ -47,8 +51,9 @@ describe('canGenerateImages', () => {
 });
 
 describe('canGenerateVideo', () => {
-  it('is Gemini-only (Veo)', () => {
+  it('is Gemini (Veo) or fal.ai', () => {
     expect(canGenerateVideo(conn({ kind: 'gemini' }))).toBe(true);
+    expect(canGenerateVideo(conn({ kind: 'fal' }))).toBe(true);
     expect(canGenerateVideo(conn({ kind: 'openai' }))).toBe(false);
     expect(canGenerateVideo(conn({ kind: 'xai' }))).toBe(false);
   });

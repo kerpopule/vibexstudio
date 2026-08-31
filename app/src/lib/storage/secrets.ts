@@ -41,6 +41,32 @@ function refreshKeyFor(connectionId: string): string {
   return `vibex.refresh.${connectionId.replace(/[^A-Za-z0-9._-]/g, '_')}`;
 }
 
+function privateDeviceProofKeyFor(connectionId: string): string {
+  return `vibex.private-proof.${connectionId.replace(/[^A-Za-z0-9._-]/g, '_')}`;
+}
+
+const PRIVATE_INSTALLATION_PROOF_KEY = 'vibex.private.installation-proof';
+
+export async function getPrivateInstallationProof(): Promise<string | null> {
+  return SecureStore.getItemAsync(PRIVATE_INSTALLATION_PROOF_KEY);
+}
+
+export async function setPrivateInstallationProof(proof: string): Promise<void> {
+  await SecureStore.setItemAsync(PRIVATE_INSTALLATION_PROOF_KEY, proof);
+}
+
+export async function setPrivateDeviceProof(connectionId: string, proof: string): Promise<void> {
+  await SecureStore.setItemAsync(privateDeviceProofKeyFor(connectionId), proof);
+}
+
+export async function getPrivateDeviceProof(connectionId: string): Promise<string | null> {
+  return SecureStore.getItemAsync(privateDeviceProofKeyFor(connectionId));
+}
+
+export async function clearPrivateDeviceProof(connectionId: string): Promise<void> {
+  await SecureStore.deleteItemAsync(privateDeviceProofKeyFor(connectionId));
+}
+
 export async function setProviderRefreshToken(connectionId: string, token: string): Promise<void> {
   await SecureStore.setItemAsync(refreshKeyFor(connectionId), token);
 }

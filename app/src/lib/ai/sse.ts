@@ -12,6 +12,8 @@ export interface SseRequest {
   body: unknown;
   /** Called once per `data: …` event (JSON payloads, '[DONE]' is filtered out). */
   onEvent: (data: string) => void;
+  /** Called once when response headers become readable. */
+  onHeaders?: (get: (name: string) => string | null) => void;
   signal?: AbortSignal;
 }
 
@@ -20,6 +22,14 @@ export function ssePost(req: SseRequest): Promise<void> {
     const xhr = new XMLHttpRequest();
     let cursor = 0;
     let buffer = '';
+    let sentHeaders = false;
+
+    const emitHeaders = () => {
+      if (!sentHeaders && xhr.readyState >= 2) {
+        sentHeaders = true;
+        req.onHeaders?.((name) => xhr.getResponseHeader(name));
+      }
+    };
 
     const pump = (final: boolean) => {
       const text = xhr.responseText ?? '';
@@ -48,8 +58,10 @@ export function ssePost(req: SseRequest): Promise<void> {
     for (const [key, value] of Object.entries(req.headers)) xhr.setRequestHeader(key, value);
     xhr.setRequestHeader('Accept', 'text/event-stream');
 
-    xhr.onprogress = () => pump(false);
+    xhr.onreadystatechange = emitHeaders;
+    xhr.onprogress = () => { emitHeaders(); pump(false); };
     xhr.onload = () => {
+      emitHeaders();
       if (xhr.status >= 200 && xhr.status < 300) {
         pump(true);
         resolve();

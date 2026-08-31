@@ -12,7 +12,7 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { toRepoName } from '@/lib/github/api';
 import { buildImportDeepLink } from '@/lib/github/sharePage';
-import { GitHubSyncConflictError, syncProjectToGitHub, type SyncProgress } from '@/lib/github/sync';
+import { changeRepoVisibility, GitHubSyncConflictError, syncProjectToGitHub, type SyncProgress } from '@/lib/github/sync';
 import { DEPLOYMENT_PROVIDERS, type DeploymentProvider } from '@/lib/share/deploymentProviders';
 import { exportProjectBundle, shareMessageFor } from '@/lib/share/exportProject';
 import { readProject } from '@/lib/storage/projects';
@@ -58,6 +58,43 @@ export function ShareView({
 
   const link = project.github;
   const liveWebUrl = link?.pagesUrl ? link.pagesUrl.replace(/\/+$/, '') : null;
+
+  /** Flip the linked repo's visibility (with the honest consequences). */
+  const setVisibility = (makePrivate: boolean) => {
+    Alert.alert(
+      makePrivate ? 'Make this repo private?' : 'Make this repo public?',
+      makePrivate
+        ? 'Your public share link stops working — GitHub takes the Pages site down for private repos on free plans.'
+        : 'Anyone will be able to see this app’s code on GitHub. Going public turns on your free share link.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: makePrivate ? 'Make private' : 'Make public',
+          style: makePrivate ? 'destructive' : 'default',
+          onPress: async () => {
+            if (busy) return;
+            const token = await getGitHubToken();
+            if (!token) {
+              setError('GitHub token missing from the keychain. Reconnect GitHub in Settings.');
+              return;
+            }
+            setBusy(true);
+            setError(null);
+            try {
+              const next = await changeRepoVisibility({ token, projectId: project.id, makePrivate });
+              setIsPrivate(next.isPrivate);
+              const updated = await readProject(project.id);
+              if (updated) onProjectChanged(updated);
+            } catch (e) {
+              setError(e instanceof Error ? e.message : 'Could not change the repo visibility.');
+            } finally {
+              setBusy(false);
+            }
+          },
+        },
+      ]
+    );
+  };
   const shareUrl = liveWebUrl ? `${liveWebUrl}/s/` : null;
   const deepLink = link ? buildImportDeepLink(link.owner, link.repo, link.branch) : null;
 
@@ -234,14 +271,26 @@ export function ShareView({
               ) : null}
             </>
           ) : (
-            <Row
-              title="No public web link yet"
-              subtitle={
-                link.isPrivate
-                  ? 'This repo is private. GitHub Pages public sharing needs a public repo on free GitHub, or a paid GitHub plan for private Pages.'
-                  : 'GitHub Pages is still provisioning — sync again in a minute to pick up the URL.'
-              }
-            />
+            <>
+              <Row
+                title="No public web link yet"
+                subtitle={
+                  link.isPrivate
+                    ? 'This repo is private, and private repos can’t serve a share link on free GitHub.'
+                    : 'GitHub Pages is still provisioning — sync again in a minute to pick up the URL.'
+                }
+              />
+              {link.isPrivate ? (
+                <>
+                  <RowDivider />
+                  <Row
+                    title="Make repo public & get my link"
+                    subtitle="Turns on GitHub Pages — anyone can then view the code and open your app"
+                    onPress={() => setVisibility(false)}
+                  />
+                </>
+              ) : null}
+            </>
           )}
           {deepLink ? (
             <>
@@ -253,6 +302,16 @@ export function ShareView({
               />
             </>
           ) : null}
+          <RowDivider />
+          <Row
+            title={link.isPrivate ? 'Repository is private' : 'Repository is public'}
+            subtitle={
+              link.isPrivate
+                ? 'Tap to make it public (enables your share link)'
+                : 'Tap to make it private (takes your public link down)'
+            }
+            onPress={() => setVisibility(!link.isPrivate)}
+          />
         </Section>
       ) : null}
       {link ? (

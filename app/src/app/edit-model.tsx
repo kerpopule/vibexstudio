@@ -17,6 +17,7 @@ export default function EditModelScreen() {
   const providers = useApp((s) => s.providers);
   const setConnectionModel = useApp((s) => s.setConnectionModel);
   const refreshSubscriptionIfNeeded = useApp((s) => s.refreshSubscriptionIfNeeded);
+  const refreshPrivateProviderIfNeeded = useApp((s) => s.refreshPrivateProviderIfNeeded);
   const connection = providers.find((p) => p.id === connectionId) ?? null;
 
   const [models, setModels] = useState<string[]>(connection ? staticModels(connection) : []);
@@ -31,6 +32,7 @@ export default function EditModelScreen() {
       try {
         // Fresh token for subscriptions so the models call authenticates.
         if (connection.subscription) await refreshSubscriptionIfNeeded(connection.id).catch(() => {});
+        if (connection.privateProvider) await refreshPrivateProviderIfNeeded(connection.id);
         const secret = (await getProviderSecret(connection.id)) ?? '';
         const live = await fetchModels(connection, secret);
         if (!cancelled) setModels(live);

@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -36,9 +36,11 @@ export default function ProjectScreen() {
   const bumpFiles = useChat((s) => s.bumpFiles);
   const lastPreviewSignal = useRef(previewReadySignal);
 
-  useEffect(() => {
-    if (id) readProject(id).then(setProject);
-  }, [id]);
+  useFocusEffect(
+    useCallback(() => {
+      if (id) void readProject(id).then(setProject);
+    }, [id])
+  );
 
   // On phones, new renderable output opens an immersive preview. Wide windows
   // already keep chat and preview visible together, so generation never
@@ -119,7 +121,7 @@ export default function ProjectScreen() {
       {wide ? (
         <View style={[styles.wideWorkspace, activePane !== 'chat' && styles.paneHidden]}>
           <View style={[styles.wideChat, { borderRightColor: theme.border }]}>
-            <ChatView project={project} />
+            <ChatView project={project} onProjectChanged={setProject} />
           </View>
           <View style={styles.widePreview}>
             <PreviewView
@@ -132,7 +134,7 @@ export default function ProjectScreen() {
       ) : (
         <>
           <View style={[styles.pane, pane !== 'chat' && styles.paneHidden]}>
-            <ChatView project={project} />
+            <ChatView project={project} onProjectChanged={setProject} />
           </View>
           <View
             style={[

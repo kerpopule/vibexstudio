@@ -31,6 +31,13 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => <Ionicons name="color-wand" color={color} size={size} />,
         }}
       />
+      <Tabs.Screen
+        name="templates"
+        options={{
+          title: 'Templates',
+          tabBarIcon: ({ color, size }) => <Ionicons name="albums" color={color} size={size} />,
+        }}
+      />
       {/* Always present: the on-device studio works with no server paired,
           and a paired server adds its full web UI behind a toggle. */}
       <Tabs.Screen

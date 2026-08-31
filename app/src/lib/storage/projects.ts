@@ -11,7 +11,7 @@
  */
 import { Directory, File, Paths } from 'expo-file-system';
 
-import type { ChatMessage, ProjectFile, ProjectMeta } from '@/lib/types';
+import type { ChatMessage, DesignReference, ProjectFile, ProjectMeta } from '@/lib/types';
 import { icloudDocumentsUrl } from '../../../modules/vibex-icloud';
 
 /**
@@ -127,7 +127,11 @@ export async function writeProject(meta: ProjectMeta): Promise<void> {
   new File(dir, 'project.json').write(JSON.stringify(meta, null, 2));
 }
 
-export async function createProject(name: string, emoji: string): Promise<ProjectMeta> {
+export async function createProject(
+  name: string,
+  emoji: string,
+  designReference?: DesignReference
+): Promise<ProjectMeta> {
   const now = Date.now();
   const meta: ProjectMeta = {
     id: newId(),
@@ -136,6 +140,7 @@ export async function createProject(name: string, emoji: string): Promise<Projec
     description: '',
     createdAt: now,
     updatedAt: now,
+    designReference,
   };
   await writeProject(meta);
   filesDir(meta.id).create({ intermediates: true });
@@ -234,13 +239,74 @@ export async function listFiles(id: string): Promise<ProjectFile[]> {
   return out.sort((a, b) => a.path.localeCompare(b.path));
 }
 
+export interface ProjectFileManifestEntry {
+  path: string;
+  encoding: 'utf-8' | 'base64';
+  bytes: number;
+}
+
+function collectFileManifest(dir: Directory, prefix: string, out: ProjectFileManifestEntry[]): void {
+  for (const entry of dir.list()) {
+    if (entry instanceof Directory) {
+      collectFileManifest(entry, `${prefix}${entry.name}/`, out);
+    } else {
+      const path = `${prefix}${entry.name}`;
+      out.push({ path, encoding: isBinaryPath(path) ? 'base64' : 'utf-8', bytes: entry.size });
+    }
+  }
+}
+
+/** Metadata-only listing for agent manifests; file contents are never loaded. */
+export async function listProjectFileManifest(id: string): Promise<ProjectFileManifestEntry[]> {
+  const dir = filesDir(id);
+  if (!dir.exists) return [];
+  const out: ProjectFileManifestEntry[] = [];
+  collectFileManifest(dir, '', out);
+  return out.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+export function assertProjectFilePathContained(id: string, path: string): void {
+  const root = filesDir(id).uri.replace(/\/?$/, '/');
+  const target = new File(filesDir(id), ...path.split('/')).uri;
+  if (!target.startsWith(root)) {
+    throw new Error('Project path resolves outside the project root.');
+  }
+}
+
+export async function getProjectFileInfo(id: string, path: string): Promise<ProjectFileManifestEntry | null> {
+  assertProjectFilePathContained(id, path);
+  const file = new File(filesDir(id), ...path.split('/'));
+  if (!file.exists) return null;
+  return { path, encoding: isBinaryPath(path) ? 'base64' : 'utf-8', bytes: file.size };
+}
+
 export async function readFile(id: string, path: string): Promise<string | null> {
+  assertProjectFilePathContained(id, path);
   const file = new File(filesDir(id), ...path.split('/'));
   if (!file.exists) return null;
   return file.text();
 }
 
+/** Strict Agent Connect read: malformed UTF-8 is rejected, never replaced or base64-encoded. */
+export async function readAgentUtf8File(id: string, path: string): Promise<string | null> {
+  assertProjectFilePathContained(id, path);
+  const file = new File(filesDir(id), ...path.split('/'));
+  if (!file.exists) return null;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(await file.bytes());
+  } catch {
+    throw new Error('read_project_file supports valid UTF-8 text files only.');
+  }
+}
+
 export async function writeFile(id: string, path: string, content: string): Promise<void> {
+  writeFileWithoutTouch(id, path, content);
+  await touchProject(id);
+}
+
+/** Internal transaction primitive: callers must touch metadata after commit. */
+export function writeFileWithoutTouch(id: string, path: string, content: string): void {
+  assertProjectFilePathContained(id, path);
   const segments = path.split('/').filter(Boolean);
   let dir = filesDir(id);
   if (!dir.exists) dir.create({ intermediates: true });
@@ -249,13 +315,18 @@ export async function writeFile(id: string, path: string, content: string): Prom
     if (!dir.exists) dir.create();
   }
   new File(dir, segments[segments.length - 1]).write(content);
-  await touchProject(id);
 }
 
 export async function deleteFile(id: string, path: string): Promise<void> {
+  deleteFileWithoutTouch(id, path);
+  await touchProject(id);
+}
+
+/** Internal transaction primitive: callers must touch metadata after commit. */
+export function deleteFileWithoutTouch(id: string, path: string): void {
+  assertProjectFilePathContained(id, path);
   const file = new File(filesDir(id), ...path.split('/'));
   if (file.exists) file.delete();
-  await touchProject(id);
 }
 
 /**

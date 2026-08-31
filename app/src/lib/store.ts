@@ -7,12 +7,22 @@ import { create } from 'zustand';
 
 import { PROVIDERS } from '@/lib/ai/registry';
 import { refreshSubscription } from '@/lib/ai/subscriptionOauth';
+import {
+  buildDesignAttachedMessage,
+  buildExistingProjectDesignHandoffState,
+  removeDesignReference,
+} from '@/lib/design/references';
+import {
+  refreshPrivateCredential,
+  revokePrivateDevice,
+  type PendingPrivateProvider,
+} from '@/lib/private-provider/client';
 import { getAuthenticatedUser } from '@/lib/github/api';
 import * as projectStore from '@/lib/storage/projects';
 import * as secrets from '@/lib/storage/secrets';
 import * as settings from '@/lib/storage/settings';
 import type { AppearancePref, MediaLabLink } from '@/lib/storage/settings';
-import type { GitHubAccount, ProjectMeta, ProviderConnection, ProviderKind } from '@/lib/types';
+import type { DesignReference, GitHubAccount, ProjectMeta, ProviderConnection, ProviderKind } from '@/lib/types';
 
 interface AppState {
   hydrated: boolean;
@@ -22,13 +32,19 @@ interface AppState {
   appearance: AppearancePref;
   onboardingComplete: boolean;
   mediaLab: MediaLabLink | null;
+  /** Job id a tapped "finished" notification should land on (in-memory). */
+  mediaLabFocusJob: string | null;
+  pendingDesignReference: DesignReference | null;
 
   hydrate: () => Promise<void>;
   setAppearance: (pref: AppearancePref) => Promise<void>;
   setMediaLab: (link: MediaLabLink | null) => Promise<void>;
+  setMediaLabFocusJob: (id: string | null) => void;
   completeOnboarding: () => Promise<void>;
   refreshProjects: () => Promise<void>;
-  createProject: (name: string, emoji: string) => Promise<ProjectMeta>;
+  createProject: (name: string, emoji: string, designReference?: DesignReference) => Promise<ProjectMeta>;
+  setPendingDesignReference: (reference: DesignReference | null) => void;
+  setProjectDesignReference: (id: string, reference?: DesignReference) => Promise<ProjectMeta>;
   deleteProject: (id: string) => Promise<void>;
 
   connectGitHub: (token: string, auth: GitHubAccount['auth']) => Promise<GitHubAccount>;
@@ -41,6 +57,7 @@ interface AppState {
     label?: string;
     baseUrl?: string;
     model?: string;
+    mediaModels?: ProviderConnection['mediaModels'];
   }) => Promise<ProviderConnection>;
   /** Save a connected "bring your subscription" OAuth login. */
   addSubscription: (opts: {
@@ -51,8 +68,10 @@ interface AppState {
     refreshToken?: string;
     expiresAt: number;
   }) => Promise<ProviderConnection>;
+  addPrivateProvider: (pending: PendingPrivateProvider) => Promise<ProviderConnection>;
   /** Refresh a subscription token if it's near expiry. Safe to call always. */
   refreshSubscriptionIfNeeded: (connectionId: string) => Promise<void>;
+  refreshPrivateProviderIfNeeded: (connectionId: string) => Promise<void>;
   removeProvider: (id: string) => Promise<void>;
   setConnectionModel: (id: string, model: string) => Promise<void>;
 }
@@ -65,6 +84,7 @@ export const useApp = create<AppState>((set, get) => ({
   appearance: 'system',
   onboardingComplete: false,
   mediaLab: null,
+  pendingDesignReference: null,
 
   hydrate: async () => {
     // Pre-sync local projects hop into the iCloud container first, so the
@@ -88,6 +108,9 @@ export const useApp = create<AppState>((set, get) => ({
     await settings.setMediaLab(link);
   },
 
+  mediaLabFocusJob: null,
+  setMediaLabFocusJob: (id) => set({ mediaLabFocusJob: id }),
+
   setAppearance: async (pref) => {
     applyAppearance(pref);
     set({ appearance: pref });
@@ -103,10 +126,36 @@ export const useApp = create<AppState>((set, get) => ({
     set({ projects: await projectStore.listProjects() });
   },
 
-  createProject: async (name, emoji) => {
-    const meta = await projectStore.createProject(name, emoji);
-    set({ projects: [meta, ...get().projects] });
+  createProject: async (name, emoji, designReference) => {
+    const reference = designReference ?? get().pendingDesignReference ?? undefined;
+    const meta = await projectStore.createProject(name, emoji, reference);
+    if (reference) {
+      await projectStore.writeChat(meta.id, [buildDesignAttachedMessage(reference)]);
+    }
+    set({ projects: [meta, ...get().projects], pendingDesignReference: null });
     return meta;
+  },
+
+  setPendingDesignReference: (reference) => set({ pendingDesignReference: reference }),
+
+  setProjectDesignReference: async (id, reference) => {
+    const [current, messages] = await Promise.all([
+      projectStore.readProject(id),
+      reference ? projectStore.readChat(id) : Promise.resolve([]),
+    ]);
+    if (!current) throw new Error('Project not found.');
+    const transition = reference
+      ? buildExistingProjectDesignHandoffState(current, messages, reference)
+      : null;
+    const next = transition?.project ?? removeDesignReference(current);
+    await projectStore.writeProject(next);
+    if (transition) await projectStore.writeChat(id, transition.messages);
+    set({
+      projects: get().projects
+        .map((project) => (project.id === id ? next : project))
+        .sort((a, b) => b.updatedAt - a.updatedAt),
+    });
+    return next;
   },
 
   deleteProject: async (id) => {
@@ -135,7 +184,7 @@ export const useApp = create<AppState>((set, get) => ({
     set({ github: null });
   },
 
-  addProvider: async ({ kind, auth, secret, label, baseUrl, model }) => {
+  addProvider: async ({ kind, auth, secret, label, baseUrl, model, mediaModels }) => {
     const spec = PROVIDERS[kind];
     const connection: ProviderConnection = {
       id: projectStore.newId(),
@@ -143,6 +192,7 @@ export const useApp = create<AppState>((set, get) => ({
       auth,
       label: label?.trim() || spec.name,
       baseUrl: baseUrl?.trim() || undefined,
+      mediaModels,
       defaultModel: model?.trim() || spec.defaultModel,
       capabilities: spec.capabilities,
       createdAt: Date.now(),
@@ -175,6 +225,44 @@ export const useApp = create<AppState>((set, get) => ({
     return connection;
   },
 
+  addPrivateProvider: async (pending) => {
+    if (get().providers.some((provider) => provider.privateProvider?.grantId === pending.metadata.grantId)) {
+      throw new Error('This private grant is already connected on this device.');
+    }
+    const connection: ProviderConnection = {
+      id: projectStore.newId(),
+      kind: 'custom',
+      auth: 'apiKey',
+      label: 'Private VibeX Models',
+      baseUrl: pending.baseUrl,
+      defaultModel: pending.defaultModel,
+      capabilities: { chat: true, image: false, video: false },
+      privateProvider: pending.metadata,
+      createdAt: Date.now(),
+    };
+    try {
+      await Promise.all([
+        secrets.setProviderSecret(connection.id, pending.credential),
+        secrets.setProviderRefreshToken(connection.id, pending.refreshHandle),
+        secrets.setPrivateDeviceProof(connection.id, pending.deviceProof),
+      ]);
+      const providers = [...get().providers, connection];
+      await settings.setProviders(providers);
+      set({ providers });
+      pending.credential = '';
+      pending.refreshHandle = '';
+      pending.deviceProof = '';
+      return connection;
+    } catch (error) {
+      await Promise.allSettled([
+        secrets.clearProviderSecret(connection.id),
+        secrets.clearProviderRefreshToken(connection.id),
+        secrets.clearPrivateDeviceProof(connection.id),
+      ]);
+      throw error;
+    }
+  },
+
   refreshSubscriptionIfNeeded: async (connectionId) => {
     const connection = get().providers.find((p) => p.id === connectionId);
     if (!connection?.subscription) return;
@@ -192,9 +280,35 @@ export const useApp = create<AppState>((set, get) => ({
     set({ providers });
   },
 
+  refreshPrivateProviderIfNeeded: async (connectionId) => {
+    const connection = get().providers.find((provider) => provider.id === connectionId);
+    if (!connection?.privateProvider || connection.privateProvider.credentialExpiresAt - Date.now() > 60_000) return;
+    const [refreshHandle, deviceProof] = await Promise.all([
+      secrets.getProviderRefreshToken(connectionId),
+      secrets.getPrivateDeviceProof(connectionId),
+    ]);
+    if (!refreshHandle || !deviceProof) throw new Error('Private device credentials are missing from Keychain.');
+    const refreshed = await refreshPrivateCredential(connection, refreshHandle, deviceProof);
+    await secrets.setProviderSecret(connectionId, refreshed.credential);
+    const providers = get().providers.map((provider) => provider.id === connectionId && provider.privateProvider
+      ? { ...provider, privateProvider: { ...provider.privateProvider, credentialExpiresAt: refreshed.expiresAt } }
+      : provider);
+    await settings.setProviders(providers);
+    set({ providers });
+  },
+
   removeProvider: async (id) => {
+    const connection = get().providers.find((provider) => provider.id === id);
+    if (connection?.privateProvider) {
+      const [credential, deviceProof] = await Promise.all([
+        secrets.getProviderSecret(id),
+        secrets.getPrivateDeviceProof(id),
+      ]);
+      if (credential && deviceProof) await revokePrivateDevice(connection, credential, deviceProof);
+    }
     await secrets.clearProviderSecret(id);
     await secrets.clearProviderRefreshToken(id);
+    await secrets.clearPrivateDeviceProof(id);
     const providers = get().providers.filter((p) => p.id !== id);
     await settings.setProviders(providers);
     set({ providers });

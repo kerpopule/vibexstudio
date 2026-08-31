@@ -3,11 +3,26 @@
  * web apps and returns whole files in a strict block format that
  * `parser.ts` extracts and writes to disk.
  */
-import type { ProjectFile } from '@/lib/types';
+import { buildDesignReferenceContext } from '@/lib/design/references';
+import type { DesignReference, ProjectFile } from '@/lib/types';
 
 export const FILE_BLOCK_OPEN = /^```[a-zA-Z0-9+-]*\s+(?:file[:=]|path[:=])(\S+)\s*$/;
 
-export function buildSystemPrompt(projectName: string, files: ProjectFile[]): string {
+/**
+ * What the media protocol section may advertise. Null/undefined = no Media
+ * Lab paired (images only, generated on-device); with a context, video jobs
+ * run on the paired server and `characters` are its real, cloned people.
+ */
+export interface MediaLabPromptContext {
+  characters: { id: string; name: string }[];
+}
+
+export function buildSystemPrompt(
+  projectName: string,
+  files: ProjectFile[],
+  designReference?: DesignReference,
+  mediaLab?: MediaLabPromptContext | null
+): string {
   const fileList = files.length
     ? files.map((f) => `- ${f.path}${f.encoding === 'base64' ? ' (binary asset)' : ` (${f.content.length} chars)`}`).join('\n')
     : '(no files yet — this is a brand new project)';
@@ -16,10 +31,11 @@ export function buildSystemPrompt(projectName: string, files: ProjectFile[]): st
     .filter((f) => f.encoding !== 'base64')
     .map((f) => `${fileBlockHeader(f.path)}\n${f.content}\n\`\`\``)
     .join('\n\n');
+  const designContext = buildDesignReferenceContext(designReference);
 
   return `You are VibeX — the AI builder inside VibeXStudio, a mobile app where people "vibe code" real web apps from their phone. You turn a one-line idea into a polished, running app in one shot.
 
-You are building the project "${projectName}": a self-contained static web app that runs in a mobile WebView and on GitHub Pages.
+You are building the project "${projectName}": a self-contained static web app that runs in a mobile WebView and on GitHub Pages.${designContext ? `\n\n${designContext}` : ''}
 
 ## What "good" looks like (this is the bar — clear it every time)
 - SHIP SOMETHING COMPLETE. Build the whole thing the user asked for, working end to end on the first try. No TODOs, no "you could add…", no placeholder text, no dead buttons, no lorem ipsum. Every button does something. Every screen is reachable.
@@ -58,10 +74,48 @@ CRITICAL: the \`file=\` attribute in the fence info string is what saves the fil
 
 If you do not include at least one \`file=\` block on a build/edit request, you have failed the task. Multiple files = multiple blocks. Outside the blocks, keep commentary short, friendly, and in your VibeX voice: one or two sentences about what you built and one thing to try. Never describe code you did not output. If the user is just chatting or asking a question, answer in-character without file blocks.
 
+${buildMediaSection(mediaLab)}
+
 ## Current project files
 ${fileList}
 
 ${currentFiles ? `## Current file contents\n${currentFiles}` : ''}`;
+}
+
+/**
+ * The `medialab` fence protocol — how the model requests generated media.
+ * Kept text-only so it works on every provider, subscriptions included.
+ * Strict by design: only on explicit user request, only under assets/, and
+ * the HTML must reference the exact path (the parser enforces the rest).
+ */
+function buildMediaSection(mediaLab?: MediaLabPromptContext | null): string {
+  const shared = `## Generated media (strict rules)
+You can request AI-generated media with a special fence whose body is the generation prompt (NOT file content):
+
+\`\`\`medialab kind=image file=assets/hero.png
+A cinematic wide shot of a neon-lit arcade at night
+\`\`\`
+
+- ONLY use a medialab fence when the user explicitly asks for media — a photo, video, artwork, or a real person on screen. Never invent media requests for ordinary builds; CSS/SVG/emoji stay your default visuals.
+- \`file=\` must be a NEW path directly under assets/ (image: .png/.jpg — video: .mp4). One fence per asset.
+- Your HTML in the SAME reply must reference that exact path. Generation runs after your reply, so the page must look finished before the media lands: give every generated <img> width/height or a styled container, and every generated <video> a poster or a styled text fallback inside the tag.`;
+
+  if (!mediaLab) {
+    return `${shared}
+- kind=image ONLY. Video generation is unavailable on this device (no Media Lab paired) — if the user asks for video, say they can pair a Media Lab server from the Media Lab tab, and build a graceful still/animated placeholder instead.`;
+  }
+
+  const characters = mediaLab.characters.length
+    ? `\n- You can feature these REAL people (Media Lab cloned characters). Cast one by adding character=<id> to the fence:\n${mediaLab.characters
+        .map((c) => `  - ${c.name} (character=${c.id})`)
+        .join('\n')}`
+    : '';
+  return `${shared}
+- kind=video is available: this phone is paired with the user's Media Lab render server. Videos render in the background over several minutes and drop into the file path automatically.
+
+\`\`\`medialab kind=video character=<optional id> file=assets/intro.mp4
+Describe the shot like a director: who is on camera, what they say or do, setting, tone.
+\`\`\`${characters}`;
 }
 
 export function fileBlockHeader(path: string): string {

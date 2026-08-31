@@ -9,7 +9,7 @@
  * Uses the low-level Git Data API (blobs → tree → commit → ref) so each sync
  * is a single clean commit, straight from the phone.
  */
-import { createRepo, getRepo, ghFetch, GitHubError, toRepoName } from '@/lib/github/api';
+import { createRepo, getRepo, ghFetch, GitHubError, setRepoVisibility, toRepoName } from '@/lib/github/api';
 import { getGitHubSyncConflict, type GitHubSyncConflict } from '@/lib/github/syncPolicy';
 import { renderSharePage } from '@/lib/github/sharePage';
 import { listFiles, readProject, writeProject } from '@/lib/storage/projects';
@@ -159,6 +159,32 @@ export async function syncProjectToGitHub(opts: {
 
   progress({ phase: 'done' });
   return { link, commitSha: commit.sha };
+}
+
+/**
+ * Flip a synced repo between private and public after the fact. Going
+ * public also turns on GitHub Pages (that's the whole point — the free
+ * share link); going private takes the public site down. The project's
+ * stored link is updated either way.
+ */
+export async function changeRepoVisibility(opts: {
+  token: string;
+  projectId: string;
+  makePrivate: boolean;
+}): Promise<GitHubLink> {
+  const meta = await readProject(opts.projectId);
+  const link = meta?.github;
+  if (!meta || !link) throw new Error('This project is not synced to GitHub yet.');
+  await setRepoVisibility(opts.token, link.owner, link.repo, opts.makePrivate);
+  let pagesUrl = link.pagesUrl;
+  if (!opts.makePrivate) {
+    pagesUrl = (await enablePages(opts.token, link.owner, link.repo, link.branch)) ?? pagesUrl;
+  } else {
+    pagesUrl = undefined;
+  }
+  const next: GitHubLink = { ...link, isPrivate: opts.makePrivate, pagesUrl };
+  await writeProject({ ...meta, github: next, updatedAt: Date.now() });
+  return next;
 }
 
 async function getHeadSha(token: string, owner: string, repo: string, branch: string): Promise<string | null> {

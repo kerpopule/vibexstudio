@@ -38,6 +38,7 @@ import { Glass } from '@/components/ui/glass';
 import { ScalePress } from '@/components/ui/scale-press';
 import { Radii, Shadows, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { falModelName, recommendedFalModel } from '@/lib/ai/fal-catalog';
 import { canGenerateImages, canGenerateVideo } from '@/lib/ai/media';
 import { providerGlyph } from '@/lib/ai/models';
 import type { MediaLabLink } from '@/lib/storage/settings';
@@ -58,7 +59,14 @@ export default function MediaLabScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      {serverActive ? <ServerView link={mediaLab} /> : <StudioView topInset={mediaLab ? 44 : 0} />}
+      {/* When the switch pill floats over the top, both views clear it:
+          the studio pads its scroll content, the server view pushes the
+          whole WebView down so the site's own header stays tappable. */}
+      {serverActive ? (
+        <ServerView link={mediaLab} topInset={insets.top + 52} />
+      ) : (
+        <StudioView topInset={mediaLab ? 52 : 0} />
+      )}
       {mediaLab ? (
         <Glass radius={Radii.xl} style={[styles.switchPill, { top: insets.top + Spacing.one }]}>
           {(['device', 'server'] as const).map((v) => {
@@ -104,8 +112,19 @@ async function probe(url: string): Promise<boolean> {
   }
 }
 
-function ServerView({ link }: { link: MediaLabLink }) {
+function ServerView({ link, topInset }: { link: MediaLabLink; topInset: number }) {
   const theme = useTheme();
+  const focusJob = useApp((s) => s.mediaLabFocusJob);
+  const clearFocusJob = useApp((s) => s.setMediaLabFocusJob);
+  // A tapped "finished" notification lands on that item: the server opens
+  // ?job=<id> straight to the screening. Consume the focus once.
+  const sourceUri = focusJob
+    ? `${link.url.replace(/\/+$/, '')}/?job=${encodeURIComponent(focusJob)}`
+    : link.url;
+  useEffect(() => {
+    if (focusJob) clearFocusJob(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [reach, setReach] = useState<Reach>('checking');
   const checkedFor = useRef<string | null>(null);
 
@@ -166,8 +185,9 @@ function ServerView({ link }: { link: MediaLabLink }) {
 
   return (
     <View style={styles.container}>
+      <View style={{ height: topInset }} />
       <WebView
-        source={{ uri: link.url }}
+        source={{ uri: sourceUri }}
         style={styles.web}
         allowsBackForwardNavigationGestures
         sharedCookiesEnabled
@@ -306,7 +326,7 @@ function StudioView({ topInset }: { topInset: number }) {
               placeholder={
                 mode === 'image'
                   ? 'Describe the image — style, subject, mood…'
-                  : 'Describe the shot — Veo renders 5–8 seconds…'
+                  : 'Describe the shot — you get a few seconds of video…'
               }
               placeholderTextColor={theme.textSecondary}
               value={prompt}
@@ -325,13 +345,17 @@ function StudioView({ topInset }: { topInset: number }) {
       ) : (
         <View style={[styles.connectCard, { backgroundColor: theme.backgroundElement }, Shadows.card]}>
           <ThemedText type="smallBold">
-            {mode === 'image' ? 'No image-capable AI connected yet' : 'Video needs Google Gemini (Veo)'}
+            {mode === 'image' ? 'Nothing can make images yet' : 'Nothing can make video yet'}
           </ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            {mode === 'image'
-              ? 'Connect Gemini, OpenAI, or Grok — an API key, or your SuperGrok / X Premium+ subscription.'
-              : 'Add a Gemini API key and this switches on. Grok and OpenAI can still make images.'}
+            Pick how you want to create — your phone alone works great, and there are upgrades when
+            you want them.
           </ThemedText>
+          <Button
+            title="Set up Media Lab"
+            onPress={() => router.push('/media-lab-setup')}
+            style={styles.setupBtn}
+          />
           <View style={styles.actions}>
             <Pressable onPress={() => router.push('/connect-provider')} hitSlop={8}>
               <ThemedText type="smallBold" themeColor="tint">Add a provider</ThemedText>
@@ -411,6 +435,11 @@ function ProviderChip({
 
 /** Short engine label for the picker chips (the image/video model, not chat). */
 function engineLabel(p: ProviderConnection, mode: 'image' | 'video'): string {
+  if (p.kind === 'fal') {
+    // Recommended-first: an unset choice shows (and uses) the catalog default.
+    const model = p.mediaModels?.[mode] || recommendedFalModel(mode);
+    return falModelName(model);
+  }
   if (mode === 'video') return 'Veo';
   if (p.subscription === 'xai-oauth' || p.kind === 'xai') return 'Grok Imagine';
   if (p.kind === 'openai') return 'GPT Image';
@@ -609,6 +638,9 @@ const styles = StyleSheet.create({
     borderRadius: Radii.lg,
     padding: Spacing.three,
     gap: Spacing.one,
+  },
+  setupBtn: {
+    marginTop: Spacing.one,
   },
   gallery: {
     paddingHorizontal: Spacing.three,

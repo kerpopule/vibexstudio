@@ -8,6 +8,7 @@ from fastapi import FastAPI, File, Form, Header, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from media_lab_core import installer as engine_installer
 from runner.audio_signal_gate import audio_signal_metrics
 from runner import h3_reference as _h3ref   # H3 Ref2VA / Qwen quality contract
 from residency import ResidencyController, ResidencyError
@@ -8354,10 +8355,36 @@ def _fal_public_view() -> dict:
             "enabled": c["enabled"], "models": c["models"],
             "defaults": dict(FAL_DEFAULT_MODELS)}
 
+APP_DIR = Path(__file__).resolve().parent
+
+def _cfg_file(name: str) -> Optional[Path]:
+    """A config data file: the deployed copy under ROOT wins, the repo checkout
+    is the fallback so the app also works run straight from a clone."""
+    for base in (ROOT, APP_DIR):
+        p = base / "config" / name
+        if p.exists():
+            return p
+    return None
+
+def _fal_catalog() -> list:
+    """Curated fal model catalog — data in the repo, recommended entries first
+    so the UI can preselect them (docs/ONBOARDING.md). Missing file = []."""
+    p = _cfg_file("fal-catalog.json")
+    if not p:
+        return []
+    try:
+        rows = json.loads(p.read_text())
+    except (OSError, ValueError):
+        return []
+    if not isinstance(rows, list):
+        return []
+    clean = [r for r in rows if isinstance(r, dict) and r.get("id")]
+    return sorted(clean, key=lambda r: (not r.get("recommended"), str(r.get("name") or r["id"])))
+
 @app.get("/api/providers")
 def providers_get():
     """Masked view only — the stored key never rides back to a browser."""
-    return {"fal": _fal_public_view()}
+    return {"fal": _fal_public_view(), "catalog": _fal_catalog()}
 
 @app.post("/api/providers")
 def providers_set(r: ProviderReq):
@@ -8387,6 +8414,179 @@ def providers_set(r: ProviderReq):
     cfg["fal"] = fal
     _providers_save(cfg)
     return {"ok": True, "fal": _fal_public_view()}
+
+# ---------- first-run setup: engine shelf + install orchestrator ----------
+# docs/ONBOARDING.md "Build order #3". Everything here is INERT on a deployed
+# Spark: at least one engine answers its health check there, so first_run is
+# false and the wizard never appears. All state lives under ROOT.
+SETUP_ACCEPT_FILE = ROOT / "setup-acceptances.json"
+
+def _setup_install_cfg() -> dict:
+    p = _cfg_file("engine-installs.json")
+    if not p:
+        return {}
+    try:
+        data = json.loads(p.read_text())
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in data.items()
+            if isinstance(v, dict) and not k.startswith("_")}
+
+def _setup_base_dir() -> Path:
+    """Where install steps run: the deployed tree (ROOT holds runner/) when it
+    exists, otherwise the repo checkout."""
+    return ROOT if (ROOT / "runner").exists() else APP_DIR
+
+def _gpu_present() -> bool:
+    return shutil.which("nvidia-smi") is not None
+
+def _artifact_present(spec: dict) -> bool:
+    """'Installed but not running': the docker image or systemd unit exists."""
+    try:
+        if spec.get("kind") == "docker" and spec.get("image"):
+            return subprocess.run(["docker", "image", "inspect", spec["image"]],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  timeout=10).returncode == 0
+        if spec.get("kind") == "unit" and spec.get("unit"):
+            return subprocess.run(["systemctl", "--user", "cat", spec["unit"]],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  timeout=10).returncode == 0
+    except Exception:
+        pass
+    return False
+
+def _setup_engine_health(name: str, spec: dict) -> bool:
+    if name in ENGINES:
+        return engine_up(name)
+    if name == "voicebox":
+        return vb_up()
+    port = spec.get("port")
+    if not port:
+        return False
+    try:
+        http_json(f"http://127.0.0.1:{int(port)}{spec.get('health', '/health')}", timeout=3)
+        return True
+    except Exception:
+        return False
+
+# /api/setup/status is polled every few seconds while the wizard is open, and
+# docker/systemctl probes are subprocesses — cache the expensive part briefly.
+_setup_status_cache = {"ts": 0.0, "data": None}
+_setup_status_lock = threading.Lock()
+
+def _setup_status() -> dict:
+    cfg = _setup_install_cfg()
+    engines = {}
+    any_ready = False
+    for name, spec in cfg.items():
+        state, detail = "absent", ""
+        rec = engine_installer.engine_install_state(ROOT, name)
+        if _setup_engine_health(name, spec):
+            state, detail = "ready", "running"
+        elif rec and rec.get("state") == "installing":
+            state = "installing"
+            detail = rec.get("detail") or rec.get("step") or "installing…"
+        elif rec and rec.get("state") == "failed":
+            state = "failed"
+            detail = rec.get("detail") or "install failed"
+            tail = rec.get("log_tail") or ""
+            if tail:
+                detail = f"{detail} — {tail[-200:]}"
+        elif rec and rec.get("state") == "ready":
+            # installed by this wizard; the engine itself may be idle/stopped
+            # (the pool reaps idle engines) — installed is still installed
+            state, detail = "ready", "installed (engine loads on first use)"
+        elif _artifact_present(spec):
+            state, detail = "ready", "installed (engine loads on first use)"
+        elif spec.get("requires_manual"):
+            detail = spec.get("manual_note") or "needs a manual install"
+        any_ready = any_ready or state == "ready"
+        engines[name] = {
+            "state": state, "detail": detail,
+            "title": spec.get("title") or name,
+            "blurb": spec.get("blurb") or "",
+            "size_label": spec.get("size_label") or "",
+            "est_minutes": spec.get("est_minutes"),
+            "default": bool(spec.get("default")),
+            "requires_gpu": bool(spec.get("requires_gpu")),
+            "requires_manual": bool(spec.get("requires_manual")),
+            "terms_acceptance_required": bool(spec.get("terms_acceptance_required")),
+            "license_name": spec.get("license_name") or "",
+            "license_note": spec.get("license_note") or "",
+        }
+    fal_configured = bool(fal_config()["api_key"])
+    return {"engines": engines, "gpu": _gpu_present(), "fal_configured": fal_configured,
+            "first_run": not any_ready and not fal_configured}
+
+@app.get("/api/setup/status")
+def setup_status():
+    with _setup_status_lock:
+        now = time.time()
+        if _setup_status_cache["data"] is None or now - _setup_status_cache["ts"] > 4:
+            _setup_status_cache["data"] = _setup_status()
+            _setup_status_cache["ts"] = now
+        return _setup_status_cache["data"]
+
+def _record_acceptance(engine: str, spec: dict):
+    rows = _load(SETUP_ACCEPT_FILE, [])
+    if not isinstance(rows, list):
+        rows = []
+    rows.append({"engine": engine,
+                 "license": spec.get("license_name") or "engine model terms",
+                 "accepted": True, "ts": int(time.time())})
+    _save(SETUP_ACCEPT_FILE, rows)
+
+def _setup_push_ready(engine: str, spec: dict):
+    # push_all is defined further down the module; resolved at call time.
+    push_all(spec.get("ready_push") or "Your video studio is ready 🎬",
+             f"{spec.get('title') or engine} finished installing — come make something.")
+
+class SetupInstallReq(BaseModel):
+    engines: list
+    accept_terms: dict = {}     # {"h3": true} — the human's terms acceptance
+
+@app.post("/api/setup/install")
+def setup_install(request: Request, r: SetupInstallReq,
+                  x_lab_pin: Optional[str] = Header(default=None)):
+    guard = admin_guard(request, x_lab_pin)
+    if guard is not None:
+        return guard
+    cfg = _setup_install_cfg()
+    wanted = [str(e) for e in r.engines]
+    unknown = [e for e in wanted if e not in cfg]
+    if unknown:
+        return JSONResponse({"error": f"unknown engines: {', '.join(unknown)}"}, status_code=400)
+    # licenses are accepted by the HUMAN, per model_catalog's
+    # terms_acceptance_required contract — refuse to install past a missing one
+    missing_terms = [e for e in wanted
+                     if cfg[e].get("terms_acceptance_required") and not r.accept_terms.get(e)]
+    if missing_terms:
+        return JSONResponse({"error": "terms must be accepted first",
+                             "needs_terms": missing_terms}, status_code=400)
+    gpu = _gpu_present()
+    started, manual, skipped, refused = [], [], [], []
+    for name in wanted:
+        spec = cfg[name]
+        if spec.get("requires_manual"):
+            manual.append({"engine": name, "note": spec.get("manual_note") or "install by hand"})
+            continue
+        if spec.get("requires_gpu") and not gpu:
+            refused.append({"engine": name, "reason": "no GPU on this machine — cloud rendering with fal.ai works great instead"})
+            continue
+        if _setup_engine_health(name, spec):
+            skipped.append(name)
+            continue
+        if spec.get("terms_acceptance_required"):
+            _record_acceptance(name, spec)
+        if engine_installer.start_install(name, spec, ROOT, _setup_base_dir(),
+                                          on_ready=_setup_push_ready):
+            started.append(name)
+        else:
+            skipped.append(name)     # already installing
+    with _setup_status_lock:
+        _setup_status_cache["data"] = None   # next poll sees the new installs
+    return {"ok": True, "started": started, "manual": manual,
+            "skipped": skipped, "refused": refused}
 
 # ---- what a queue row is allowed to carry ----
 # /api/queue is polled every 4 seconds by a phone, forever. Anything that rides

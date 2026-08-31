@@ -8,6 +8,7 @@
  * Results are returned as base64 (images) or a downloadable URL (video) and
  * saved into the project's local media folder by the caller.
  */
+import { recommendedFalModel } from '@/lib/ai/fal-catalog';
 import { PROVIDERS } from '@/lib/ai/registry';
 import { extractApiError } from '@/lib/ai/sse';
 import { SUBSCRIPTION_PROVIDERS } from '@/lib/ai/subscriptionOauth';
@@ -52,6 +53,8 @@ export async function generateImage(
       return openAiStyleImage(baseUrl, secret, prompt, XAI_IMAGE_MODEL);
     case 'openai':
       return openAiStyleImage(baseUrl, secret, prompt, OPENAI_IMAGE_MODEL);
+    case 'fal':
+      return falImage(connection, secret, prompt);
     default:
       throw new Error(`${PROVIDERS[connection.kind].name} can't generate images. Connect Gemini, OpenAI, or Grok.`);
   }
@@ -114,8 +117,9 @@ export async function generateVideo(
   prompt: string,
   onProgress?: (detail: string) => void
 ): Promise<GeneratedVideo> {
+  if (connection.kind === 'fal') return falVideo(connection, secret, prompt, onProgress);
   if (connection.kind !== 'gemini') {
-    throw new Error('Video generation needs a Google Gemini connection (Veo).');
+    throw new Error('Video generation needs Google Gemini (Veo) or a fal.ai connection.');
   }
   const baseUrl = (connection.baseUrl || PROVIDERS.gemini.baseUrl).replace(/\/+$/, '');
   const headers = { 'Content-Type': 'application/json', 'x-goog-api-key': secret };
@@ -151,6 +155,87 @@ export async function generateVideo(
     }
   }
   throw new Error('Video generation timed out. Try a shorter prompt.');
+}
+
+// ---------------------------------------------------------------------------
+// fal.ai (queue REST): POST https://queue.fal.run/{model} with
+// `Authorization: Key <key>`, poll the returned status_url until COMPLETED,
+// then fetch response_url for the result payload.
+// ---------------------------------------------------------------------------
+
+async function falImage(
+  connection: ProviderConnection,
+  secret: string,
+  prompt: string
+): Promise<GeneratedImage> {
+  const model = connection.mediaModels?.image || recommendedFalModel('image');
+  const result = await falQueueRun(model, secret, prompt, undefined, 4 * 60 * 1000);
+  const image = result?.images?.[0];
+  if (!image?.url) throw new Error('fal.ai returned no image. Try rephrasing the prompt.');
+  return { base64: await fetchAsBase64(image.url), mimeType: image.content_type ?? 'image/png' };
+}
+
+async function falVideo(
+  connection: ProviderConnection,
+  secret: string,
+  prompt: string,
+  onProgress?: (detail: string) => void
+): Promise<GeneratedVideo> {
+  const model = connection.mediaModels?.video || recommendedFalModel('video');
+  onProgress?.('Starting video generation…');
+  const result = await falQueueRun(
+    model,
+    secret,
+    prompt,
+    () => onProgress?.('Rendering video… this can take a couple of minutes.'),
+    8 * 60 * 1000
+  );
+  const url: string | undefined = result?.video?.url;
+  if (!url) throw new Error('fal.ai finished but returned no video.');
+  return { url, mimeType: result?.video?.content_type ?? 'video/mp4' };
+}
+
+/** Submits a fal queue job and polls it to completion; returns the payload. */
+async function falQueueRun(
+  model: string,
+  secret: string,
+  prompt: string,
+  onPoll: (() => void) | undefined,
+  timeoutMs: number
+): Promise<any> {
+  const headers = { 'Content-Type': 'application/json', Authorization: `Key ${secret}` };
+  const submitRes = await fetch(`https://queue.fal.run/${model}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ prompt }),
+  });
+  const submitText = await submitRes.text();
+  if (!submitRes.ok) throw new Error(extractApiError(submitText, submitRes.status));
+  const submitted = JSON.parse(submitText);
+  const statusUrl: string | undefined = submitted?.status_url;
+  const responseUrl: string | undefined = submitted?.response_url;
+  if (!statusUrl || !responseUrl) throw new Error('fal.ai did not return a job to poll.');
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    onPoll?.();
+    const pollRes = await fetch(statusUrl, { headers });
+    const pollText = await pollRes.text();
+    if (!pollRes.ok) throw new Error(extractApiError(pollText, pollRes.status));
+    const status = JSON.parse(pollText)?.status;
+    if (status === 'COMPLETED') {
+      const res = await fetch(responseUrl, { headers });
+      const text = await res.text();
+      if (!res.ok) throw new Error(extractApiError(text, res.status));
+      return JSON.parse(text);
+    }
+    // IN_QUEUE / IN_PROGRESS keep polling; anything else is a failure.
+    if (status !== 'IN_QUEUE' && status !== 'IN_PROGRESS') {
+      throw new Error(`fal.ai could not finish the job (status: ${status ?? 'unknown'}).`);
+    }
+  }
+  throw new Error('fal.ai timed out. Try again, or pick a faster model.');
 }
 
 async function fetchAsBase64(url: string): Promise<string> {

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Connect Private VibeX Models</title>
+    <style>
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0e0618; color: #fff; font: 17px system-ui; }
+      main { width: min(34rem, calc(100% - 2rem)); padding: 2rem; border: 1px solid #49365a; border-radius: 1.25rem; background: #1a1025; }
+      a { display: block; margin-top: 1rem; padding: .9rem; border-radius: .8rem; text-align: center; color: #09040e; background: #78f7d1; font-weight: 700; text-decoration: none; }
+      small { color: #c8bcd1; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Private VibeX Models</h1>
+      <p>This private friends-and-family grant sends prompts and generated output through Steve's private infrastructure. It is not for public, customer, or sensitive data.</p>
+      <small>The browser never redeems this invite. Open VibeXStudio to review limits, expiry, revocation, and consent.</small>
+      <a id="open" href="https://testflight.apple.com/join/B7xNVhhF">Open in VibeXStudio</a>
+      <a href="https://testflight.apple.com/join/B7xNVhhF">Get VibeXStudio on TestFlight</a>
+    </main>
+    <script>
+      const token = location.pathname.match(/^\/connect\/([A-Za-z0-9_-]{22,256})$/)?.[1];
+      if (token) document.querySelector('#open').href = `vibex://connect?token=${encodeURIComponent(token)}`;
+    </script>
+  </body>
+</html>

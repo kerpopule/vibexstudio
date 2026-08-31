@@ -665,6 +665,37 @@
   .maestrostatus{font-size:.74rem;color:var(--t-3);margin:7px 2px 0;line-height:1.35}
   #imgres{width:100%;border-radius:14px;display:none}
   #audres{width:100%;display:none;margin:12px 0}
+  /* ---- first-run setup wizard (docs/ONBOARDING.md, server door) ---- */
+  #setupWiz{display:none;position:fixed;inset:0;z-index:120;overflow-y:auto;background:var(--panel);
+     backdrop-filter:var(--blur)}
+  #setupWiz .inner{max-width:560px;margin:0 auto;
+     padding:calc(30px + env(safe-area-inset-top)) 18px calc(44px + env(safe-area-inset-bottom))}
+  #setupWiz h1{font-family:var(--display);font-size:1.55rem;font-weight:700;margin:0 0 6px}
+  .swsub{color:var(--t-3);font-size:.85rem;line-height:1.45;margin-bottom:16px}
+  .swpath{display:flex;gap:13px;align-items:center;border:1px solid var(--line);border-radius:16px;
+     padding:15px 14px;cursor:pointer;margin-top:12px;background:var(--field)}
+  .swpath:hover{border-color:var(--gold)}
+  .swpath .em{font-size:1.55rem}
+  .swpath .tt{font-weight:600}
+  .swpath .dd{font-size:.77rem;color:var(--t-3);margin-top:2px;line-height:1.35}
+  .swcard{border:1px solid var(--line);border-radius:14px;padding:12px;margin-top:10px;background:var(--field)}
+  .swcard.sel{border-color:var(--gold)}
+  .swcard label.row{display:flex;gap:11px;align-items:flex-start;cursor:pointer;font:inherit}
+  .swcard input[type=checkbox]{margin-top:4px;accent-color:var(--gold);width:16px;height:16px;flex:none}
+  .swsize{font-size:.7rem;color:var(--t-3);margin-top:4px}
+  .swterms{margin-top:9px;font-size:.75rem;color:var(--t-3);display:flex;gap:9px;align-items:flex-start;cursor:pointer}
+  .swstate{margin-top:8px;font-size:.76rem;color:var(--t-3);line-height:1.4}
+  .swstate.ok{color:var(--green)}.swstate.bad{color:#f87171}.swstate.busy{color:var(--gold-hi)}
+  .swstep{display:flex;gap:11px;align-items:center;border:1px solid var(--line);border-radius:12px;
+     padding:11px 12px;margin-top:8px}
+  .swstep .n{width:23px;height:23px;border-radius:50%;background:var(--gold);color:var(--on-accent);
+     display:grid;place-items:center;font-size:.72rem;font-weight:700;flex:none}
+  .swstep .tt{flex:1;font-size:.85rem}
+  .swstep .btn2{margin:0;padding:8px 13px}
+  .swback{display:inline-block;margin-top:20px;font-size:.82rem;color:var(--t-3);cursor:pointer}
+  .swback:hover{color:var(--t-1)}
+  .swcat .label{margin-top:14px}
+  #setupWiz .chips{margin-top:6px}
 </style>
 </head>
 <body>
@@ -695,13 +726,72 @@
       </div>
       <div class="togglechip" id="cp_enabled" style="margin-top:12px">☁️ Cloud engines — off</div>
       <div class="label">Image model</div>
+      <div class="chips" id="cp_img_cat"></div>
       <input id="cp_img" type="text" placeholder="fal-ai/flux/dev" autocomplete="off" spellcheck="false">
       <div class="label">Video model</div>
+      <div class="chips" id="cp_vid_cat"></div>
       <input id="cp_vid" type="text" placeholder="fal-ai/veo3/fast" autocomplete="off" spellcheck="false">
       <div style="display:flex;gap:10px;margin-top:10px">
         <div class="btn2" id="cp_models">💾 Save models</div>
       </div>
       <div id="cp_err" style="display:none;color:#f87171;font-size:.8125rem;margin-top:8px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ---- first-run setup wizard: engine shelf + fal door (ONBOARDING build order #3) ---- -->
+<div id="setupWiz">
+  <div class="inner">
+    <!-- welcome / two paths -->
+    <div id="sw_home">
+      <h1>Welcome to Media Lab 🎬</h1>
+      <div class="swsub">Nothing is rendering here yet. Pick how this studio should make things —
+        you can always add the other path later from the 🎨 sheet.</div>
+      <div class="swpath" id="swPathGpu">
+        <div class="em">💻</div>
+        <div style="flex:1;min-width:0">
+          <div class="tt" id="swGpuTitle">This machine can render</div>
+          <div class="dd" id="swGpuDD">Install local engines on this box.</div>
+        </div>
+      </div>
+      <div class="swpath" id="swPathCloud">
+        <div class="em">☁️</div>
+        <div style="flex:1;min-width:0">
+          <div class="tt">Use cloud rendering</div>
+          <div class="dd">A fal.ai account renders for you — nothing to install, pay per creation.</div>
+        </div>
+      </div>
+      <div class="swback" id="swSkip">Skip for now →</div>
+    </div>
+    <!-- engine shelf -->
+    <div id="sw_shelf" style="display:none">
+      <h1>Engine shelf 🧰</h1>
+      <div class="swsub">LTX (fast video drafts) is the default. Everything else is an add-on —
+        honest sizes, each flips to ready on its own. Installs keep running while you set up.</div>
+      <div id="swCards"></div>
+      <div class="go" id="swInstall">⬇️ Install selected</div>
+      <div id="swMsg" class="swstate" style="display:none"></div>
+      <div class="swback" data-swback>← Back</div>
+    </div>
+    <!-- fal.ai walkthrough -->
+    <div id="sw_cloud" style="display:none">
+      <h1>Cloud rendering ☁️</h1>
+      <div class="swsub">Four steps and this studio renders in the cloud with fal.ai.</div>
+      <div class="swstep"><div class="n">1</div><div class="tt">Create a fal.ai account</div>
+        <div class="btn2" data-swopen="https://fal.ai/login">Open</div></div>
+      <div class="swstep"><div class="n">2</div><div class="tt">Add billing</div>
+        <div class="btn2" data-swopen="https://fal.ai/dashboard/billing">Open</div></div>
+      <div class="swstep"><div class="n">3</div><div class="tt">Copy your API key</div>
+        <div class="btn2" data-swopen="https://fal.ai/dashboard/keys">Open</div></div>
+      <div class="swstep" style="display:block">
+        <div style="display:flex;gap:11px;align-items:center"><div class="n">4</div>
+          <div class="tt">Paste it here</div></div>
+        <input id="sw_key" type="password" placeholder="fal.ai API key" autocomplete="off" style="margin-top:9px">
+        <div class="btn2" id="sw_key_save" style="margin-top:9px">💾 Save key</div>
+        <div id="sw_key_state" class="swstate" style="display:none"></div>
+      </div>
+      <div id="sw_cat" class="swcat" style="display:none"></div>
+      <div class="swback" data-swback>← Back</div>
     </div>
   </div>
 </div>
@@ -1960,6 +2050,18 @@ function playItem(u,p){$('#vid').src=u;$('#vid').poster=p||'';$('#dl').href=u;
   $('#enhrow').style.display=CATALOG.enhance_ready?'flex':'none';
   $('#vid').scrollIntoView({behavior:'smooth'});$('#vid').play().catch(()=>{});}
 loadGal();
+/* Deep link from the VibeXStudio app: ?job=<id> opens that screening,
+   ready to play, once the gallery has loaded. */
+(function(){
+  const jid = new URLSearchParams(location.search).get('job');
+  if(!jid) return;
+  let tries = 0;
+  const t = setInterval(() => {
+    const i = (typeof GAL !== 'undefined' ? GAL : []).findIndex(x => x && String(x.id) === jid);
+    if (i >= 0) { clearInterval(t); playGal(i); }
+    else if (++tries > 40) clearInterval(t);
+  }, 500);
+})();
 /* ＋ on Video: add your own video or image to the library */
 document.getElementById('v_plus').onclick=()=>openLibrary({mode:'gallery',kinds:['video','image'],
   allowUpload:true,accept:'video/*,image/*',title:'⬆️ Add to the library',
@@ -2066,6 +2168,12 @@ function topazMaster(){
   alert(msg);
 }
 function studioSwitchRows(card){
+  if(!card.querySelector('#setuprow')){
+    const su=document.createElement('div');su.className='btn2';su.id='setuprow';
+    su.style.marginTop='14px';su.textContent='🧰 Set up engines';
+    su.onclick=()=>{$('#thwrap').style.display='none';setupOpen();};
+    card.appendChild(su);
+  }
   if(card.querySelector('#advrow'))return;
   const adv=document.createElement('div');adv.className='togglechip';adv.id='advrow';
   adv.style.marginTop='14px';
@@ -2084,6 +2192,27 @@ $('#thshade').onclick=()=>$('#thwrap').style.display='none';
 
 /* ---- cloud providers (fal.ai) — settings live in the look sheet ---- */
 let CP={configured:false,enabled:false,key_tail:'',models:null};
+let CPCAT=[];      /* curated fal model catalog — recommended sorted first by the server */
+/* model picker chips built from the catalog; the free-text input stays the override */
+function cpCatChips(kind,inputSel){
+  const rows=CPCAT.filter(c=>c.kind===kind);
+  if(!rows.length)return '';
+  const cur=($(inputSel)&&$(inputSel).value||'').trim();
+  return rows.map(c=>
+    `<div class="chip${c.id===cur?' sel':''}" data-cat="${c.id}" data-in="${inputSel}" title="${(c.blurb||'').replace(/"/g,'&quot;')}">`+
+    `${c.recommended?'⭐ ':''}${c.name||c.id}</div>`).join('');
+}
+function cpPaintCat(){
+  const img=$('#cp_img_cat'),vid=$('#cp_vid_cat');
+  if(img)img.innerHTML=cpCatChips('image','#cp_img');
+  if(vid)vid.innerHTML=cpCatChips('video','#cp_vid');
+}
+document.addEventListener('click',e=>{
+  const c=e.target.closest('.chip[data-cat]');if(!c)return;
+  const input=document.querySelector(c.dataset.in);
+  if(input){input.value=c.dataset.cat;}
+  c.parentElement.querySelectorAll('.chip').forEach(x=>x.classList.toggle('sel',x===c));
+});
 function cpPaint(){
   $('#cp_state').textContent=CP.configured
     ?`Key configured ••••${CP.key_tail||''}`:'No key saved yet.';
@@ -2091,6 +2220,7 @@ function cpPaint(){
   en.classList.toggle('sel',!!CP.enabled);
   en.textContent=CP.enabled?'☁️ Cloud engines — on':'☁️ Cloud engines — off';
   if(CP.models){$('#cp_img').value=CP.models.image||'';$('#cp_vid').value=CP.models.video||'';}
+  cpPaintCat();
   /* the engine chips follow the settings immediately — no reload needed */
   const on=!!(CP.enabled&&CP.configured);
   CATALOG.fal_engines={image:on,video:on};
@@ -2099,7 +2229,7 @@ function cpPaint(){
 function cpErr(m){const b=$('#cp_err');
   if(!m){b.style.display='none';return}b.textContent=m;b.style.display='block';}
 async function cpLoad(){
-  try{const d=await(await fetch('/api/providers')).json();CP=d.fal||CP;cpPaint();}
+  try{const d=await(await fetch('/api/providers')).json();CP=d.fal||CP;CPCAT=d.catalog||[];cpPaint();}
   catch(e){$('#cp_state').textContent='Could not load provider settings.';}
 }
 async function cpPost(body){
@@ -4729,6 +4859,156 @@ function remixById(id,prompt,style){
   if(j&&j.request){applyRemix(j.kind,j.request);}
   else{showTab('tab-video');$('#prompt').value=prompt||'';shelfSet('#styles',style||'none');$('#prompt').focus();}
 }
+</script>
+<script>
+/* ---- first-run setup wizard: engine shelf + fal door (ONBOARDING #3) ----
+   Appears only when the server says first_run (no engine ready, no fal key),
+   so it is completely inert on a working studio. Reachable any time from the
+   🎨 sheet ("Set up engines"). */
+let SW={data:null,poll:null,sel:{},terms:{}};
+function swView(v){
+  ['sw_home','sw_shelf','sw_cloud'].forEach(id=>{$('#'+id).style.display=id===v?'block':'none';});
+  if(v!=='sw_shelf'&&SW.poll){clearInterval(SW.poll);SW.poll=null;}
+}
+async function swStatus(){
+  try{SW.data=await(await fetch('/api/setup/status')).json();}catch(e){}
+  return SW.data;
+}
+function setupOpen(){
+  $('#setupWiz').style.display='block';
+  swView('sw_home');swPaintHome();
+  swStatus().then(swPaintHome);
+}
+function swClose(){
+  $('#setupWiz').style.display='none';
+  if(SW.poll){clearInterval(SW.poll);SW.poll=null;}
+}
+function swPaintHome(){
+  const gpu=!!(SW.data&&SW.data.gpu);
+  $('#swGpuTitle').textContent=gpu?'This machine can render (GPU found)':'This machine can render';
+  $('#swGpuDD').textContent=gpu
+    ?'An NVIDIA GPU is here — install local engines and render for free, on your own box.'
+    :'No GPU found on this machine — cloud rendering with fal.ai works great instead →';
+}
+/* ---- engine shelf ---- */
+function swStateLine(e){
+  if(e.state==='ready')return '<div class="swstate ok">✅ Ready</div>';
+  if(e.state==='installing')return `<div class="swstate busy">⏳ ${e.detail||'Installing…'} — keep setting up, we’ll tell you.</div>`;
+  if(e.state==='failed')return `<div class="swstate bad">⚠️ ${e.detail||'Install failed'}</div>`;
+  if(e.requires_manual)return `<div class="swstate">🔧 ${e.detail||'Needs a manual install.'}</div>`;
+  return '';
+}
+function swPaintShelf(){
+  const E=(SW.data&&SW.data.engines)||{};
+  $('#swCards').innerHTML=Object.keys(E).map(k=>{
+    const e=E[k];
+    const selectable=e.state!=='ready'&&e.state!=='installing'&&!e.requires_manual;
+    const checked=SW.sel[k]!==undefined?SW.sel[k]:(e.default&&selectable);
+    if(selectable)SW.sel[k]=!!checked;
+    const est=e.est_minutes?` · ~${e.est_minutes} min`:'';
+    const box=selectable
+      ?`<input type="checkbox" data-sweng="${k}"${checked?' checked':''}>`
+      :`<span style="width:16px;flex:none"></span>`;
+    const terms=(selectable&&e.terms_acceptance_required)
+      ?`<label class="swterms"><input type="checkbox" data-swterms="${k}"${SW.terms[k]?' checked':''}>
+         <span>I accept the ${e.license_name||'model terms'}. ${e.license_note||''}</span></label>`
+      :'';
+    return `<div class="swcard${checked&&selectable?' sel':''}" id="swc_${k}">
+      <label class="row">${box}
+        <span style="flex:1;min-width:0">
+          <span style="font-weight:600">${e.title}</span>
+          <div class="dd" style="font-size:.78rem;color:var(--t-3);margin-top:2px">${e.blurb||''}</div>
+          <div class="swsize">${e.size_label||''}${est}</div>
+        </span></label>
+      ${terms}${swStateLine(e)}</div>`;
+  }).join('')||'<div class="swstate">No engine recipes found on this server.</div>';
+}
+$('#swCards').addEventListener('change',e=>{
+  const eng=e.target.closest('input[data-sweng]');
+  if(eng){SW.sel[eng.dataset.sweng]=eng.checked;
+    const card=$('#swc_'+eng.dataset.sweng);if(card)card.classList.toggle('sel',eng.checked);}
+  const t=e.target.closest('input[data-swterms]');
+  if(t)SW.terms[t.dataset.swterms]=t.checked;
+});
+function swMsg(m,bad){const b=$('#swMsg');
+  if(!m){b.style.display='none';return}
+  b.textContent=m;b.className='swstate'+(bad?' bad':'');b.style.display='block';}
+function swPollShelf(){
+  if(SW.poll)clearInterval(SW.poll);
+  SW.poll=setInterval(async()=>{
+    if($('#sw_shelf').style.display==='none')return;
+    await swStatus();swPaintShelf();
+  },5000);
+}
+$('#swInstall').onclick=async()=>{
+  const E=(SW.data&&SW.data.engines)||{};
+  const engines=Object.keys(SW.sel).filter(k=>SW.sel[k]&&E[k]&&E[k].state!=='ready');
+  if(!engines.length){swMsg('Pick at least one engine first.',true);return}
+  const accept={};
+  for(const k of engines){
+    if(E[k]&&E[k].terms_acceptance_required){
+      if(!SW.terms[k]){swMsg(`Accept the ${E[k].license_name||'terms'} for ${E[k].title} first.`,true);return}
+      accept[k]=true;
+    }
+  }
+  swMsg('');$('#swInstall').style.opacity='.6';
+  try{
+    const r=await fetch('/api/setup/install',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({engines,accept_terms:accept})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok){swMsg(d.error||'Could not start the install.',true);return}
+    const bits=[];
+    if(d.started&&d.started.length)bits.push(`Installing ${d.started.length} engine${d.started.length>1?'s':''} in the background — each flips to ready on its own. Turn on notifications (queue panel) to hear about it.`);
+    (d.manual||[]).forEach(m=>bits.push(`${m.engine}: ${m.note}`));
+    (d.refused||[]).forEach(m=>bits.push(`${m.engine}: ${m.reason}`));
+    swMsg(bits.join(' ')||'Nothing to do — everything selected is already on its way.');
+    await swStatus();swPaintShelf();swPollShelf();
+  }finally{$('#swInstall').style.opacity='';}
+};
+/* ---- fal walkthrough ---- */
+function swPaintCloud(){
+  const s=$('#sw_key_state');
+  if(CP.configured){s.textContent=`✓ Key saved ••••${CP.key_tail||''} — cloud engines are on.`;
+    s.className='swstate ok';s.style.display='block';}
+  else{s.style.display='none';}
+  const cat=$('#sw_cat');
+  if(!CPCAT.length||!CP.configured){cat.style.display='none';return}
+  cat.style.display='block';
+  const pick=(kind,cur)=>CPCAT.filter(c=>c.kind===kind).map(c=>
+    `<div class="chip${(cur===c.id)?' sel':''}" data-swmodel="${c.id}" data-kind="${kind}" title="${(c.blurb||'').replace(/"/g,'&quot;')}">${c.recommended?'⭐ ':''}${c.name||c.id}</div>`).join('');
+  const m=CP.models||{};
+  cat.innerHTML=`<div class="label">Image model — ⭐ recommended is pre-picked</div>
+    <div class="chips">${pick('image',m.image)}</div>
+    <div class="label">Video model</div>
+    <div class="chips">${pick('video',m.video)}</div>
+    <div class="swstate">Want a model that isn’t listed? Type any id in 🎨 → Cloud providers.</div>`;
+}
+$('#sw_cat').addEventListener('click',async e=>{
+  const c=e.target.closest('.chip[data-swmodel]');if(!c)return;
+  const m=Object.assign({},CP.models||{});
+  m[c.dataset.kind]=c.dataset.swmodel;
+  if(await cpPost({models:{image:m.image||'',video:m.video||''}}))swPaintCloud();
+});
+$('#sw_key_save').onclick=async()=>{
+  const k=$('#sw_key').value.trim();
+  if(!k){$('#sw_key').focus();return}
+  if(await cpPost({api_key:k,enabled:true})){$('#sw_key').value='';swPaintCloud();}
+  else{const s=$('#sw_key_state');s.textContent='That key was not accepted — check it and try again.';
+    s.className='swstate bad';s.style.display='block';}
+};
+/* ---- navigation ---- */
+$('#swPathGpu').onclick=async()=>{swView('sw_shelf');await swStatus();swPaintShelf();swPollShelf();};
+$('#swPathCloud').onclick=async()=>{swView('sw_cloud');await cpLoad().catch(()=>{});swPaintCloud();};
+document.querySelectorAll('#setupWiz [data-swback]').forEach(b=>b.onclick=()=>{swView('sw_home');swPaintHome();});
+document.querySelectorAll('#setupWiz [data-swopen]').forEach(b=>b.onclick=()=>window.open(b.dataset.swopen,'_blank'));
+$('#swSkip').onclick=()=>{try{localStorage.setItem('lab-setup-skip','1');}catch(e){}swClose();};
+/* first run: the server decides; a skip is remembered per device */
+(async()=>{
+  let skipped=false;try{skipped=!!localStorage.getItem('lab-setup-skip');}catch(e){}
+  if(skipped)return;
+  const d=await swStatus();
+  if(d&&d.first_run)setupOpen();
+})();
 </script>
 <script>
 /* ---- PWA: service worker + push ---- */

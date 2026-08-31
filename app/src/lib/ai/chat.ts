@@ -5,6 +5,8 @@
 import { PROVIDERS, type WireProtocol } from '@/lib/ai/registry';
 import { ssePost } from '@/lib/ai/sse';
 import { SUBSCRIPTION_PROVIDERS } from '@/lib/ai/subscriptionOauth';
+import { assertPrivateProviderOrigin, privateBackendNotice, PRIVATE_ALLOWED_MODELS } from '@/lib/private-provider/profile';
+import { getPrivateDeviceProof } from '@/lib/storage/secrets';
 import type { ChatRole, ProviderConnection } from '@/lib/types';
 
 /** Where + how to reach a connection's inference endpoint. */
@@ -18,6 +20,7 @@ interface Routing {
 }
 
 export function resolveRouting(connection: ProviderConnection): Routing {
+  if (connection.privateProvider) assertPrivateProviderOrigin(connection.baseUrl);
   if (connection.subscription) {
     const spec = SUBSCRIPTION_PROVIDERS[connection.subscription];
     return {
@@ -67,6 +70,8 @@ export async function streamChat(opts: StreamChatOptions): Promise<string> {
 
 async function streamOpenAi(routing: Routing, opts: StreamChatOptions): Promise<string> {
   let text = '';
+  let thinking = '';
+  let backendModel: string | null = null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${opts.secret}`,
@@ -75,6 +80,15 @@ async function streamOpenAi(routing: Routing, opts: StreamChatOptions): Promise<
   if (routing.isOpenRouter) {
     headers['HTTP-Referer'] = 'https://github.com/kerpopule/vibex-studio';
     headers['X-Title'] = 'VibeXStudio';
+  }
+  if (opts.connection.privateProvider) {
+    if (!PRIVATE_ALLOWED_MODELS.includes(opts.model as typeof PRIVATE_ALLOWED_MODELS[number]) ||
+        !opts.connection.privateProvider.allowedModels.includes(opts.model)) {
+      throw new Error('That model is not allowed for this private grant.');
+    }
+    const deviceProof = await getPrivateDeviceProof(opts.connection.id);
+    if (!deviceProof) throw new Error('Private device proof is missing from Keychain.');
+    headers['X-VibeX-Device-Proof'] = deviceProof;
   }
   const baseUrl = routing.baseUrl;
   await ssePost({
@@ -86,23 +100,39 @@ async function streamOpenAi(routing: Routing, opts: StreamChatOptions): Promise<
       messages: [{ role: 'system', content: opts.system }, ...opts.messages],
     },
     signal: opts.signal,
+    onHeaders: (get) => { backendModel = get('X-VibeX-Backend-Model'); },
     onEvent: (data) => {
       try {
-        const delta = JSON.parse(data)?.choices?.[0]?.delta?.content;
-        if (typeof delta === 'string') {
-          text += delta;
+        const delta = JSON.parse(data)?.choices?.[0]?.delta;
+        if (typeof delta?.content === 'string' && delta.content) {
+          text += delta.content;
           opts.onDelta(text);
+          return;
+        }
+        // Reasoning models (Grok 4.x, GLM flash, o-series via OpenRouter)
+        // think for minutes on a separate channel before any content —
+        // surface it so the stream card never sits empty. Thinking is
+        // display-only: it never joins `text`, so the file parser only
+        // ever sees real output.
+        const thought = delta?.reasoning_content ?? delta?.reasoning;
+        if (typeof thought === 'string' && thought && !text) {
+          thinking += thought;
+          opts.onDelta(`💭 ${thinking}`);
         }
       } catch {
         // Ignore malformed keep-alive chunks.
       }
     },
   });
+  if (!text.trim()) throw new Error('The model returned an empty stream. No project changes were applied.');
+  const notice = opts.connection.privateProvider ? privateBackendNotice(opts.model, backendModel) : null;
+  if (notice) text = `${notice}\n\n${text}`;
   return text;
 }
 
 async function streamAnthropic(routing: Routing, opts: StreamChatOptions): Promise<string> {
   let text = '';
+  let thinking = '';
   // Direct Anthropic uses x-api-key; subscription Anthropic-compatible
   // endpoints (MiniMax) take a bearer token instead.
   const authHeaders: Record<string, string> = routing.bearerAuth
@@ -130,6 +160,12 @@ async function streamAnthropic(routing: Routing, opts: StreamChatOptions): Promi
         if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
           text += event.delta.text;
           opts.onDelta(text);
+        } else if (event.type === 'content_block_delta' && event.delta?.type === 'thinking_delta') {
+          // Extended-thinking models: stream the thought so the card moves.
+          if (typeof event.delta.thinking === 'string' && !text) {
+            thinking += event.delta.thinking;
+            opts.onDelta(`💭 ${thinking}`);
+          }
         } else if (event.type === 'error') {
           throw new Error(event.error?.message ?? 'Anthropic stream error');
         }

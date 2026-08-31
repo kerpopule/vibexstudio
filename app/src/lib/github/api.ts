@@ -81,6 +81,23 @@ export async function createRepo(token: string, name: string, isPrivate: boolean
   });
 }
 
+/**
+ * Flip an existing repo between private and public. Making a repo public
+ * is what unlocks the free GitHub Pages share link; making it private
+ * takes the public site down (GitHub disables Pages on free plans).
+ */
+export async function setRepoVisibility(
+  token: string,
+  owner: string,
+  repo: string,
+  isPrivate: boolean
+): Promise<RepoInfo> {
+  return ghFetch<RepoInfo>(token, `/repos/${owner}/${repo}`, {
+    method: 'PATCH',
+    body: { private: isPrivate },
+  });
+}
+
 /** Sanitize a project name into a valid GitHub repo name. */
 export function toRepoName(projectName: string): string {
   const slug = projectName

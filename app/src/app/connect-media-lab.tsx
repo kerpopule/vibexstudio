@@ -4,7 +4,7 @@
  * /manifest.json answers. Once paired, the Media Lab tab gains a "Server"
  * view hosting the full web UI (the on-device studio is always there).
  */
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
@@ -12,49 +12,35 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radii, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { normalizeServerUrl, probeMediaLab } from '@/lib/media-pairing';
 import { useApp } from '@/lib/store';
-
-function normalize(raw: string): string | null {
-  let url = raw.trim();
-  if (!url) return null;
-  if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
-  try {
-    const parsed = new URL(url);
-    return `${parsed.protocol}//${parsed.host}`;
-  } catch {
-    return null;
-  }
-}
 
 export default function ConnectMediaLabScreen() {
   const theme = useTheme();
+  // A failed vibex://pair QR scan lands here with the address prefilled.
+  const params = useLocalSearchParams<{ url?: string }>();
   const mediaLab = useApp((s) => s.mediaLab);
   const setMediaLab = useApp((s) => s.setMediaLab);
-  const [input, setInput] = useState(mediaLab?.url ?? '');
+  const [input, setInput] = useState(params.url ?? mediaLab?.url ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const save = async () => {
-    const url = normalize(input);
+    const url = normalizeServerUrl(input);
     if (!url) {
       setError('That doesn’t look like a URL. Example: http://your-server:7863');
       return;
     }
     setBusy(true);
     setError(null);
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 6000);
-      const res = await fetch(`${url}/manifest.json`, { signal: controller.signal });
-      clearTimeout(timer);
-      if (!res.ok) throw new Error(`answered ${res.status}`);
+    if (await probeMediaLab(url)) {
       await setMediaLab({ url, addedAt: Date.now() });
+      setBusy(false);
       router.back();
-    } catch {
+    } else {
       setError(
         'No Media Lab answered there. Check the address, and that the server is running on your network or tailnet.'
       );
-    } finally {
       setBusy(false);
     }
   };

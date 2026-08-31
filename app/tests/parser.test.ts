@@ -99,6 +99,76 @@ describe('parseAssistantReply', () => {
   });
 });
 
+describe('medialab fences', () => {
+  it('parses a video request with a character', () => {
+    const raw = [
+      'Lights, camera!',
+      '```medialab kind=video character=steve1 file=assets/intro.mp4',
+      'Steve welcomes visitors to the site, warm and upbeat.',
+      '```',
+    ].join('\n');
+    const out = parseAssistantReply(raw);
+    expect(out.media).toEqual([
+      {
+        kind: 'video',
+        character: 'steve1',
+        file: 'assets/intro.mp4',
+        prompt: 'Steve welcomes visitors to the site, warm and upbeat.',
+      },
+    ]);
+    expect(out.files).toEqual([]);
+    expect(out.text).toContain('🎬 Requested video → `assets/intro.mp4`');
+    expect(out.text).not.toContain('warm and upbeat');
+  });
+
+  it('parses an image request without a character', () => {
+    const raw = ['```medialab kind=image file=assets/hero.png', 'A neon skyline', '```'].join('\n');
+    const out = parseAssistantReply(raw);
+    expect(out.media).toEqual([{ kind: 'image', file: 'assets/hero.png', prompt: 'A neon skyline' }]);
+  });
+
+  it('a medialab fence is never treated as a project file', () => {
+    const raw = ['```medialab kind=image file=assets/hero.png', 'A neon skyline', '```'].join('\n');
+    expect(parseAssistantReply(raw).files).toEqual([]);
+  });
+
+  it('keeps a fence missing file= in the chat text', () => {
+    const raw = ['```medialab kind=video', 'no target', '```'].join('\n');
+    const out = parseAssistantReply(raw);
+    expect(out.media).toEqual([]);
+    expect(out.text).toContain('no target');
+  });
+
+  it('rejects path traversal and non-assets targets', () => {
+    for (const file of ['../../etc/passwd.png', 'assets/../index.mp4', 'index.html', 'hero.png']) {
+      const raw = [`\`\`\`medialab kind=image file=${file}`, 'x', '```'].join('\n');
+      expect(parseAssistantReply(raw).media).toEqual([]);
+    }
+  });
+
+  it('rejects a kind/extension mismatch and empty prompts', () => {
+    expect(
+      parseAssistantReply(['```medialab kind=video file=assets/a.png', 'x', '```'].join('\n')).media
+    ).toEqual([]);
+    expect(
+      parseAssistantReply(['```medialab kind=image file=assets/a.png', '', '```'].join('\n')).media
+    ).toEqual([]);
+  });
+
+  it('last request for the same file wins', () => {
+    const raw = [
+      '```medialab kind=image file=assets/a.png',
+      'v1',
+      '```',
+      '```medialab kind=image file=assets/a.png',
+      'v2',
+      '```',
+    ].join('\n');
+    const out = parseAssistantReply(raw);
+    expect(out.media).toEqual([{ kind: 'image', file: 'assets/a.png', prompt: 'v2' }]);
+  });
+});
+
 describe('sanitizePath' , () => {
   it('accepts normal relative paths', () => {
     expect(sanitizePath('index.html')).toBe('index.html');

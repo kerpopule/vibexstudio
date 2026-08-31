@@ -46,6 +46,8 @@ interface ChatEngine {
   sessions: Record<string, ChatSession>;
   /** Hydrate a session's messages from disk (no-op once loaded). */
   load: (projectId: string) => Promise<void>;
+  /** Force-refresh messages after an out-of-chat write such as attaching a design. */
+  reload: (projectId: string) => Promise<void>;
   sendChat: (project: ProjectMeta, text: string, connection: ProviderConnection | null) => Promise<void>;
   sendMedia: (
     project: ProjectMeta,
@@ -79,6 +81,11 @@ export const useChat = create<ChatEngine>((set, get) => {
 
     load: async (projectId) => {
       if (get().sessions[projectId]?.loaded) return;
+      const messages = await readChat(projectId);
+      patch(projectId, { messages, loaded: true });
+    },
+
+    reload: async (projectId) => {
       const messages = await readChat(projectId);
       patch(projectId, { messages, loaded: true });
     },

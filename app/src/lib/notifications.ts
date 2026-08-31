@@ -104,3 +104,64 @@ export function projectIdFromResponse(response: Notifications.NotificationRespon
   const id = response.notification.request.content.data?.projectId;
   return typeof id === 'string' ? id : null;
 }
+
+/** The Media Lab job id a tapped notification points at, or null. */
+export function mediaLabJobFromResponse(response: Notifications.NotificationResponse): string | null {
+  const id = response.notification.request.content.data?.mediaLabJob;
+  return typeof id === 'string' ? id : null;
+}
+
+/** Background-only notice carrying arbitrary routing data. */
+export async function notifyWithData(
+  title: string,
+  body: string,
+  data: Record<string, string>
+): Promise<void> {
+  if (AppState.currentState === 'active') return;
+  if (permission !== 'granted') return;
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+        data,
+        ...(Platform.OS === 'android' ? { color: '#5EC2FF' } : {}),
+      },
+      trigger: null,
+    });
+  } catch {
+    // Best-effort only.
+  }
+}
+
+/**
+ * The every-open nudge: whenever the app comes to the foreground with
+ * notifications off, ask — the system prompt while it's still allowed,
+ * then our own "turn them on in Settings" alert. One explicit "Not now"
+ * ends the nagging forever (per the owner's spec).
+ */
+export async function nudgeForPermission(
+  ask: (openSettings: () => void, declineForever: () => void) => void,
+  declined: boolean,
+  markDeclined: () => void,
+  openSettings: () => void
+): Promise<void> {
+  if (Platform.OS === 'web') return;
+  try {
+    const current = await Notifications.getPermissionsAsync();
+    if (current.granted) {
+      permission = 'granted';
+      return;
+    }
+    if (declined) return;
+    if (current.canAskAgain) {
+      const asked = await Notifications.requestPermissionsAsync();
+      permission = asked.granted ? 'granted' : 'denied';
+      return;
+    }
+    // System dialog spent and still off — offer the Settings jump.
+    ask(openSettings, markDeclined);
+  } catch {
+    // Never block launch on this.
+  }
+}

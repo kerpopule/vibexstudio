@@ -44,11 +44,19 @@ const STARTER_IDEAS = [
   { emoji: '🌦️', prompt: 'A cozy weather dashboard with animated icons' },
 ];
 
-export function ChatView({ project }: { project: ProjectMeta }) {
+export function ChatView({
+  project,
+  onProjectChanged,
+}: {
+  project: ProjectMeta;
+  onProjectChanged?: (project: ProjectMeta) => void;
+}) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const providers = useApp((s) => s.providers);
+  const setProjectDesignReference = useApp((s) => s.setProjectDesignReference);
   const refreshSubscriptionIfNeeded = useApp((s) => s.refreshSubscriptionIfNeeded);
+  const refreshPrivateProviderIfNeeded = useApp((s) => s.refreshPrivateProviderIfNeeded);
   const session = useChat((s) => s.sessions[project.id]) ?? EMPTY_SESSION;
   const { load, sendChat, sendMedia, attachFile, abort } = useChat();
   const [input, setInput] = useState('');
@@ -100,6 +108,7 @@ export function ChatView({ project }: { project: ProjectMeta }) {
     const turnProvider =
       activeMode === 'image' ? imageProvider : activeMode === 'video' ? videoProvider : connection;
     if (turnProvider?.subscription) await refreshSubscriptionIfNeeded(turnProvider.id).catch(() => {});
+    if (turnProvider?.privateProvider) await refreshPrivateProviderIfNeeded(turnProvider.id);
 
     if (activeMode === 'image') await sendMedia(project, text, 'image', imageProvider);
     else if (activeMode === 'video') await sendMedia(project, text, 'video', videoProvider);
@@ -115,6 +124,7 @@ export function ChatView({ project }: { project: ProjectMeta }) {
     if (!lastUser) return;
     const text = lastUser.text.replace(/^Generate (image|video): /, '');
     if (connection?.subscription) await refreshSubscriptionIfNeeded(connection.id).catch(() => {});
+    if (connection?.privateProvider) await refreshPrivateProviderIfNeeded(connection.id);
     await sendChat(project, text, connection);
   };
 
@@ -183,12 +193,51 @@ export function ChatView({ project }: { project: ProjectMeta }) {
             ? 'Describe the app you want to build…'
             : 'What should we change?';
 
+  const removeDesignReference = () => {
+    Alert.alert('Remove design direction?', 'Future build and edit turns will stop using this Refero visual language.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          const next = await setProjectDesignReference(project.id);
+          onProjectChanged?.(next);
+        },
+      },
+    ]);
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       // Header (56) + tab bar (46) + status bar: what sits above this view.
       keyboardVerticalOffset={insets.top + 102}>
+      {project.designReference ? (
+        <View style={[styles.designBar, { backgroundColor: theme.tintSoft, borderColor: theme.border }]}>
+          <Ionicons name="color-palette" size={17} color={theme.tint} />
+          <View style={styles.designBarCopy}>
+            <ThemedText type="smallBold" numberOfLines={1}>{project.designReference.label}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>Refero design language active</ThemedText>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Change design reference"
+            hitSlop={8}
+            onPress={() => router.push({ pathname: '/(tabs)/templates', params: { projectId: project.id } } as never)}
+            style={styles.designBarAction}>
+            <ThemedText type="smallBold" style={{ color: theme.tint }}>Change</ThemedText>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Remove design reference"
+            hitSlop={8}
+            onPress={removeDesignReference}
+            style={styles.designBarAction}>
+            <Ionicons name="close" size={18} color={theme.textSecondary} />
+          </Pressable>
+        </View>
+      ) : null}
       {chatProviders.length > 0 ? (
         <View style={styles.barRow}>
           {/* Horizontal ScrollView (not a nested FlatList) so it can't collapse
@@ -327,6 +376,27 @@ export function ChatView({ project }: { project: ProjectMeta }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  designBar: {
+    minHeight: 52,
+    marginHorizontal: Spacing.two,
+    marginTop: Spacing.one,
+    borderRadius: Radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: Spacing.three,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  designBarCopy: {
+    flex: 1,
+    gap: 1,
+  },
+  designBarAction: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   barRow: {
     flexDirection: 'row',

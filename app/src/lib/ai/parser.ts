@@ -12,10 +12,13 @@
  *   - a plain html block that starts with <!doctype html>/<html> is the app —
  *     it becomes index.html
  */
+import { isValidMediaTarget, type MediaRequest } from '@/lib/medialab-core';
 import type { ProjectFile } from '@/lib/types';
 
 const OPEN_FENCE = /^```([^\s`]*)\s*(.*)$/;
 const FILE_ATTR = /(?:^|\s)(?:file|path)[:=]([^\s`]+)/;
+const MEDIA_KIND_ATTR = /(?:^|\s)kind[:=](video|image)\b/i;
+const MEDIA_CHARACTER_ATTR = /(?:^|\s)character[:=]([^\s`]+)/i;
 // A filename with a known web extension, however the model dresses it up
 // (bold, heading, backticks, comment syntax).
 const NEARBY_FILENAME = /([\w./ -]+\.(?:html|css|js|mjs|json|svg))\b/i;
@@ -24,11 +27,14 @@ export interface ParsedReply {
   /** Commentary with file blocks replaced by short placeholders. */
   text: string;
   files: ProjectFile[];
+  /** Parsed ```medialab fences — generation requests, not file contents. */
+  media: MediaRequest[];
 }
 
 export function parseAssistantReply(raw: string): ParsedReply {
   const lines = raw.split('\n');
   const files: ProjectFile[] = [];
+  const media: MediaRequest[] = [];
   const textParts: string[] = [];
 
   let i = 0;
@@ -44,6 +50,22 @@ export function parseAssistantReply(raw: string): ParsedReply {
     let end = i + 1;
     while (end < lines.length && !/^```\s*$/.test(lines[end])) end += 1;
     const body = lines.slice(i + 1, end).join('\n');
+
+    // A ```medialab fence is a generation REQUEST — the body is a prompt,
+    // never file content. Malformed ones stay in the visible text rather
+    // than being half-executed.
+    if (open[1].toLowerCase() === 'medialab') {
+      const request = parseMediaFence(open[2], body);
+      if (request) {
+        media.push(request);
+        textParts.push(`🎬 Requested ${request.kind} → \`${request.file}\``);
+        i = end + 1;
+        continue;
+      }
+      textParts.push(...lines.slice(i, Math.min(end + 1, lines.length)));
+      i = end + 1;
+      continue;
+    }
 
     // A path can live in the info string ("html file=x") or as the first
     // token ("file:x").
@@ -88,11 +110,27 @@ export function parseAssistantReply(raw: string): ParsedReply {
   // De-dupe: when a model outputs the same path twice, the last block wins.
   const byPath = new Map<string, ProjectFile>();
   for (const file of files) byPath.set(file.path, file);
+  const mediaByFile = new Map<string, MediaRequest>();
+  for (const request of media) mediaByFile.set(request.file, request);
 
   return {
     text: textParts.join('\n').replace(/\n{3,}/g, '\n\n').trim(),
     files: [...byPath.values()],
+    media: [...mediaByFile.values()],
   };
+}
+
+/** Validates one medialab fence; null keeps the raw block in the chat text. */
+function parseMediaFence(infoRest: string, body: string): MediaRequest | null {
+  const kindMatch = infoRest.match(MEDIA_KIND_ATTR);
+  const fileMatch = infoRest.match(FILE_ATTR);
+  const prompt = body.trim();
+  if (!kindMatch || !fileMatch || !prompt) return null;
+  const kind = kindMatch[1].toLowerCase() as MediaRequest['kind'];
+  const file = sanitizePath(fileMatch[1]);
+  if (!file || !isValidMediaTarget(kind, file)) return null;
+  const character = infoRest.match(MEDIA_CHARACTER_ATTR)?.[1];
+  return { kind, file, prompt, ...(character ? { character } : {}) };
 }
 
 /** Rejects absolute paths and traversal so the model can't escape the project dir. */

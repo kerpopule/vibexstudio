@@ -7,6 +7,7 @@ import { streamChat, type WireMessage } from '@/lib/ai/chat';
 import { parseAssistantReply } from '@/lib/ai/parser';
 import { buildSystemPrompt } from '@/lib/ai/prompts';
 import { expectsFileOutput, resolveAssistantText } from '@/lib/ai/turn-intent';
+import { getMediaLabPromptContext, handleMediaRequests } from '@/lib/medialab-tool';
 import { listFiles, newId, readChat, writeChat, writeFile } from '@/lib/storage/projects';
 import type { ChatMessage, ProjectMeta, ProviderConnection } from '@/lib/types';
 
@@ -56,7 +57,10 @@ export async function runVibeTurn(opts: {
   callbacks.onMessages(messages);
 
   const files = await listFiles(project.id);
-  const system = buildSystemPrompt(project.name, files);
+  // Media protocol context: paired Media Lab + its castable characters (or
+  // the images-only variant). Never blocks the turn on a sleeping server.
+  const mediaLab = await getMediaLabPromptContext().catch(() => null);
+  const system = buildSystemPrompt(project.name, files, project.designReference, mediaLab);
   const wire: WireMessage[] = messages
     .slice(-MAX_HISTORY_MESSAGES)
     .filter((m) => m.text.trim() !== '')
@@ -76,7 +80,9 @@ export async function runVibeTurn(opts: {
 
     const expectedFileOutput = expectsFileOutput(userText, files.length > 0);
     let parsed = parseAssistantReply(raw);
-    if (parsed.files.length === 0 && expectedFileOutput) {
+    // A media fence IS real output — never trigger the fileless retry over
+    // a reply that requested media, even without code blocks.
+    if (parsed.files.length === 0 && parsed.media.length === 0 && expectedFileOutput) {
       callbacks.onStream(`${raw}\n\n⚡ Tightening the build format…`);
       raw = await streamChat({
         connection,
@@ -99,9 +105,21 @@ export async function runVibeTurn(opts: {
       await writeFile(project.id, file.path, file.content);
       written.push(file.path);
     }
+    // Fire media submissions before finalizing the assistant message: server
+    // jobs get queued + placeholders written, on-device images generate
+    // inline. The outcome's status lines ride on the reply text and its
+    // written placeholders count as real file output.
+    let mediaStatus = '';
+    if (parsed.media.length > 0) {
+      callbacks.onStream(`${raw}\n\n🎬 Sending media to production…`);
+      const media = await handleMediaRequests(project, parsed.media);
+      written.push(...media.writtenPaths);
+      mediaStatus = media.statusLines.join('\n');
+    }
+    const baseText = resolveAssistantText(parsed.text, written.length, expectedFileOutput);
     assistant = {
       ...assistant,
-      text: resolveAssistantText(parsed.text, written.length, expectedFileOutput),
+      text: mediaStatus ? `${baseText}\n\n${mediaStatus}` : baseText,
       filesWritten: written.length ? written : undefined,
       error:
         expectedFileOutput && written.length === 0

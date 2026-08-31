@@ -51,3 +51,4 @@ assets/images/*
 !assets/images/splash-icon.png
 !assets/images/favicon.png
 .flowdeck/
+.artifacts/

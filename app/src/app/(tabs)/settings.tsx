@@ -119,8 +119,11 @@ export default function SettingsScreen() {
     ]);
   };
 
-  const confirmRemoveProvider = (id: string, label: string) => {
-    Alert.alert(`Remove ${label}?`, 'The key is deleted from this device’s keychain.', [
+  const confirmRemoveProvider = (id: string, label: string, isPrivate: boolean) => {
+    const detail = isPrivate
+      ? 'This revokes the private device grant, then deletes its credential and refresh handle from this device’s keychain.'
+      : 'The key is deleted from this device’s keychain.';
+    Alert.alert(`Remove ${label}?`, detail, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: () => removeProvider(id) },
     ]);
@@ -222,7 +225,7 @@ export default function SettingsScreen() {
               right={
                 <Pressable
                   hitSlop={10}
-                  onPress={() => confirmRemoveProvider(provider.id, provider.label)}
+                  onPress={() => confirmRemoveProvider(provider.id, provider.label, Boolean(provider.privateProvider))}
                   style={{ padding: 4 }}>
                   <Ionicons name="trash-outline" size={18} color={theme.textSecondary} />
                 </Pressable>
@@ -236,6 +239,22 @@ export default function SettingsScreen() {
             subtitle="OpenRouter (OAuth), Anthropic, OpenAI, Gemini, Grok, GLM, or any custom endpoint"
             left={<EmojiTile emoji="✨" size={36} />}
             onPress={() => router.push('/connect-provider')}
+          />
+          <RowDivider />
+          <Row
+            title="Private hosted model"
+            subtitle="Redeem a signed, device-scoped invite for an approved OpenAI-compatible model"
+            left={<EmojiTile emoji="🔐" size={36} />}
+            onPress={() => router.push('/connect-private')}
+          />
+        </Section>
+
+        <Section title="Agent harnesses">
+          <Row
+            title="Connect an agent"
+            subtitle="Pair Hermes, Codex, Claude Code, OpenCode, or another MCP client over your local Wi-Fi"
+            left={<EmojiTile emoji="🪽" size={36} />}
+            onPress={() => router.push('/agent-connect')}
           />
         </Section>
 
@@ -279,7 +298,9 @@ export default function SettingsScreen() {
         <Section title="Privacy">
           <Row
             title="Your data stays yours"
-            subtitle={`VibeXStudio has no servers and collects nothing. Projects live on ${thisDevice}; keys live in the secure keychain; syncing goes straight to your GitHub.`}
+            subtitle={providers.some((provider) => provider.privateProvider)
+              ? `Projects stay on ${thisDevice} and keys stay in the secure keychain. Private VibeX prompts and output pass through the explicitly connected private broker; VibeXStudio adds no analytics or prompt logging.`
+              : `VibeXStudio has no servers and collects nothing. Projects live on ${thisDevice}; keys live in the secure keychain; syncing goes straight to your GitHub.`}
             left={<EmojiTile emoji="🔒" size={36} />}
           />
         </Section>

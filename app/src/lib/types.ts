@@ -22,6 +22,16 @@ export interface GitHubLink {
   lastSyncedAt?: number;
 }
 
+export interface DesignReference {
+  schema: 'vibex/design-reference.v1';
+  source: { kind: 'refero-style'; url: string };
+  label: string;
+  /** Bounded, normalized, AI-readable visual language captured from the rendered page. */
+  promptText: string;
+  previewImageUrl?: string;
+  capturedAt: number;
+}
+
 export interface ProjectMeta {
   id: string;
   name: string;
@@ -30,6 +40,8 @@ export interface ProjectMeta {
   updatedAt: number;
   /** Emoji used as the project icon in lists. */
   emoji: string;
+  /** Optional, locally persisted design direction selected before the first prompt. */
+  designReference?: DesignReference;
   /** Provider connection id + model the user picked for this project's chat. */
   ai?: { connectionId: string; model: string };
   github?: GitHubLink;
@@ -79,9 +91,30 @@ export type ProviderKind =
   | 'gemini'
   | 'xai'
   | 'zai'
+  | 'fal'
   | 'custom';
 
 export type ProviderAuthMethod = 'oauth' | 'apiKey';
+
+export interface PrivateProviderMetadata {
+  schema: 'vibex/private-provider-profile.v1';
+  issuer: string;
+  grantId: string;
+  deviceCredentialId: string;
+  allowedModels: string[];
+  expiresAt: number;
+  credentialExpiresAt: number;
+  limits: {
+    perMinute: number;
+    perDevicePerDay: number;
+    perGrantPerDay: number;
+    perDeviceConcurrent: number;
+    globalConcurrent: number;
+    maxOutputTokens: number;
+  };
+  privacyNoticeVersion: string;
+  revocationEndpoint: string;
+}
 
 export interface ProviderCapabilities {
   chat: boolean;
@@ -109,8 +142,15 @@ export interface ProviderConnection {
   subscription?: 'minimax-oauth' | 'kimi-oauth' | 'xai-oauth';
   /** Unix ms expiry of the subscription access token, for proactive refresh. */
   tokenExpiresAt?: number;
+  /** Signed, non-secret metadata for a device-bound Private VibeX grant. */
+  privateProvider?: PrivateProviderMetadata;
   /** Default chat model for this connection. */
   defaultModel: string;
+  /**
+   * Image/video model choices for media-only providers (fal). Unset entries
+   * fall back to the curated catalog's recommended model.
+   */
+  mediaModels?: { image?: string; video?: string };
   capabilities: ProviderCapabilities;
   createdAt: number;
 }

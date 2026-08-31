@@ -10,6 +10,9 @@
     "ios": {
       "bundleIdentifier": "studio.vibex.app",
       "supportsTablet": true,
+      "associatedDomains": [
+        "applinks:vibexstudio.com"
+      ],
       "infoPlist": {
         "LSSupportsOpeningDocumentsInPlace": true,
         "CFBundleDocumentTypes": [
@@ -41,6 +44,7 @@
           }
         ],
         "ITSAppUsesNonExemptEncryption": false,
+        "NSLocalNetworkUsageDescription": "VibeXStudio lets an agent you approve connect to projects on this phone over your local Wi-Fi.",
         "NSSpeechRecognitionUsageDescription": "VibeXStudio uses on-device speech recognition to turn your voice into prompts.",
         "NSMicrophoneUsageDescription": "VibeXStudio uses the microphone so you can dictate prompts.",
         "NSAppTransportSecurity": {
@@ -48,7 +52,7 @@
           "NSAllowsLocalNetworking": true
         }
       },
-      "buildNumber": "18",
+      "buildNumber": "20",
       "usesIcloudStorage": true,
       "entitlements": {
         "com.apple.developer.icloud-services": [
@@ -95,6 +99,8 @@
         }
       ],
       "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.RECORD_AUDIO"
       ],
       "allowBackup": true
@@ -134,7 +140,8 @@
         {
           "color": "#5EC2FF"
         }
-      ]
+      ],
+      "expo-background-task"
     ],
     "experiments": {
       "typedRoutes": true,

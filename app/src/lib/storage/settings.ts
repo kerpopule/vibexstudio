@@ -51,6 +51,15 @@ export async function setMediaLab(link: MediaLabLink | null): Promise<void> {
   else await AsyncStorage.setItem(KEYS.mediaLab, JSON.stringify(link));
 }
 
+/** "Not now" on the notifications nudge — once said, never nag again. */
+export async function getNotificationsDeclined(): Promise<boolean> {
+  return (await AsyncStorage.getItem('vibex.settings.notificationsDeclined')) === 'true';
+}
+
+export async function setNotificationsDeclined(): Promise<void> {
+  await AsyncStorage.setItem('vibex.settings.notificationsDeclined', 'true');
+}
+
 /** User-chosen color scheme; 'system' follows the OS setting. */
 export type AppearancePref = 'system' | 'light' | 'dark';
 

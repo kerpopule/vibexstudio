@@ -7,12 +7,16 @@ import { resolveRouting } from '@/lib/ai/chat';
 import { shortModelLabel } from '@/lib/ai/model-label';
 import { PROVIDERS } from '@/lib/ai/registry';
 import { SUBSCRIPTION_PROVIDERS } from '@/lib/ai/subscriptionOauth';
+import { PRIVATE_ALLOWED_MODELS } from '@/lib/private-provider/profile';
+import { getPrivateDeviceProof } from '@/lib/storage/secrets';
 import type { ProviderConnection } from '@/lib/types';
 
 export { shortModelLabel };
 
 /** Curated fallback models for a connection. */
 export function staticModels(c: ProviderConnection): string[] {
+  if (c.privateProvider) return c.privateProvider.allowedModels.filter((model) =>
+    PRIVATE_ALLOWED_MODELS.includes(model as typeof PRIVATE_ALLOWED_MODELS[number]));
   return c.subscription
     ? SUBSCRIPTION_PROVIDERS[c.subscription].suggestedModels
     : PROVIDERS[c.kind].suggestedModels;
@@ -57,13 +61,21 @@ export async function fetchModels(connection: ProviderConnection, secret: string
         bases.push(alt);
       }
       for (const base of bases) {
+        const deviceProof = connection.privateProvider ? await getPrivateDeviceProof(connection.id) : null;
         const res = await fetch(`${base}/models`, {
-          headers: { Authorization: `Bearer ${secret}`, ...(routing.extraHeaders ?? {}) },
+          headers: {
+            Authorization: `Bearer ${secret}`,
+            ...(deviceProof ? { 'X-VibeX-Device-Proof': deviceProof } : {}),
+            ...(routing.extraHeaders ?? {}),
+          },
         });
         const json = await res.json();
         live = (json.data ?? []).map((m: { id: string }) => m.id);
         if (live.length) break;
       }
+    }
+    if (connection.privateProvider) {
+      live = live.filter((model) => connection.privateProvider!.allowedModels.includes(model));
     }
     live = live.filter(Boolean).sort();
     return live.length ? uniq([connection.defaultModel, ...live]) : fallback;
@@ -74,6 +86,7 @@ export async function fetchModels(connection: ProviderConnection, secret: string
 
 /** Emoji glyph for a connection's vendor, for the chat model bar. */
 export function providerGlyph(c: ProviderConnection): string {
+  if (c.privateProvider) return '🔐';
   if (c.subscription === 'minimax-oauth') return '🟠';
   if (c.subscription === 'kimi-oauth') return '🌙';
   if (c.subscription === 'xai-oauth') return '✖️';

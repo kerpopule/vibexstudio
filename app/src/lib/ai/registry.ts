@@ -104,6 +104,20 @@ export const PROVIDERS: Record<ProviderKind, ProviderSpec> = {
     suggestedModels: ['glm-5.2', 'glm-5.1', 'glm-5', 'glm-4.7'],
     capabilities: { chat: true, image: false, video: false },
   },
+  fal: {
+    kind: 'fal',
+    name: 'fal.ai',
+    blurb: 'Cloud rendering for images and video — pay only for what you make.',
+    // Media-only: fal never chats, so it stays out of PROVIDER_ORDER (the
+    // chat Connect screen). Its home is the Media Lab setup walkthrough.
+    protocol: 'openai',
+    baseUrl: 'https://queue.fal.run',
+    supportsOAuth: false,
+    keyUrl: 'https://fal.ai/dashboard/keys',
+    defaultModel: '',
+    suggestedModels: [],
+    capabilities: { chat: false, image: true, video: true },
+  },
   custom: {
     kind: 'custom',
     name: 'Custom (OpenAI-compatible)',
