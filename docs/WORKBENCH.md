@@ -62,10 +62,13 @@ needed for this one):
 
 ## Build order
 
-1. Workbench server skeleton in `desktop/` (Node sidecar): pairing token,
-   `/projects/import`, `/exec` (allowlist), `/events`. (The heavy lift.)
-2. Phone: Workbench pairing (reuse `vibex://pair`), "Run on my computer"
-   toggle in the project screen, preview-over-LAN.
+1. ✅ SHIPPED — Workbench server in `desktop/workbench/` (zero-dependency
+   Node sidecar): pairing token, `/projects/import`, `/exec` (allowlist),
+   `/jobs`, `/events`, `/preview` proxy. Contract: `desktop/workbench/API.md`.
+2. ✅ SHIPPED — Phone: combined-QR pairing lands on a real `vibex://pair`
+   screen, "Run on my computer" in the project's Share pane, and the Preview
+   pane hosts the computer-served app over LAN/tailnet with a "computer"
+   badge.
 3. `workbench` fences in the chat engine + turn handoff.
 4. Always-on continuation + catch-up.
 
