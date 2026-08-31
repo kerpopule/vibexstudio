@@ -52,7 +52,7 @@
           "NSAllowsLocalNetworking": true
         }
       },
-      "buildNumber": "22",
+      "buildNumber": "23",
       "usesIcloudStorage": true,
       "entitlements": {
         "com.apple.developer.icloud-services": [
@@ -141,7 +141,8 @@
           "color": "#5EC2FF"
         }
       ],
-      "expo-background-task"
+      "expo-background-task",
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,
