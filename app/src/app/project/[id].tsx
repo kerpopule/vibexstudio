@@ -17,6 +17,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { useChat } from '@/lib/chat-engine';
 import { workspaceLayoutForWidth } from '@/lib/layout';
 import { readProject } from '@/lib/storage/projects';
+import { useApp } from '@/lib/store';
 import type { ProjectMeta } from '@/lib/types';
 
 type Pane = 'chat' | 'preview' | 'files' | 'share';
@@ -35,6 +36,16 @@ export default function ProjectScreen() {
   const previewReadySignal = useChat((s) => (id ? (s.sessions[id]?.previewReadySignal ?? 0) : 0));
   const bumpFiles = useChat((s) => s.bumpFiles);
   const lastPreviewSignal = useRef(previewReadySignal);
+  const remotePreviewUrl = useApp((s) => (id ? (s.workbenchPreview[id] ?? null) : null));
+  const setWorkbenchPreview = useApp((s) => s.setWorkbenchPreview);
+  const hadRemotePreview = useRef(remotePreviewUrl != null);
+
+  // "Run on my computer" finishing (in the Share pane) flips to Preview so
+  // the served app is the very next thing on screen.
+  useEffect(() => {
+    if (remotePreviewUrl != null && !hadRemotePreview.current) setPane('preview');
+    hadRemotePreview.current = remotePreviewUrl != null;
+  }, [remotePreviewUrl]);
 
   useFocusEffect(
     useCallback(() => {
@@ -128,6 +139,8 @@ export default function ProjectScreen() {
               projectId={project.id}
               reloadKey={filesVersion}
               immersive={false}
+              remoteUrl={remotePreviewUrl ?? undefined}
+              onExitRemote={() => setWorkbenchPreview(project.id, null)}
             />
           </View>
         </View>
@@ -147,6 +160,8 @@ export default function ProjectScreen() {
               reloadKey={filesVersion}
               immersive={immersive && pane === 'preview'}
               onToggleImmersive={() => setImmersive((v) => !v)}
+              remoteUrl={remotePreviewUrl ?? undefined}
+              onExitRemote={() => setWorkbenchPreview(project.id, null)}
             />
           </View>
         </>

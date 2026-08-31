@@ -19,6 +19,8 @@ import { readProject } from '@/lib/storage/projects';
 import { getGitHubToken } from '@/lib/storage/secrets';
 import { useApp } from '@/lib/store';
 import type { ProjectMeta } from '@/lib/types';
+import { runProjectOnWorkbench, WorkbenchRunError } from '@/lib/workbench';
+import { describeWorkbenchPhase } from '@/lib/workbench-core';
 
 export function ShareView({
   project,
@@ -37,6 +39,29 @@ export function ShareView({
   const [copied, setCopied] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const workbench = useApp((s) => s.workbench);
+  const remotePreviewUrl = useApp((s) => s.workbenchPreview[project.id] ?? null);
+  const setWorkbenchPreview = useApp((s) => s.setWorkbenchPreview);
+  const [runPhase, setRunPhase] = useState<string | null>(null);
+  const [runError, setRunError] = useState<{ message: string; logTail: string | null } | null>(null);
+
+  const runOnComputer = async () => {
+    if (runPhase) return;
+    setRunError(null);
+    try {
+      const { previewUrl } = await runProjectOnWorkbench(project, (phase) =>
+        setRunPhase(describeWorkbenchPhase(phase))
+      );
+      setWorkbenchPreview(project.id, previewUrl);
+    } catch (e) {
+      setRunError({
+        message: e instanceof Error ? e.message : 'The run on your computer failed.',
+        logTail: e instanceof WorkbenchRunError ? e.logTail : null,
+      });
+    } finally {
+      setRunPhase(null);
+    }
+  };
 
   const exportBundle = async () => {
     if (exporting) return;
@@ -163,6 +188,31 @@ export function ShareView({
     }
   };
 
+  // Only rendered while a workbench is paired — "computer does the heavy
+  // lifting, phone is the remote".
+  const workbenchSection = workbench ? (
+    <Section title="Run on my computer">
+      <Row
+        title={runPhase ?? (remotePreviewUrl ? 'Running on your computer' : 'Run on my computer')}
+        subtitle={
+          runPhase
+            ? 'Hang tight — the Preview pane switches over when it is up.'
+            : remotePreviewUrl
+              ? 'The Preview pane is showing the live server. Tap to send fresh files and restart.'
+              : 'Sends this app to your paired computer, which installs, builds, and serves it live.'
+        }
+        left={<EmojiTile emoji="🖥️" size={36} />}
+        onPress={runPhase ? undefined : () => void runOnComputer()}
+      />
+      {runError ? (
+        <>
+          <RowDivider />
+          <Row title={runError.message} subtitle={runError.logTail ?? undefined} destructive />
+        </>
+      ) : null}
+    </Section>
+  ) : null;
+
   const sendSection = (
     <Section title="Backup / offline copy">
       <Row
@@ -200,6 +250,7 @@ export function ShareView({
           Connect GitHub to publish this app to your own repo, turn on GitHub Pages, and get one link people can open in a browser or import into VibeXStudio.
         </ThemedText>
         <Button title="Connect GitHub" onPress={() => router.push('/connect-github')} />
+        {workbenchSection}
         {sendSection}
       </ScrollView>
     );
@@ -337,6 +388,7 @@ export function ShareView({
           ))}
         </Section>
       ) : null}
+      {workbenchSection}
       {sendSection}
     </ScrollView>
   );

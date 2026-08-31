@@ -26,15 +26,51 @@ export function normalizeServerUrl(raw: string): string | null {
 export function parsePairDeepLink(link: string): string | null {
   // Accept vibex://pair and vibex:///pair (some launchers add a slash).
   if (!/^vibex:\/{2,3}pair(\?|$)/i.test(link.trim())) return null;
-  const match = /[?&]url=([^&#]*)/.exec(link);
+  const decoded = pairQueryParam(link, 'url');
+  return decoded ? normalizeServerUrl(decoded) : null;
+}
+
+/** One decoded query param off a pair link, or null when absent/undecodable. */
+function pairQueryParam(link: string, name: string): string | null {
+  const match = new RegExp(`[?&]${name}=([^&#]*)`).exec(link);
   if (!match || !match[1]) return null;
-  let decoded: string;
   try {
-    decoded = decodeURIComponent(match[1]);
+    return decodeURIComponent(match[1]);
   } catch {
     return null;
   }
-  return normalizeServerUrl(decoded);
+}
+
+export interface WorkbenchPairing {
+  url: string;
+  token: string;
+}
+
+/** Everything one scanned QR can pair: either half may be missing. */
+export interface PairPayload {
+  mediaLab: string | null;
+  workbench: WorkbenchPairing | null;
+}
+
+/**
+ * V2 pair-link parser, handling both generations of the desktop QR:
+ *   legacy  vibex://pair?url=<enc>                            (Media Lab only)
+ *   v2      vibex://pair?medialab=<enc>&workbench=<enc>&wbt=<token>
+ * Returns null when the link isn't a pair link or carries nothing usable.
+ * A workbench half without a token is dropped (the server rejects everything
+ * without it, so pairing would only manufacture a broken state).
+ */
+export function parsePairDeepLinkV2(link: string): PairPayload | null {
+  if (!/^vibex:\/{2,3}pair(\?|$)/i.test(link.trim())) return null;
+  const mediaLabRaw = pairQueryParam(link, 'medialab') ?? pairQueryParam(link, 'url');
+  const mediaLab = mediaLabRaw ? normalizeServerUrl(mediaLabRaw) : null;
+  const workbenchUrlRaw = pairQueryParam(link, 'workbench');
+  const workbenchUrl = workbenchUrlRaw ? normalizeServerUrl(workbenchUrlRaw) : null;
+  const token = pairQueryParam(link, 'wbt');
+  const workbench =
+    workbenchUrl && token && /^\S+$/.test(token) ? { url: workbenchUrl, token } : null;
+  if (!mediaLab && !workbench) return null;
+  return { mediaLab, workbench };
 }
 
 /** True when a Media Lab answers at `url` (gate-exempt /manifest.json). */

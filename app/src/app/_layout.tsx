@@ -1,11 +1,9 @@
-import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, router, useSegments } from 'expo-router';
 import { useEffect } from 'react';
 import { Alert, AppState, Linking } from 'react-native';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { parsePairDeepLink, probeMediaLab } from '@/lib/media-pairing';
 import { initMediaServerWatch } from '@/lib/media-server-watch';
 import { mediaLabJobFromResponse, nudgeForPermission, projectIdFromResponse } from '@/lib/notifications';
 import { getNotificationsDeclined, setNotificationsDeclined } from '@/lib/storage/settings';
@@ -40,20 +38,9 @@ function isBundleFileUrl(url: string): boolean {
   return /^(file|content):/i.test(url) && /\.vibex(\?|#|$)/i.test(url);
 }
 
-/**
- * Scanning the desktop app's QR opens `vibex://pair?url=<encoded>`. We probe
- * the server; on success the phone is paired with no typing at all, and on
- * failure the paste-a-URL screen opens with the address prefilled.
- */
-async function handlePairLink(serverUrl: string): Promise<void> {
-  if (await probeMediaLab(serverUrl)) {
-    await useApp.getState().setMediaLab({ url: serverUrl, addedAt: Date.now() });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    router.push('/(tabs)/media-lab');
-  } else {
-    router.push({ pathname: '/connect-media-lab', params: { url: serverUrl } });
-  }
-}
+// Scanning the desktop app's QR opens `vibex://pair?...` — that is a real
+// route (src/app/pair.tsx) which probes and pairs each half with visible
+// progress, so no handling happens here.
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -92,10 +79,7 @@ export default function RootLayout() {
       const inviteToken = parsePrivateInviteLink(url);
       if (inviteToken) {
         router.push({ pathname: '/connect-private', params: { token: inviteToken } });
-        return;
       }
-      const pairUrl = parsePairDeepLink(url);
-      if (pairUrl) handlePairLink(pairUrl).catch(() => {});
     };
     Linking.getInitialURL().then(open);
     const sub = Linking.addEventListener('url', (e) => open(e.url));
@@ -149,6 +133,7 @@ export default function RootLayout() {
         <Stack.Screen name="connect-private" options={{ presentation: 'modal', title: 'Private VibeX Models' }} />
         <Stack.Screen name="edit-model" options={{ presentation: 'modal', title: 'Choose model' }} />
         <Stack.Screen name="connect-media-lab" options={{ presentation: 'modal', title: 'Media Lab' }} />
+        <Stack.Screen name="pair" options={{ presentation: 'modal', title: 'Pair' }} />
         <Stack.Screen name="media-lab-setup" options={{ presentation: 'modal', title: 'Set up Media Lab' }} />
         <Stack.Screen name="fal-setup" options={{ presentation: 'modal', title: 'Cloud rendering' }} />
         <Stack.Screen name="agent-connect" options={{ presentation: 'modal', title: 'Connect an agent' }} />

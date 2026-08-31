@@ -24,7 +24,7 @@ import { useApp } from '@/lib/store';
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const theme = useTheme();
-  const { github, providers, appearance, setAppearance, disconnectGitHub, removeProvider, mediaLab } = useApp();
+  const { github, providers, appearance, setAppearance, disconnectGitHub, removeProvider, mediaLab, workbench, unpairWorkbench } = useApp();
   const projects = useApp((s) => s.projects);
   const refreshProjects = useApp((s) => s.refreshProjects);
   const deleteProject = useApp((s) => s.deleteProject);
@@ -112,6 +112,17 @@ export default function SettingsScreen() {
     ]);
   };
 
+  const confirmUnpairWorkbench = () => {
+    Alert.alert(
+      'Unpair this computer?',
+      'The pairing token is deleted from the keychain. Re-pair anytime by scanning the desktop QR again.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Unpair', style: 'destructive', onPress: () => void unpairWorkbench() },
+      ]
+    );
+  };
+
   const confirmDisconnectGitHub = () => {
     Alert.alert('Disconnect GitHub?', 'Synced repos stay on GitHub. Local projects are unaffected.', [
       { text: 'Cancel', style: 'cancel' },
@@ -181,6 +192,26 @@ export default function SettingsScreen() {
               subtitle="Point VibeX at your desktop app or Spark — its full web UI joins the Media Lab tab"
               left={<EmojiTile emoji="🎬" size={36} />}
               onPress={() => router.push('/connect-media-lab')}
+            />
+          )}
+        </Section>
+
+        <Section title="Workbench">
+          {workbench ? (
+            <>
+              <Row
+                title={workbench.url}
+                subtitle="This computer builds and serves your projects"
+                left={<EmojiTile emoji="🖥️" size={36} />}
+              />
+              <RowDivider />
+              <Row title="Unpair" destructive onPress={confirmUnpairWorkbench} />
+            </>
+          ) : (
+            <Row
+              title="No computer paired"
+              subtitle="Pair from the desktop app's QR — your computer then installs, builds, and serves projects for the phone"
+              left={<EmojiTile emoji="🖥️" size={36} />}
             />
           )}
         </Section>

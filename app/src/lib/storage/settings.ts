@@ -15,6 +15,7 @@ const KEYS = {
   vibe: 'vibex.settings.vibe',
   onboardingComplete: 'vibex.settings.onboardingComplete',
   mediaLab: 'vibex.settings.mediaLab',
+  workbench: 'vibex.settings.workbench',
   androidSyncFolder: 'vibex.settings.androidSyncFolder',
 } as const;
 
@@ -49,6 +50,25 @@ export async function getMediaLab(): Promise<MediaLabLink | null> {
 export async function setMediaLab(link: MediaLabLink | null): Promise<void> {
   if (link == null) await AsyncStorage.removeItem(KEYS.mediaLab);
   else await AsyncStorage.setItem(KEYS.mediaLab, JSON.stringify(link));
+}
+
+/**
+ * The paired desktop Workbench (the computer that builds and serves projects
+ * on the phone's behalf). The URL is not a secret; its token lives in the
+ * keychain — see secrets.ts getWorkbenchToken.
+ */
+export interface WorkbenchLink {
+  url: string;
+  addedAt: number;
+}
+
+export async function getWorkbench(): Promise<WorkbenchLink | null> {
+  return readJson<WorkbenchLink>(KEYS.workbench);
+}
+
+export async function setWorkbench(link: WorkbenchLink | null): Promise<void> {
+  if (link == null) await AsyncStorage.removeItem(KEYS.workbench);
+  else await AsyncStorage.setItem(KEYS.workbench, JSON.stringify(link));
 }
 
 /** "Not now" on the notifications nudge — once said, never nag again. */

@@ -21,7 +21,7 @@ import { getAuthenticatedUser } from '@/lib/github/api';
 import * as projectStore from '@/lib/storage/projects';
 import * as secrets from '@/lib/storage/secrets';
 import * as settings from '@/lib/storage/settings';
-import type { AppearancePref, MediaLabLink } from '@/lib/storage/settings';
+import type { AppearancePref, MediaLabLink, WorkbenchLink } from '@/lib/storage/settings';
 import type { DesignReference, GitHubAccount, ProjectMeta, ProviderConnection, ProviderKind } from '@/lib/types';
 
 interface AppState {
@@ -34,12 +34,22 @@ interface AppState {
   mediaLab: MediaLabLink | null;
   /** Job id a tapped "finished" notification should land on (in-memory). */
   mediaLabFocusJob: string | null;
+  workbench: WorkbenchLink | null;
+  /**
+   * Per-project remote preview URL while "Run on my computer" is live —
+   * in-memory only, by design: a stale workbench URL after a restart would
+   * just be a broken WebView.
+   */
+  workbenchPreview: Record<string, string>;
   pendingDesignReference: DesignReference | null;
 
   hydrate: () => Promise<void>;
   setAppearance: (pref: AppearancePref) => Promise<void>;
   setMediaLab: (link: MediaLabLink | null) => Promise<void>;
   setMediaLabFocusJob: (id: string | null) => void;
+  pairWorkbench: (url: string, token: string) => Promise<void>;
+  unpairWorkbench: () => Promise<void>;
+  setWorkbenchPreview: (projectId: string, url: string | null) => void;
   completeOnboarding: () => Promise<void>;
   refreshProjects: () => Promise<void>;
   createProject: (name: string, emoji: string, designReference?: DesignReference) => Promise<ProjectMeta>;
@@ -84,23 +94,26 @@ export const useApp = create<AppState>((set, get) => ({
   appearance: 'system',
   onboardingComplete: false,
   mediaLab: null,
+  workbench: null,
+  workbenchPreview: {},
   pendingDesignReference: null,
 
   hydrate: async () => {
     // Pre-sync local projects hop into the iCloud container first, so the
     // list below already sees them in their synced home. No-op off-Apple.
     await projectStore.migrateLocalProjectsToCloud().catch(() => {});
-    const [projects, github, providers, appearance, onboardingComplete, mediaLab] = await Promise.all([
+    const [projects, github, providers, appearance, onboardingComplete, mediaLab, workbench] = await Promise.all([
       projectStore.listProjects(),
       settings.getGitHubAccount(),
       settings.getProviders(),
       settings.getAppearance(),
       settings.getOnboardingComplete(),
       settings.getMediaLab(),
+      settings.getWorkbench(),
     ]);
     settings.clearLegacyVibe().catch(() => {});
     applyAppearance(appearance);
-    set({ projects, github, providers, appearance, onboardingComplete, mediaLab, hydrated: true });
+    set({ projects, github, providers, appearance, onboardingComplete, mediaLab, workbench, hydrated: true });
   },
 
   setMediaLab: async (link) => {
@@ -110,6 +123,29 @@ export const useApp = create<AppState>((set, get) => ({
 
   mediaLabFocusJob: null,
   setMediaLabFocusJob: (id) => set({ mediaLabFocusJob: id }),
+
+  pairWorkbench: async (url, token) => {
+    // Token first: if the keychain write fails we never persist a paired
+    // state that can't authenticate.
+    await secrets.setWorkbenchToken(token);
+    const link = { url, addedAt: Date.now() };
+    await settings.setWorkbench(link);
+    set({ workbench: link });
+  },
+
+  unpairWorkbench: async () => {
+    await secrets.clearWorkbenchToken();
+    await settings.setWorkbench(null);
+    set({ workbench: null, workbenchPreview: {} });
+  },
+
+  setWorkbenchPreview: (projectId, url) =>
+    set((state) => {
+      const next = { ...state.workbenchPreview };
+      if (url == null) delete next[projectId];
+      else next[projectId] = url;
+      return { workbenchPreview: next };
+    }),
 
   setAppearance: async (pref) => {
     applyAppearance(pref);

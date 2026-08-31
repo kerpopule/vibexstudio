@@ -19,11 +19,20 @@ export function PreviewView({
   reloadKey,
   immersive = false,
   onToggleImmersive,
+  remoteUrl,
+  onExitRemote,
 }: {
   projectId: string;
   reloadKey: number;
   immersive?: boolean;
   onToggleImmersive?: () => void;
+  /**
+   * When set, the preview renders this URL (the paired computer's dev/serve
+   * proxy, ?wbt= token included) instead of the local files — with a
+   * "computer" badge and a tap-back to the on-device preview.
+   */
+  remoteUrl?: string;
+  onExitRemote?: () => void;
 }) {
   const theme = useTheme();
   const [manualReload, setManualReload] = useState(0);
@@ -31,6 +40,39 @@ export function PreviewView({
   const indexFile = new File(`${filesRootUri(projectId)}/index.html`);
   // reloadKey in the dep below: re-check existence whenever files change.
   const indexUri = indexFile.exists ? indexFile.uri : null;
+
+  if (remoteUrl) {
+    return (
+      <View style={styles.container}>
+        <WebView
+          key={`remote-${manualReload}`}
+          source={{ uri: remoteUrl }}
+          style={styles.web}
+        />
+        <View style={[styles.remoteBadge, { backgroundColor: theme.tintSoft }]}>
+          <Ionicons name="desktop-outline" size={13} color={theme.tint} />
+          <ThemedText type="small" style={{ color: theme.tint, fontSize: 12 }}>
+            computer
+          </ThemedText>
+          {onExitRemote ? (
+            <Pressable onPress={onExitRemote} hitSlop={10} accessibilityRole="button" accessibilityLabel="Switch back to the on-device preview">
+              <Ionicons name="close-circle" size={15} color={theme.tint} />
+            </Pressable>
+          ) : null}
+        </View>
+        {!immersive ? (
+          <Pressable onPress={() => setManualReload((n) => n + 1)} hitSlop={10} style={styles.topReload}>
+            <Ionicons name="refresh" size={18} color="#FFFFFF" />
+          </Pressable>
+        ) : null}
+        {onToggleImmersive ? (
+          <Pressable onPress={onToggleImmersive} style={[styles.fab, styles.fabBottom]}>
+            <Ionicons name={immersive ? 'contract' : 'expand'} size={20} color="#FFFFFF" />
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
 
   if (!indexUri) {
     return (
@@ -117,6 +159,17 @@ const styles = StyleSheet.create({
   },
   center: {
     textAlign: 'center',
+  },
+  remoteBadge: {
+    position: 'absolute',
+    top: Spacing.three,
+    left: Spacing.three,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   topReload: {
     position: 'absolute',

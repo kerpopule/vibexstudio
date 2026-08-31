@@ -6,6 +6,24 @@
 import * as SecureStore from 'expo-secure-store';
 
 const GITHUB_TOKEN_KEY = 'vibex.github.token';
+const WORKBENCH_TOKEN_KEY = 'vibex.workbench.token';
+
+/**
+ * The Workbench pairing token (rides in every request as X-Workbench-Token
+ * and as ?wbt= on preview URLs). A secret: it is the only thing standing
+ * between the LAN and a file-writing, npm-running server on the computer.
+ */
+export async function setWorkbenchToken(token: string): Promise<void> {
+  await SecureStore.setItemAsync(WORKBENCH_TOKEN_KEY, token);
+}
+
+export async function getWorkbenchToken(): Promise<string | null> {
+  return SecureStore.getItemAsync(WORKBENCH_TOKEN_KEY);
+}
+
+export async function clearWorkbenchToken(): Promise<void> {
+  await SecureStore.deleteItemAsync(WORKBENCH_TOKEN_KEY);
+}
 
 function providerKeyFor(connectionId: string): string {
   // SecureStore keys must match [A-Za-z0-9._-]+

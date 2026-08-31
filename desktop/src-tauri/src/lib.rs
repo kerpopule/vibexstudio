@@ -17,6 +17,57 @@ fn sidecar_config() -> Option<serde_json::Value> {
     serde_json::from_str(&raw).ok()
 }
 
+fn workbench_config() -> Option<serde_json::Value> {
+    let home = std::env::var("HOME").ok()?;
+    let cfg_path = std::path::Path::new(&home)
+        .join("Library/Application Support/studio.vibex.desktop/workbench.json");
+    let raw = std::fs::read_to_string(cfg_path).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+/// Find a Node runtime: GUI apps don't inherit the shell PATH, so probe the
+/// config's "node" hint first, then the usual install locations.
+fn find_node(cfg: &serde_json::Value) -> Option<String> {
+    if let Some(n) = cfg["node"].as_str() {
+        if std::path::Path::new(n).exists() {
+            return Some(n.to_string());
+        }
+    }
+    for candidate in [
+        "/opt/homebrew/bin/node",
+        "/usr/local/bin/node",
+        "/usr/bin/node",
+    ] {
+        if std::path::Path::new(candidate).exists() {
+            return Some(candidate.to_string());
+        }
+    }
+    None
+}
+
+/// The Workbench: builds, dev servers, and project storage on this
+/// computer, remote-controlled by the paired phone (workbench/API.md).
+fn spawn_workbench() -> Option<Child> {
+    let cfg = workbench_config()?;
+    if !cfg["enabled"].as_bool().unwrap_or(false) {
+        return None;
+    }
+    let node = find_node(&cfg)?;
+    // server.mjs location: config override first (dev checkouts), else the
+    // repo-relative default the setup script records.
+    let server = cfg["server"].as_str().map(str::to_string).or_else(|| {
+        let home = std::env::var("HOME").ok()?;
+        let p = std::path::Path::new(&home).join("Projects/vibexstudio-desktop/workbench/server.mjs");
+        p.exists().then(|| p.to_string_lossy().into_owned())
+    })?;
+    log::info!("starting Workbench sidecar: {node} {server}");
+    Command::new(node)
+        .arg(&server)
+        .spawn()
+        .map_err(|e| log::warn!("Workbench failed to start: {e}"))
+        .ok()
+}
+
 fn spawn_medialab() -> Option<Child> {
     let cfg = sidecar_config()?;
     if !cfg["enabled"].as_bool().unwrap_or(false) {
@@ -60,7 +111,19 @@ fn pair_page_html() -> String {
         );
     }
 
-    let target = format!("vibex://pair?url=http%3A%2F%2F{ip}%3A{port}");
+    // With a Workbench configured, the QR pairs BOTH services (app ≥ build
+    // 25 parses this); otherwise the legacy medialab-only payload keeps old
+    // builds pairing.
+    let target = match workbench_config().filter(|c| c["enabled"].as_bool().unwrap_or(false)) {
+        Some(wb) => {
+            let wport = wb["port"].as_u64().unwrap_or(8794);
+            let token = wb["token"].as_str().unwrap_or("");
+            format!(
+                "vibex://pair?medialab=http%3A%2F%2F{ip}%3A{port}&workbench=http%3A%2F%2F{ip}%3A{wport}&wbt={token}"
+            )
+        }
+        None => format!("vibex://pair?url=http%3A%2F%2F{ip}%3A{port}"),
+    };
     let qr = qrcode::QrCode::new(target.as_bytes())
         .map(|c| {
             c.render::<qrcode::render::svg::Color>()
@@ -77,7 +140,7 @@ fn pair_page_html() -> String {
          <div><h2 style=\"color:#5EC2FF;font-weight:600\">Pair your phone</h2>\
          <div style=\"background:#fff;border-radius:16px;padding:14px;display:inline-block\">{qr}</div>\
          <p style=\"max-width:340px;line-height:1.5\">Point your phone's camera at the code —\
-         VibeXStudio opens and pairs to this computer's Media Lab.</p>\
+         VibeXStudio opens and pairs to this computer — Media Lab, and the Workbench when it's set up.</p>\
          <p style=\"color:rgba(255,255,255,.5);font-size:13px\">Same Wi-Fi or tailnet required · http://{ip}:{port}</p>\
          </div></body></html>"
     )
@@ -86,6 +149,7 @@ fn pair_page_html() -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let sidecar: Mutex<Option<Child>> = Mutex::new(spawn_medialab());
+    let workbench: Mutex<Option<Child>> = Mutex::new(spawn_workbench());
     let app = tauri::Builder::default()
         .register_uri_scheme_protocol("vxpair", |_ctx, _request| {
             tauri::http::Response::builder()
@@ -134,6 +198,10 @@ pub fn run() {
     app.run(move |_handle, event| {
         if let tauri::RunEvent::Exit = event {
             if let Some(mut child) = sidecar.lock().unwrap().take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            if let Some(mut child) = workbench.lock().unwrap().take() {
                 let _ = child.kill();
                 let _ = child.wait();
             }
