@@ -50,6 +50,22 @@ export const REFERO_MEDIA_POLICY_SCRIPT = `
     video.defaultMuted = true;
     video.muted = true;
     video.pause();
+    // Refero's style cards are poster-less videos: paused with no frame
+    // decoded they render as empty boxes. Nudge the playhead so the first
+    // frame paints as a static thumbnail — no playback involved.
+    if (!video.getAttribute('poster')) {
+      if (video.preload !== 'auto') video.preload = 'auto';
+      const paintFrame = () => {
+        try {
+          if (video.currentTime === 0) video.currentTime = 0.001;
+        } catch {}
+      };
+      if (video.readyState >= 2) paintFrame();
+      else {
+        video.addEventListener('loadeddata', paintFrame, { once: true });
+        try { video.load(); } catch {}
+      }
+    }
   };
 
   const normalize = (root) => {

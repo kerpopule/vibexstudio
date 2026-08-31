@@ -1,13 +1,16 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Image } from 'expo-image';
 import { randomUUID } from 'expo-crypto';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Linking,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   View,
@@ -36,6 +39,7 @@ import {
   createPendingReferoCapture,
   type PendingReferoCapture,
 } from '@/lib/design/refero-capture';
+import { fetchReferoStyles, type ReferoStyleCard } from '@/lib/design/refero-catalog';
 import { REFERO_MEDIA_POLICY_SCRIPT, referoWebViewMediaProps } from '@/lib/design/refero-media-policy';
 import { useApp } from '@/lib/store';
 import type { DesignReference } from '@/lib/types';
@@ -51,6 +55,50 @@ export default function TemplatesScreen() {
   const setPendingDesignReference = useApp((state) => state.setPendingDesignReference);
   const setProjectDesignReference = useApp((state) => state.setProjectDesignReference);
   const [currentUrl, setCurrentUrl] = useState(REFERO_HOME);
+  // Grid-first: static thumbnails from Refero's server-rendered pages; the
+  // WebView only exists after a card is tapped (dodges its cold-start
+  // fragility entirely and matches "scroll, tap, use").
+  const [detailUrl, setDetailUrl] = useState<string | null>(null);
+  const [cards, setCards] = useState<ReferoStyleCard[]>([]);
+  const [gridPage, setGridPage] = useState(1);
+  const [gridEnd, setGridEnd] = useState(false);
+  const [gridLoading, setGridLoading] = useState(false);
+  const [gridError, setGridError] = useState<string | null>(null);
+
+  const loadGridPage = async (page: number, replace = false) => {
+    if (gridLoading) return;
+    setGridLoading(true);
+    setGridError(null);
+    try {
+      const fresh = await fetchReferoStyles(page);
+      setCards((prev) => {
+        const base = replace ? [] : prev;
+        const known = new Set(base.map((c) => c.id));
+        return [...base, ...fresh.filter((c) => !known.has(c.id))];
+      });
+      setGridPage(page);
+      if (fresh.length === 0) setGridEnd(true);
+    } catch (e) {
+      setGridError(e instanceof Error ? e.message : 'Could not reach Refero.');
+    } finally {
+      setGridLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Defer past the mount commit so the initial setGridLoading doesn't
+    // cascade a synchronous re-render.
+    const kick = setTimeout(() => loadGridPage(1, true), 0);
+    return () => clearTimeout(kick);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const openCard = (card: ReferoStyleCard) => {
+    setCurrentUrl(card.url);
+    setLoading(true);
+    setLoadError(null);
+    setDetailUrl(card.url);
+  };
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   // A slow first load must never become a dead spinner: one automatic
@@ -205,10 +253,42 @@ export default function TemplatesScreen() {
         </View>
       </View>
 
+      {detailUrl == null ? (
+        <View style={[styles.browserShell, { borderColor: theme.border, backgroundColor: theme.backgroundElement }, Shadows.card]}>
+          {gridError && cards.length === 0 ? (
+            <View style={styles.overlayStatic}>
+              <EmojiTile emoji="📡" size={48} />
+              <ThemedText type="subtitle">Refero is offline</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.errorText}>{gridError}</ThemedText>
+              <Button title="Retry" variant="secondary" onPress={() => loadGridPage(1, true)} />
+            </View>
+          ) : (
+            <FlatList
+              data={cards}
+              keyExtractor={(c) => c.id}
+              numColumns={2}
+              columnWrapperStyle={styles.gridRow}
+              contentContainerStyle={styles.gridContent}
+              refreshControl={
+                <RefreshControl refreshing={gridLoading && cards.length === 0} tintColor={theme.tint} onRefresh={() => { setGridEnd(false); loadGridPage(1, true); }} />
+              }
+              onEndReachedThreshold={0.6}
+              onEndReached={() => { if (!gridEnd && !gridLoading) loadGridPage(gridPage + 1); }}
+              ListFooterComponent={gridLoading && cards.length > 0 ? <ActivityIndicator color={theme.tint} style={styles.gridFoot} /> : null}
+              renderItem={({ item }) => (
+                <Pressable onPress={() => openCard(item)} style={[styles.gridCard, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+                  <Image source={{ uri: item.image }} style={styles.gridImage} contentFit="cover" transition={150} />
+                  <ThemedText type="smallBold" numberOfLines={1} style={styles.gridName}>{item.name}</ThemedText>
+                </Pressable>
+              )}
+            />
+          )}
+        </View>
+      ) : (
       <View style={[styles.browserShell, { borderColor: theme.border, backgroundColor: theme.backgroundElement }, Shadows.card]}>
         <WebView
           ref={webRef}
-          source={{ uri: REFERO_HOME }}
+          source={{ uri: detailUrl ?? REFERO_HOME }}
           {...referoWebViewMediaProps}
           injectedJavaScript={REFERO_MEDIA_POLICY_SCRIPT}
           style={styles.webView}
@@ -277,15 +357,22 @@ export default function TemplatesScreen() {
           </View>
         ) : null}
       </View>
+      )}
 
       <Glass radius={Radii.xl} style={[styles.cta, { paddingBottom: Math.max(insets.bottom, Spacing.two) }]}>
         <View style={styles.ctaCopy}>
           <ThemedText type="smallBold">
-            {selectionEligible ? 'Style detail ready' : 'Open a Refero style detail'}
+            {detailUrl == null ? 'Tap a style to open it' : selectionEligible ? 'Style detail ready' : 'Open a Refero style detail'}
           </ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-            {selectionEligible ? 'Capture its visible design language for a project.' : 'Search and previews stay live above.'}
-          </ThemedText>
+          {detailUrl != null ? (
+            <Pressable onPress={() => setDetailUrl(null)} hitSlop={8}>
+              <ThemedText type="small" themeColor="tint">‹ Back to all styles</ThemedText>
+            </Pressable>
+          ) : (
+            <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+              Scroll the gallery — every card is a live product style.
+            </ThemedText>
+          )}
         </View>
         <Button
           title="Use this design"
@@ -344,6 +431,38 @@ export default function TemplatesScreen() {
 }
 
 const styles = StyleSheet.create({
+  gridContent: {
+    padding: Spacing.two + 2,
+    gap: Spacing.two + 2,
+  },
+  gridRow: {
+    gap: Spacing.two + 2,
+  },
+  gridCard: {
+    flex: 1,
+    borderRadius: Radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+    paddingBottom: Spacing.two,
+  },
+  gridImage: {
+    aspectRatio: 16 / 10,
+    width: '100%',
+  },
+  gridName: {
+    paddingHorizontal: Spacing.two + 2,
+    paddingTop: Spacing.two,
+  },
+  gridFoot: {
+    paddingVertical: Spacing.three,
+  },
+  overlayStatic: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two + 2,
+    padding: Spacing.four,
+  },
   screen: { flex: 1 },
   header: {
     paddingHorizontal: Spacing.three,
