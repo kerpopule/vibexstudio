@@ -1,5 +1,7 @@
 #!/bin/sh
-# One-time Media Lab sidecar setup for VibeX Studio Desktop.
+# Manual Media Lab sidecar setup for VibeX Studio Desktop — the advanced /
+# dev-checkout path. End users don't need this: the app's first-launch
+# "Make media on this computer?" does the same thing from the bundled copy.
 #
 # Creates a Python env for the Media Lab server, seeds its data directory,
 # and writes the config the desktop shell reads at launch. Re-run safely.
@@ -22,9 +24,11 @@ uv pip install -p "$VENV/bin/python" -q fastapi uvicorn pydantic python-multipar
 
 echo "→ Data directory ($DATA_DIR)"
 mkdir -p "$DATA_DIR"
-# The server serves the repo's frontend; prompt templates ship with the repo
-# when present, otherwise sync them from your Spark before first run.
-[ -e "$DATA_DIR/static" ] || ln -s "$MEDIALAB_DIR/static" "$DATA_DIR/static"
+# The server expects the deployed-tree layout under its data dir: static/
+# (the UI it serves), prompt-templates/ and config/ are read at import.
+for d in static prompt-templates config; do
+  [ -e "$DATA_DIR/$d" ] || ln -s "$MEDIALAB_DIR/$d" "$DATA_DIR/$d"
+done
 
 echo "→ Shell config"
 mkdir -p "$CFG_DIR"

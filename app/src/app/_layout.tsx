@@ -1,37 +1,19 @@
+import { useFonts } from 'expo-font';
 import * as Notifications from 'expo-notifications';
+import * as SplashScreen from 'expo-splash-screen';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, router, useSegments } from 'expo-router';
 import { useEffect } from 'react';
-import { Alert, AppState, Linking } from 'react-native';
+import { Linking } from 'react-native';
 
+import { FONT_ASSETS } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { initMediaServerWatch } from '@/lib/media-server-watch';
-import { mediaLabJobFromResponse, nudgeForPermission, projectIdFromResponse } from '@/lib/notifications';
-import { getNotificationsDeclined, setNotificationsDeclined } from '@/lib/storage/settings';
+import { mediaLabJobFromResponse, projectIdFromResponse } from '@/lib/notifications';
 import { agentConnectRuntime } from '@/lib/agent-connect/runtime';
 import { parsePrivateInviteLink } from '@/lib/private-provider/links';
 import { useApp } from '@/lib/store';
 import { initAndroidFolderSync } from '@/lib/sync/android-folder-sync';
 
-/** Ask for notifications on every foreground while they're off — one
-    explicit "Not now" retires the nudge for good. */
-async function runNotificationNudge(): Promise<void> {
-  const declined = await getNotificationsDeclined();
-  await nudgeForPermission(
-    (openSettings, declineForever) => {
-      Alert.alert(
-        'Turn on notifications?',
-        'VibeX tells you when builds finish and when Media Lab renders are ready to watch.',
-        [
-          { text: 'Not now', style: 'cancel', onPress: declineForever },
-          { text: 'Open Settings', onPress: openSettings },
-        ]
-      );
-    },
-    declined,
-    () => void setNotificationsDeclined(),
-    () => void Linking.openSettings()
-  );
-}
 
 /** A tapped/AirDropped .vibex bundle arrives as a plain file URL, not a route. */
 function isBundleFileUrl(url: string): boolean {
@@ -42,8 +24,13 @@ function isBundleFileUrl(url: string): boolean {
 // route (src/app/pair.tsx) which probes and pairs each half with visible
 // progress, so no handling happens here.
 
+// Hold the splash until the brand faces are in memory so the first frame
+// never flashes a system-font fallback.
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const [fontsLoaded, fontError] = useFonts(FONT_ASSETS);
   const hydrate = useApp((s) => s.hydrate);
   const hydrated = useApp((s) => s.hydrated);
   const onboardingComplete = useApp((s) => s.onboardingComplete);
@@ -52,6 +39,10 @@ export default function RootLayout() {
   useEffect(() => {
     hydrate();
   }, [hydrate]);
+
+  useEffect(() => {
+    if (fontsLoaded || fontError) SplashScreen.hideAsync().catch(() => {});
+  }, [fontsLoaded, fontError]);
 
   // Android: mirror projects into the user's chosen sync folder after turns
   // write files (debounced) and once shortly after launch. No-op elsewhere.
@@ -105,16 +96,12 @@ export default function RootLayout() {
     return () => sub.remove();
   }, []);
 
-  // Media Lab server watcher (finish notifications) + the notifications
-  // nudge on every foreground while they're off.
+  // Start the Media Lab watcher after hydration. Notification authorization
+  // is intentionally deferred to a user-started build/render (see
+  // primeNotifications in chat-engine.ts and media-studio.ts).
   useEffect(() => {
     if (!hydrated) return;
     initMediaServerWatch();
-    runNotificationNudge();
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') runNotificationNudge();
-    });
-    return () => sub.remove();
   }, [hydrated]);
 
   return (
@@ -134,6 +121,7 @@ export default function RootLayout() {
         <Stack.Screen name="edit-model" options={{ presentation: 'modal', title: 'Choose model' }} />
         <Stack.Screen name="connect-media-lab" options={{ presentation: 'modal', title: 'Media Lab' }} />
         <Stack.Screen name="pair" options={{ presentation: 'modal', title: 'Pair' }} />
+        <Stack.Screen name="pair-scan" options={{ presentation: 'modal', title: 'Pair a computer' }} />
         <Stack.Screen name="media-lab-setup" options={{ presentation: 'modal', title: 'Set up Media Lab' }} />
         <Stack.Screen name="fal-setup" options={{ presentation: 'modal', title: 'Cloud rendering' }} />
         <Stack.Screen name="agent-connect" options={{ presentation: 'modal', title: 'Connect an agent' }} />

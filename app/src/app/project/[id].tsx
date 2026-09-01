@@ -77,9 +77,9 @@ export default function ProjectScreen() {
   const activePane = wide && pane === 'preview' ? 'chat' : pane;
   const paneOptions: { value: Pane; label: string }[] = wide
     ? [
-        { value: 'chat', label: 'Build' },
+        { value: 'chat', label: 'Chat' },
         { value: 'files', label: 'Files' },
-        { value: 'share', label: 'Publish' },
+        { value: 'share', label: 'Share' },
       ]
     : [
         { value: 'chat', label: 'Chat' },
@@ -132,7 +132,7 @@ export default function ProjectScreen() {
       {wide ? (
         <View style={[styles.wideWorkspace, activePane !== 'chat' && styles.paneHidden]}>
           <View style={[styles.wideChat, { borderRightColor: theme.border }]}>
-            <ChatView project={project} onProjectChanged={setProject} />
+            <ChatView project={project} />
           </View>
           <View style={styles.widePreview}>
             <PreviewView
@@ -147,7 +147,7 @@ export default function ProjectScreen() {
       ) : (
         <>
           <View style={[styles.pane, pane !== 'chat' && styles.paneHidden]}>
-            <ChatView project={project} onProjectChanged={setProject} />
+            <ChatView project={project} />
           </View>
           <View
             style={[

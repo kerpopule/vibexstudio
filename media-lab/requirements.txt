@@ -1,0 +1,9 @@
+# Media Lab server — installed into .venv by ./install.sh
+# Sane minimums, not exact pins: the app uses stable, long-standing APIs of
+# each of these. Engines (LTX, H3, ComfyUI…) have their own runtimes and are
+# NOT Python dependencies of this server.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+python-multipart>=0.0.9
+qrcode>=7.4

@@ -104,7 +104,7 @@ export default function ConnectGitHubScreen() {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <ThemedText themeColor="textSecondary">
           GitHub hosts the apps you make — in your account, under your control. VibeXStudio talks to GitHub directly
-          from this phone; your token never leaves the device.
+          from this device; your token never leaves the device.
         </ThemedText>
 
         <Segmented

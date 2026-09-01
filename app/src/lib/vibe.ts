@@ -62,7 +62,7 @@ export async function runVibeTurn(opts: {
   // Media protocol context: paired Media Lab + its castable characters (or
   // the images-only variant). Never blocks the turn on a sleeping server.
   const mediaLab = await getMediaLabPromptContext().catch(() => null);
-  const system = buildSystemPrompt(project.name, files, project.designReference, mediaLab);
+  const system = buildSystemPrompt(project.name, files, mediaLab);
   const wire: WireMessage[] = messages
     .slice(-MAX_HISTORY_MESSAGES)
     .filter((m) => m.text.trim() !== '')

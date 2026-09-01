@@ -43,12 +43,12 @@ import {
   type ReferoCategory,
   type ReferoStyleCard,
   type ReferoStyleDetail,
-} from '@/lib/design/refero-catalog';
+} from './refero-catalog';
 import {
   buildDesignReferenceFromCapture,
   completeExistingProjectDesignHandoff,
   resolveTemplateSelectionDestination,
-} from '@/lib/design/references';
+} from './references';
 import { useApp } from '@/lib/store';
 import type { DesignReference } from '@/lib/types';
 

@@ -7,8 +7,9 @@ from typing import Optional, Union
 from fastapi import FastAPI, File, Form, Header, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from media_lab_core import installer as engine_installer
+from media_lab_core import cut as cut_core
 from runner.audio_signal_gate import audio_signal_metrics
 from runner import h3_reference as _h3ref   # H3 Ref2VA / Qwen quality contract
 from residency import ResidencyController, ResidencyError
@@ -6740,11 +6741,14 @@ except Exception as _recovery_error:
     # inspected.  The reconciler will not call a degraded studio healthy.
     print(f"[residency] startup recovery failed: {_recovery_error}", flush=True)
 
-threading.Thread(target=worker, daemon=True).start()
-threading.Thread(target=reaper, daemon=True).start()
-# Reconcile the committed profile after startup. This is idempotent and refuses
-# to touch a live media batch; qwen-ltx-default self-heals its video slot.
-threading.Thread(target=settle_video_transaction, daemon=True).start()
+# MEDIA_LAB_DISABLE_BACKGROUND_WORKERS=1 is for isolated API tests and CLI drives
+# under a disposable HOME: the routes stay up, nothing renders or reconciles.
+if os.getenv("MEDIA_LAB_DISABLE_BACKGROUND_WORKERS") != "1":
+    threading.Thread(target=worker, daemon=True).start()
+    threading.Thread(target=reaper, daemon=True).start()
+    # Reconcile the committed profile after startup. This is idempotent and refuses
+    # to touch a live media batch; qwen-ltx-default self-heals its video slot.
+    threading.Thread(target=settle_video_transaction, daemon=True).start()
 
 # ---------- import: renders made outside the Lab ----------
 # Anything an agent renders on any machine belongs in the Lab. Two doors:
@@ -6907,7 +6911,8 @@ def inbox_watcher():
             print(f"[media-lab] inbox watcher error: {e}", flush=True)
         time.sleep(20)
 
-threading.Thread(target=inbox_watcher, daemon=True).start()
+if os.getenv("MEDIA_LAB_DISABLE_BACKGROUND_WORKERS") != "1":
+    threading.Thread(target=inbox_watcher, daemon=True).start()
 
 # ---------- request models ----------
 class GenReq(BaseModel):
@@ -9183,6 +9188,43 @@ def _operator_create_job(kind, request):
     raise ToolError(f"Unsupported queue kind: {kind}.")
 
 
+def _cut_operator_inspect(project_id: str) -> dict:
+    """A compact, safe view of one Cut project for Sparky."""
+    with _cut_lock:
+        store = _cut_store(project_id)
+        project = store.load()
+        pending = store.pending()
+    tracks = []
+    for t in project["timeline"]["tracks"]:
+        tracks.append({"id": t["id"], "name": t["name"], "type": t["type"], "clips": [
+            {k: c.get(k) for k in ("id", "label", "start_frame", "duration_frames", "trim_in_frame",
+                                   "trim_out_frame", "asset_id", "media_kind", "source_duration_frames")}
+            for c in t["clips"]]})
+    return {
+        "project_id": project["project_id"], "title": project["title"], "revision": project["revision"],
+        "settings": project["settings"], "duration_frames": project["duration_frames"],
+        "duration_seconds": project["duration_seconds"], "tracks": tracks,
+        "assets": [{"id": a["id"], "kind": a["kind"], "title": a.get("title"), "path": a["source"]["path"],
+                    "duration_seconds": a.get("duration_seconds"), "has_audio": a.get("has_audio")}
+                   for a in project["assets"]],
+        "transitions": project["timeline"]["transitions"],
+        "captions": project["timeline"]["captions"]["items"],
+        "color": project["timeline"]["color"], "mix": project["timeline"]["mix"],
+        "approval": project["approval"],
+        "pending": [{"transaction_id": p["transaction_id"], "base_revision": p["base_revision"],
+                     "commands": [c.get("type") for c in p.get("commands", [])],
+                     "change_count": len(p.get("diff") or [])} for p in pending],
+        "commands": sorted(cut_core.COMMANDS),
+    }
+
+def _cut_operator_propose(project_id: str, commands: list, note: str) -> dict:
+    with _cut_lock:
+        store = _cut_store(project_id)
+        revision = store.load()["revision"]
+        return store.transact(commands, actor="sparky",
+                              transaction_id=f"sparky-{uuid.uuid4().hex[:12]}",
+                              expected_revision=revision, proposed=True)
+
 def _studio_operator():
     return StudioOperator(
         load_characters=lambda: _load(CHARS_FILE, []),
@@ -9193,6 +9235,8 @@ def _studio_operator():
         eta_estimate=eta_estimate,
         valid_styles=set(STYLES),
         valid_orientations=set(SIZES) | set(H3_SIZES),
+        cut_inspect=_cut_operator_inspect,
+        cut_propose=_cut_operator_propose,
     )
 
 
@@ -9330,6 +9374,313 @@ def chat(r: ChatReq, request: Request):
                              headers=CHAT_CORS | {"Cache-Control": "no-cache"})
 
 # ---------- gate endpoint ----------
+
+# ---------- Cut: the timeline editor ----------
+# One manifest per project under ROOT/cut/projects/<id>/ (project.json + journal.jsonl).
+# People and the CLI edit through /api/cut/projects/{id}/commands with a signed
+# session; Sparky can only PROPOSE through /api/cut/projects/{id}/sparky/commands
+# with an HMAC runtime credential, and a person approves or rejects the exact diff.
+# Renders are CPU ffmpeg jobs run here in a thread (never the GPU lock); a finished
+# render is imported back into the gallery as a new item so it can be re-cut.
+CUT_ROOT = ROOT
+# Optional: a storyboard snapshot may seed a project (POST {"storyboard": path}).
+# There is deliberately no default path — the gallery is where projects come from.
+CUT_STORYBOARD_DIR = Path(os.getenv("MEDIA_LAB_CUT_STORYBOARD_DIR", str(ROOT / "productions")))
+CUT_SPARKY_TOKEN = hmac.new(ACCESS_SECRET.encode(), b"cut-sparky-v1", hashlib.sha256).hexdigest()
+CUT_RENDERS: dict = {}
+_cut_lock = threading.RLock()
+
+class CutCreateReq(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    job_ids: list[str] = Field(default_factory=list)
+    storyboard: str = ""
+    name: str = ""
+    still_seconds: float = cut_core.DEFAULT_STILL_SECONDS
+
+class CutTransactionReq(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    commands: list[dict]
+    transaction_id: str
+    expected_revision: int
+
+class CutReviewReq(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    approve: bool
+
+class CutRenderReq(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    quality: str = "preview"
+    format: str = "mp4"
+    include_audio: bool = True
+    burn_captions: bool = True
+    range_mode: str = "full"
+    range_start_seconds: float = 0.0
+    range_end_seconds: float = 0.0
+    explicit_approval: bool = False
+    import_to_gallery: bool = True
+
+def _cut_gallery_item(job_id: str):
+    """Resolve a gallery job id to the asset shape Cut needs (None when unknown)."""
+    jid = str(job_id or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", jid):
+        return None
+    row = jobs.get(jid)
+    if not row:
+        row = next((x for x in _load(ROOT / "gallery.json", []) if x.get("id") == jid), None)
+    if not row or not row.get("url"):
+        return None
+    name = posixpath.basename(str(row["url"]))
+    try:
+        info = cut_core.probe_gallery_file(MEDIA / name)
+    except cut_core.CutError:
+        return None
+    req = row.get("request") or {}
+    info.update({
+        "job_id": jid,
+        "title": str(row.get("title") or row.get("prompt") or req.get("title") or jid)[:160],
+        "prompt": str(row.get("src_prompt") or req.get("prompt") or row.get("prompt") or "")[:2000],
+        "poster": posixpath.basename(str(row.get("poster") or "")) or None,
+    })
+    return info
+
+def _cut_session_required(request: Request):
+    """Everyone signed in is a studio manager (Steve, 2026-08-16); an unsigned caller
+    on the tailnet is a plain user and may cut too. Only NO role is refused."""
+    if getattr(request.state, "role", "") in ("admin", "user") or request_role(request) in ("admin", "user"):
+        return None
+    return JSONResponse({"error": "sign in to edit"}, status_code=403)
+
+def _cut_sparky_ok(token) -> bool:
+    return bool(token) and hmac.compare_digest(str(token), CUT_SPARKY_TOKEN)
+
+def _cut_store(project_id: str):
+    return cut_core.open_project(CUT_ROOT, project_id, asset_resolver=_cut_gallery_item)
+
+def _cut_error(exc, status=409):
+    return JSONResponse({"error": str(exc)}, status_code=status)
+
+def _cut_render_dir(project_id: str, render_id: str) -> Path:
+    return cut_core.project_dir(CUT_ROOT, project_id) / "renders" / render_id
+
+def _cut_saved_renders(project_id: str) -> list:
+    base = cut_core.project_dir(CUT_ROOT, project_id) / "renders"
+    rows = []
+    if base.is_dir():
+        for d in sorted(base.iterdir()):
+            rec = _load(d / "render.json", None)
+            if rec:
+                rows.append(rec)
+    return rows
+
+def _cut_render_record(render_id: str):
+    with _cut_lock:
+        rec = CUT_RENDERS.get(render_id)
+    if rec:
+        return rec
+    for d in cut_core.projects_dir(CUT_ROOT).glob(f"*/renders/{render_id}/render.json"):
+        return _load(d, None)
+    return None
+
+def _cut_render_worker(render_id: str):
+    rec = CUT_RENDERS[render_id]
+    project_id = rec["project_id"]
+    out_dir = _cut_render_dir(project_id, render_id)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    def save():
+        _save(out_dir / "render.json", rec)
+
+    def progress(frac):
+        rec["progress"] = round(float(frac), 4)
+
+    try:
+        store = _cut_store(project_id)
+        project = store.load()
+        export = cut_core.validate_export_request(project, rec["request"])
+        output = out_dir / f"cut.{export['format']}"
+        rec["status"] = "running"; rec["stage"] = "rendering"; save()
+        receipt = cut_core.render_timeline(project, media_dir=MEDIA, output=output,
+                                           export_request=export, work_dir=out_dir / "work",
+                                           progress=progress)
+        rec["receipt"] = receipt
+        rec["stage"] = "importing"; save()
+        if rec["request"].get("import_to_gallery", True):
+            title = f"{project.get('title') or 'Cut'} · {export['quality']}"
+            j = import_media(output, title=title, kind="video",
+                             prompt=f"Cut of {project.get('title')} (revision {project.get('revision')})",
+                             source=f"cut:{project_id}:{render_id}")
+            rec["gallery_job_id"] = j["id"]; rec["url"] = j["url"]; rec["poster"] = j.get("poster")
+        else:
+            rec["url"] = None
+        rec["status"] = "done"; rec["stage"] = "done"; rec["progress"] = 1.0
+        rec["finished_at"] = time.time()
+    except Exception as e:
+        rec["status"] = "error"; rec["stage"] = "error"
+        rec["message"] = str(e)[:600]
+        rec["finished_at"] = time.time()
+    save()
+
+@app.get("/api/cut/projects")
+def cut_projects(request: Request):
+    bad = _cut_session_required(request)
+    if bad:
+        return bad
+    with _cut_lock:
+        return {"projects": cut_core.list_projects(CUT_ROOT)}
+
+@app.post("/api/cut/projects")
+def cut_create(r: CutCreateReq, request: Request):
+    bad = _cut_session_required(request)
+    if bad:
+        return bad
+    try:
+        with _cut_lock:
+            if r.storyboard:
+                # Optional, opt-in: only a file inside the configured storyboard folder.
+                sb = (CUT_STORYBOARD_DIR / r.storyboard).resolve() if not Path(r.storyboard).is_absolute() \
+                    else Path(r.storyboard).resolve()
+                if not str(sb).startswith(str(CUT_STORYBOARD_DIR.resolve()) + os.sep):
+                    return _cut_error("storyboard must live inside the storyboard folder", 400)
+                manifest = cut_core.import_storyboard_manifest(sb)
+                manifest["project_id"] = cut_core.new_project_id()
+                if r.name:
+                    manifest["title"] = r.name.strip()[:160]
+            else:
+                items = []
+                for jid in r.job_ids[:60]:
+                    item = _cut_gallery_item(jid)
+                    if not item:
+                        return _cut_error(f"unknown or unusable gallery item: {jid}", 404)
+                    items.append(item)
+                if not items:
+                    return _cut_error("pick at least one video, picture or song", 400)
+                title = r.name.strip()[:160] or (items[0]["title"] if len(items) == 1
+                                                  else f"{items[0]['title']} + {len(items) - 1} more")
+                manifest = cut_core.build_gallery_project(cut_core.new_project_id(), title, items,
+                                                          still_seconds=r.still_seconds)
+            store = cut_core.create_project(CUT_ROOT, manifest, asset_resolver=_cut_gallery_item)
+            project = store.load()
+            return {"ok": True, "project_id": project["project_id"], "project": project}
+    except cut_core.CutError as e:
+        return _cut_error(e, 400)
+
+@app.get("/api/cut/projects/{project_id}")
+def cut_project(project_id: str, request: Request):
+    bad = _cut_session_required(request)
+    if bad:
+        return bad
+    try:
+        with _cut_lock:
+            return _cut_store(project_id).load()
+    except cut_core.CutError as e:
+        return _cut_error(e, 404)
+
+@app.get("/api/cut/projects/{project_id}/pending")
+def cut_pending(project_id: str, request: Request):
+    bad = _cut_session_required(request)
+    if bad:
+        return bad
+    try:
+        with _cut_lock:
+            return {"pending": _cut_store(project_id).pending()}
+    except cut_core.CutError as e:
+        return _cut_error(e, 404)
+
+@app.get("/api/cut/projects/{project_id}/renders")
+def cut_project_renders(project_id: str, request: Request):
+    bad = _cut_session_required(request)
+    if bad:
+        return bad
+    try:
+        cut_core.project_dir(CUT_ROOT, project_id)
+    except cut_core.CutError as e:
+        return _cut_error(e, 404)
+    with _cut_lock:
+        live = {k: v for k, v in CUT_RENDERS.items() if v.get("project_id") == project_id}
+    rows = {rec["render_id"]: rec for rec in _cut_saved_renders(project_id)}
+    rows.update(live)
+    return {"renders": sorted(rows.values(), key=lambda x: x.get("started_at", 0), reverse=True)}
+
+@app.post("/api/cut/projects/{project_id}/commands")
+def cut_commands(project_id: str, r: CutTransactionReq, request: Request):
+    """Apply commands as the signed-in person (or the CLI holding their code)."""
+    bad = _cut_session_required(request)
+    if bad:
+        return bad
+    try:
+        with _cut_lock:
+            return _cut_store(project_id).transact(
+                r.commands, actor="human", transaction_id=r.transaction_id,
+                expected_revision=r.expected_revision, proposed=False)
+    except cut_core.CutError as e:
+        return _cut_error(e, 409)
+
+@app.post("/api/cut/projects/{project_id}/sparky/commands")
+def cut_sparky_commands(project_id: str, r: CutTransactionReq,
+                        x_media_lab_sparky_token: Optional[str] = Header(None, alias="X-Media-Lab-Sparky-Token")):
+    """Sparky's door: proposals only. Nothing here can change the project directly."""
+    if not _cut_sparky_ok(x_media_lab_sparky_token):
+        return JSONResponse({"error": "invalid Sparky credential"}, status_code=403)
+    try:
+        with _cut_lock:
+            return _cut_store(project_id).transact(
+                r.commands, actor="sparky", transaction_id=r.transaction_id,
+                expected_revision=r.expected_revision, proposed=True)
+    except cut_core.CutError as e:
+        return _cut_error(e, 409)
+
+@app.post("/api/cut/projects/{project_id}/review/{transaction_id}")
+def cut_review(project_id: str, transaction_id: str, r: CutReviewReq, request: Request):
+    bad = _cut_session_required(request)
+    if bad:
+        return bad
+    try:
+        with _cut_lock:
+            return _cut_store(project_id).review(transaction_id, approve=r.approve, reviewer="human")
+    except cut_core.CutError as e:
+        return _cut_error(e, 409)
+
+@app.post("/api/cut/projects/{project_id}/render")
+def cut_render(project_id: str, r: CutRenderReq, request: Request):
+    """Start a CPU render of the whole timeline. master needs project approval AND
+    explicit_approval in this very request."""
+    bad = _cut_session_required(request)
+    if bad:
+        return bad
+    try:
+        with _cut_lock:
+            project = _cut_store(project_id).load()
+            if r.quality == "master" and (
+                    project["approval"].get("master_render_approved") is not True or not r.explicit_approval):
+                return _cut_error("master render needs project approval and explicit_approval", 403)
+            cut_core.validate_export_request(project, r.model_dump())
+            cut_core.render_duration_frames(project)   # fails closed on an empty/overlapping timeline
+            active = [x for x in CUT_RENDERS.values()
+                      if x.get("project_id") == project_id and x.get("status") in ("queued", "running")]
+            if active:
+                return _cut_error("a render of this project is already running", 409)
+            render_id = f"render-{uuid.uuid4().hex[:10]}"
+            rec = {"render_id": render_id, "project_id": project_id, "revision": project["revision"],
+                   "request": r.model_dump(), "status": "queued", "stage": "queued", "progress": 0.0,
+                   "started_at": time.time(), "message": None, "url": None, "gallery_job_id": None}
+            CUT_RENDERS[render_id] = rec
+        threading.Thread(target=_cut_render_worker, args=(render_id,), daemon=True).start()
+        return {"ok": True, "render_id": render_id, "status": "queued"}
+    except cut_core.CutError as e:
+        return _cut_error(e, 409)
+
+@app.get("/api/cut/renders/{render_id}")
+def cut_render_status(render_id: str, request: Request):
+    bad = _cut_session_required(request)
+    if bad:
+        return bad
+    if not re.fullmatch(r"render-[0-9a-f]{10}", render_id):
+        return JSONResponse({"error": "unknown render"}, status_code=404)
+    rec = _cut_render_record(render_id)
+    if not rec:
+        return JSONResponse({"error": "unknown render"}, status_code=404)
+    return rec
+
 class GateReq(BaseModel):
     code: str
 
@@ -9509,3 +9860,7 @@ app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 @app.get("/")
 def index():
     return FileResponse(str(ROOT / "static/index.html"))
+
+@app.get("/cut")
+def cut_page():
+    return FileResponse(str(ROOT / "static/cut.html"))

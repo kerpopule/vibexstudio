@@ -223,6 +223,19 @@
      text-overflow:ellipsis;font-family:var(--display);font-size:.8rem}
   .gal .rx{position:absolute;top:7px;right:7px;background:rgba(10,7,5,.7);border:1px solid rgba(255,255,255,.2);
      color:var(--gold-hi);border-radius:999px;font-size:.7rem;padding:4px 9px;backdrop-filter:blur(8px)}
+  /* ✂️ Cut sits at the top-right of every video/picture tile; Remix slides left of it */
+  .gal .cx{position:absolute;top:7px;right:7px;background:rgba(10,7,5,.7);border:1px solid rgba(255,255,255,.2);
+     color:var(--gold-hi);border-radius:999px;font-size:.7rem;padding:4px 9px;backdrop-filter:blur(8px)}
+  .gal .cx ~ .rx{right:66px}
+  .gal .it.picked{outline:2px solid var(--gold);outline-offset:-2px}
+  .gal .it .pk{position:absolute;bottom:34px;left:7px;width:26px;height:26px;border-radius:50%;
+     border:2px solid rgba(255,255,255,.7);background:rgba(10,7,5,.55);display:flex;align-items:center;
+     justify-content:center;font-size:.8rem;color:var(--on-accent)}
+  .gal .it.picked .pk{background:var(--gold);border-color:var(--gold)}
+  #galcut{display:none;position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));
+     z-index:41;padding:13px 22px;border-radius:999px;border:0;cursor:pointer;font-family:var(--body);font-weight:600;
+     letter-spacing:.06em;text-transform:uppercase;font-size:.8rem;color:var(--on-accent);
+     background:linear-gradient(140deg,var(--gold-hi),var(--gold) 55%,var(--gold-2));box-shadow:var(--lift2)}
   .imp{display:inline-block;background:rgba(201,154,106,.16);border:1px solid rgba(201,154,106,.45);
      color:var(--gold-hi);border-radius:999px;font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;
      padding:2px 7px;font-family:var(--body);vertical-align:middle}
@@ -814,6 +827,16 @@
     <div class="label" style="margin-top:14px">🎞 Make a show</div>
     <div class="shelf" id="showpresets"></div>
   </div>
+  <div class="card" id="cutcard" style="padding:16px 18px">
+    <div style="display:flex;align-items:center;gap:12px;cursor:pointer" onclick="location.href='/cut'">
+      <div style="font-size:1.6rem">✂️</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-family:var(--display);font-weight:600;font-size:1.05rem">Cut — edit any video or picture</div>
+        <div style="color:var(--t-3);font-size:.8125rem">Trim, split, dissolve, caption, mix, render. Tap ✂️ on anything in the gallery.</div>
+      </div>
+      <div class="btn2" style="margin:0">Open</div>
+    </div>
+  </div>
   <div class="card" id="maker">
     <textarea id="prompt" placeholder="A golden retriever hosting the evening news, very serious…" maxlength="2000"></textarea>
     <div class="label">Model</div>
@@ -915,6 +938,7 @@
   <!-- The Video tab shows VIDEO work: plain clips + images. Songs and music
        videos live on the Music tab; storyboard films live on Storyboard. -->
   <div class="chips" id="galfilter" style="margin:10px 0 4px">
+    <div class="chip" id="galsel" data-v="__select" onclick="event.stopPropagation();toggleGalSelect()" title="Pick several, cut them together">☑ Select</div>
     <div class="chip sel" data-v="all">All</div>
     <div class="chip" data-v="video">Videos</div>
     <div class="chip" data-v="image">Images</div>
@@ -922,6 +946,7 @@
     <div class="chip" data-v="imported">Imported</div>
   </div>
   <div class="gal" id="gal"></div>
+  <button id="galcut" onclick="cutSelected()">✂️ Cut these together</button>
   <div style="display:flex;justify-content:center;margin-top:12px">
     <div class="btn2" id="galmore" style="display:none;padding:12px 22px">Load more</div>
   </div>
@@ -2021,10 +2046,15 @@ function renderGal(){
     const cap=String(x.prompt||x.title||'').replace(/</g,'&lt;');
     // imported = rendered outside the Lab. Remix only makes sense when a prompt came with it.
     const remixable=!x.imported||!!x.src_prompt;
-    return `<div class="it" onclick="playGal(${i})"><img loading="lazy" src="${x.poster||x.url}"><div class="p">${cap}</div>`
+    // ✂️ Cut opens anything playable on the timeline (a picture becomes a 4-second still)
+    const cuttable=['video','image','music'].includes(x.kind);
+    const picked=GALPICK.includes(x.id);
+    return `<div class="it${picked?' picked':''}" onclick="${GALSEL?`togglePick('${x.id}')`:`playGal(${i})`}"><img loading="lazy" src="${x.poster||x.url}"><div class="p">${cap}</div>`
       +(isAdmin?`<div class="del" title="Delete forever" onclick="event.stopPropagation();delItem('${x.id}')">🗑</div>`:'')
       +(x.uploaded?`<div class="upb">uploaded</div>`:x.imported?`<div class="imp">imported</div>`:'')
+      +(cuttable?`<div class="cx" onclick="event.stopPropagation();cutFromJob('${x.id}')">✂️ Cut</div>`:'')
       +(remixable?`<div class="rx" onclick="event.stopPropagation();remixById('${x.id}',${JSON.stringify(x.src_prompt||x.prompt||'').replace(/"/g,'&quot;')},'${x.style||'none'}')">↺ Remix</div>`:'')
+      +(GALSEL&&cuttable?`<div class="pk">${picked?'✓':''}</div>`:'')
       +`</div>`;}).join('')
     ||`<div class="empty">Nothing here yet.</div>`;
   $('#galmore').style.display=hits.length>shown.length?'':'none';
@@ -2034,6 +2064,30 @@ function renderGal(){
     : `Showing ${shown.length} of ${GAL.length} screenings.`;
 }
 $('#galmore').onclick=()=>{GALSHOW+=GAL_PAGE*2;renderGal();};
+/* ---- ✂️ Cut: one tap makes a project from a gallery item and opens the editor ---- */
+let GALSEL=false,GALPICK=[];
+async function cutFromJob(id,ids){
+  const body={job_ids:ids||[id]};
+  let r;
+  try{r=await fetch('/api/cut/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});}
+  catch(e){alert('Cut could not reach the studio.');return;}
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok||!d.project_id){alert(d.error||'Cut could not open that.');return;}
+  location.href='/cut?project='+encodeURIComponent(d.project_id);
+}
+function toggleGalSelect(){
+  GALSEL=!GALSEL;if(!GALSEL)GALPICK=[];
+  $('#galsel').classList.toggle('sel',GALSEL);
+  $('#galcut').style.display=GALSEL&&GALPICK.length?'':'none';
+  renderGal();
+}
+function togglePick(id){
+  const i=GALPICK.indexOf(id);if(i>=0)GALPICK.splice(i,1);else GALPICK.push(id);
+  $('#galcut').textContent=`✂️ Cut these together (${GALPICK.length})`;
+  $('#galcut').style.display=GALPICK.length?'':'none';
+  renderGal();
+}
+function cutSelected(){if(GALPICK.length)cutFromJob(null,GALPICK.slice());}
 $('#galq').oninput=e=>{GALQ=e.target.value;GALSHOW=GAL_PAGE;renderGal();};
 $('#galfilter').addEventListener('click',e=>{
   const c=e.target.closest('.chip');if(!c)return;
@@ -4710,6 +4764,7 @@ function rowDetail(id){
     <div class="qs" style="text-transform:none;letter-spacing:.02em;margin-top:5px">${esc(j.imported?(r.prompt||j.prompt):j.prompt)}</div>
     <div class="qtools" style="flex-wrap:wrap">
       ${remixable?`<button class="qbtn gold" onclick="remixHist('${j.id}')">↺ Remix</button>`:''}
+      ${j.status==='done'&&j.url&&(isVideoOut||IMG_KINDS[mkind]||AUDIO_KINDS[mkind])?`<button class="qbtn gold" onclick="cutFromJob('${j.id}')">✂️ Cut</button>`:''}
       ${j.kind==='music'&&j.status==='done'?`<button class="qbtn gold" onclick="$('#qwrap').classList.remove('on');openMVSheet('${j.id}')">🎬 Music video</button>
       <button class="qbtn gold" onclick="$('#qwrap').classList.remove('on');openSBSheet('${j.id}')">🎞 Storyboard</button>`:''}
       ${(j.kind==='assemble'||j.kind==='filmbeat')&&j.board_id?`<button class="qbtn" onclick="$('#qwrap').classList.remove('on');openBoard('${j.board_id}')">🎞 Open storyboard</button>`:''}

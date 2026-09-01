@@ -24,10 +24,6 @@ describe('normalizeShareLink', () => {
     expect(link).toEqual({ kind: 'direct', url: 'https://drive.google.com/uc?export=download&id=99ZZ' });
   });
 
-  it('extracts the iCloud short GUID', () => {
-    const link = normalizeShareLink('https://www.icloud.com/iclouddrive/0a1B2c3D4#My%20App');
-    expect(link).toEqual({ kind: 'icloud', shortGuid: '0a1B2c3D4' });
-  });
 
   it('passes plain URLs through', () => {
     const link = normalizeShareLink('https://example.com/files/app.vibex');

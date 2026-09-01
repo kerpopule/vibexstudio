@@ -3,8 +3,9 @@
  * (OpenAI-compatible, Anthropic Messages, Gemini generateContent).
  */
 import { PROVIDERS, type WireProtocol } from '@/lib/ai/registry';
+import { MODEL_STREAM_TIMEOUT_MS, openAiRequestPolicy } from '@/lib/ai/request-policy';
 import { ssePost } from '@/lib/ai/sse';
-import { SUBSCRIPTION_PROVIDERS } from '@/lib/ai/subscriptionOauth';
+import { chatGptAccountIdFromToken, SUBSCRIPTION_PROVIDERS } from '@/lib/ai/subscriptionOauth';
 import { assertPrivateProviderOrigin, privateBackendNotice, PRIVATE_ALLOWED_MODELS } from '@/lib/private-provider/profile';
 import { getPrivateDeviceProof } from '@/lib/storage/secrets';
 import type { ChatRole, ProviderConnection } from '@/lib/types';
@@ -65,7 +66,66 @@ export async function streamChat(opts: StreamChatOptions): Promise<string> {
       return streamAnthropic(routing, opts);
     case 'gemini':
       return streamGemini(routing.baseUrl, opts);
+    case 'codex':
+      return streamCodex(routing, opts);
   }
+}
+
+/**
+ * ChatGPT subscription path: the Codex backend speaks the Responses API and
+ * streams `response.output_text.delta` events. Reasoning summaries arrive on
+ * their own event and are shown as thinking, never joined to the output.
+ */
+async function streamCodex(routing: Routing, opts: StreamChatOptions): Promise<string> {
+  let text = '';
+  let thinking = '';
+  const accountId = chatGptAccountIdFromToken(opts.secret);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${opts.secret}`,
+    ...routing.extraHeaders,
+  };
+  if (accountId) headers['chatgpt-account-id'] = accountId;
+  await ssePost({
+    url: `${routing.baseUrl}/responses`,
+    headers,
+    body: {
+      model: opts.model,
+      instructions: opts.system,
+      input: opts.messages.map((m) => ({
+        type: 'message',
+        role: m.role,
+        content: [{ type: m.role === 'assistant' ? 'output_text' : 'input_text', text: m.content }],
+      })),
+      stream: true,
+      store: false,
+    },
+    signal: opts.signal,
+    timeoutMs: MODEL_STREAM_TIMEOUT_MS,
+    onEvent: (data) => {
+      let event: any;
+      try {
+        event = JSON.parse(data);
+      } catch {
+        return; // keep-alive noise
+      }
+      const type = typeof event?.type === 'string' ? event.type : '';
+      if (type === 'response.output_text.delta' && typeof event.delta === 'string') {
+        text += event.delta;
+        opts.onDelta(text);
+      } else if (type.startsWith('response.reasoning') && type.endsWith('.delta') && typeof event.delta === 'string') {
+        if (!text) {
+          thinking += event.delta;
+          opts.onDelta(`💭 ${thinking}`);
+        }
+      } else if (type === 'response.failed' || type === 'error') {
+        const message = event?.response?.error?.message ?? event?.error?.message ?? event?.message;
+        throw new Error(typeof message === 'string' ? message : 'ChatGPT stream error');
+      }
+    },
+  });
+  if (!text.trim()) throw new Error('The model returned an empty stream. No project changes were applied.');
+  return text;
 }
 
 async function streamOpenAi(routing: Routing, opts: StreamChatOptions): Promise<string> {
@@ -91,15 +151,18 @@ async function streamOpenAi(routing: Routing, opts: StreamChatOptions): Promise<
     headers['X-VibeX-Device-Proof'] = deviceProof;
   }
   const baseUrl = routing.baseUrl;
+  const requestPolicy = openAiRequestPolicy(opts.connection, opts.model, routing.isOpenRouter);
   await ssePost({
     url: `${baseUrl}/chat/completions`,
     headers,
     body: {
       model: opts.model,
       stream: true,
+      ...requestPolicy,
       messages: [{ role: 'system', content: opts.system }, ...opts.messages],
     },
     signal: opts.signal,
+    timeoutMs: MODEL_STREAM_TIMEOUT_MS,
     onHeaders: (get) => { backendModel = get('X-VibeX-Backend-Model'); },
     onEvent: (data) => {
       try {

@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: 'VibeXStudio — Enter the X',
   description:
-    'A local-first iPhone studio for vibe-coding static web apps. Talk to your own AI provider, preview on the device, publish through your own GitHub Pages. No backend. No telemetry.',
+    'A local-first studio for vibe-coding static web apps. Use a direct AI connection or an optional disclosed Private VibeX invite, preview on the device, and publish through your own GitHub Pages. No analytics or telemetry.',
   icons: {
     icon: [{ url: './favicon.png', type: 'image/png' }],
     apple: [{ url: './icon.png', type: 'image/png' }],
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'VibeXStudio — Enter the X',
     description:
-      'Not a chat window. A working studio. Local-first vibe-coding for the web, from the phone already in your hand.',
+      'Not a chat window. A working studio. Local-first vibe-coding for the web, from the device already in your hand.',
     type: 'website',
     images: [{ url: './icon.png', width: 1024, height: 1024 }],
   },

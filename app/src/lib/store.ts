@@ -7,11 +7,7 @@ import { create } from 'zustand';
 
 import { PROVIDERS } from '@/lib/ai/registry';
 import { refreshSubscription } from '@/lib/ai/subscriptionOauth';
-import {
-  buildDesignAttachedMessage,
-  buildExistingProjectDesignHandoffState,
-  removeDesignReference,
-} from '@/lib/design/references';
+
 import {
   refreshPrivateCredential,
   revokePrivateDevice,
@@ -22,7 +18,7 @@ import * as projectStore from '@/lib/storage/projects';
 import * as secrets from '@/lib/storage/secrets';
 import * as settings from '@/lib/storage/settings';
 import type { AppearancePref, MediaLabLink, WorkbenchLink } from '@/lib/storage/settings';
-import type { DesignReference, GitHubAccount, ProjectMeta, ProviderConnection, ProviderKind } from '@/lib/types';
+import type { GitHubAccount, ProjectMeta, ProviderConnection, ProviderKind } from '@/lib/types';
 
 interface AppState {
   hydrated: boolean;
@@ -41,7 +37,6 @@ interface AppState {
    * just be a broken WebView.
    */
   workbenchPreview: Record<string, string>;
-  pendingDesignReference: DesignReference | null;
 
   hydrate: () => Promise<void>;
   setAppearance: (pref: AppearancePref) => Promise<void>;
@@ -52,9 +47,7 @@ interface AppState {
   setWorkbenchPreview: (projectId: string, url: string | null) => void;
   completeOnboarding: () => Promise<void>;
   refreshProjects: () => Promise<void>;
-  createProject: (name: string, emoji: string, designReference?: DesignReference) => Promise<ProjectMeta>;
-  setPendingDesignReference: (reference: DesignReference | null) => void;
-  setProjectDesignReference: (id: string, reference?: DesignReference) => Promise<ProjectMeta>;
+  createProject: (name: string, emoji: string) => Promise<ProjectMeta>;
   deleteProject: (id: string) => Promise<void>;
 
   connectGitHub: (token: string, auth: GitHubAccount['auth']) => Promise<GitHubAccount>;
@@ -96,12 +89,9 @@ export const useApp = create<AppState>((set, get) => ({
   mediaLab: null,
   workbench: null,
   workbenchPreview: {},
-  pendingDesignReference: null,
+
 
   hydrate: async () => {
-    // Pre-sync local projects hop into the iCloud container first, so the
-    // list below already sees them in their synced home. No-op off-Apple.
-    await projectStore.migrateLocalProjectsToCloud().catch(() => {});
     const [projects, github, providers, appearance, onboardingComplete, mediaLab, workbench] = await Promise.all([
       projectStore.listProjects(),
       settings.getGitHubAccount(),
@@ -162,36 +152,10 @@ export const useApp = create<AppState>((set, get) => ({
     set({ projects: await projectStore.listProjects() });
   },
 
-  createProject: async (name, emoji, designReference) => {
-    const reference = designReference ?? get().pendingDesignReference ?? undefined;
-    const meta = await projectStore.createProject(name, emoji, reference);
-    if (reference) {
-      await projectStore.writeChat(meta.id, [buildDesignAttachedMessage(reference)]);
-    }
-    set({ projects: [meta, ...get().projects], pendingDesignReference: null });
+  createProject: async (name, emoji) => {
+    const meta = await projectStore.createProject(name, emoji);
+    set({ projects: [meta, ...get().projects] });
     return meta;
-  },
-
-  setPendingDesignReference: (reference) => set({ pendingDesignReference: reference }),
-
-  setProjectDesignReference: async (id, reference) => {
-    const [current, messages] = await Promise.all([
-      projectStore.readProject(id),
-      reference ? projectStore.readChat(id) : Promise.resolve([]),
-    ]);
-    if (!current) throw new Error('Project not found.');
-    const transition = reference
-      ? buildExistingProjectDesignHandoffState(current, messages, reference)
-      : null;
-    const next = transition?.project ?? removeDesignReference(current);
-    await projectStore.writeProject(next);
-    if (transition) await projectStore.writeChat(id, transition.messages);
-    set({
-      projects: get().projects
-        .map((project) => (project.id === id ? next : project))
-        .sort((a, b) => b.updatedAt - a.updatedAt),
-    });
-    return next;
   },
 
   deleteProject: async (id) => {

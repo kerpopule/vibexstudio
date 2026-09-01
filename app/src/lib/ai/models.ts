@@ -87,6 +87,7 @@ export async function fetchModels(connection: ProviderConnection, secret: string
 /** Emoji glyph for a connection's vendor, for the chat model bar. */
 export function providerGlyph(c: ProviderConnection): string {
   if (c.privateProvider) return '🔐';
+  if (c.subscription === 'chatgpt-oauth') return '🟢';
   if (c.subscription === 'minimax-oauth') return '🟠';
   if (c.subscription === 'kimi-oauth') return '🌙';
   if (c.subscription === 'xai-oauth') return '✖️';

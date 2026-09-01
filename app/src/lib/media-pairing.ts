@@ -73,6 +73,29 @@ export function parsePairDeepLinkV2(link: string): PairPayload | null {
   return { mediaLab, workbench };
 }
 
+/**
+ * Turn whatever was scanned or typed into /pair route params, or null:
+ * a full `vibex://pair?…` link (both halves) or a bare server address
+ * (`192.168.1.20:7863`), which is taken as a Media Lab.
+ */
+export function pairParamsFromInput(raw: string): Record<string, string> | null {
+  const text = raw.trim();
+  if (!text) return null;
+  const payload = parsePairDeepLinkV2(text);
+  if (payload) {
+    const params: Record<string, string> = {};
+    if (payload.mediaLab) params.medialab = payload.mediaLab;
+    if (payload.workbench) {
+      params.workbench = payload.workbench.url;
+      params.wbt = payload.workbench.token;
+    }
+    return params;
+  }
+  if (/^vibex:/i.test(text)) return null;
+  const url = normalizeServerUrl(text);
+  return url ? { medialab: url } : null;
+}
+
 /** True when a Media Lab answers at `url` (gate-exempt /manifest.json). */
 export async function probeMediaLab(url: string, timeoutMs = 6000): Promise<boolean> {
   try {

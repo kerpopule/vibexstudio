@@ -1,5 +1,7 @@
 #!/bin/sh
-# One-time Workbench sidecar setup for VibeX Studio Desktop.
+# Manual Workbench sidecar setup for VibeX Studio Desktop — the advanced /
+# dev-checkout path. The app mints this file itself when Media Lab is set
+# up and Node is present; Media Lab → Rotate Workbench token rotates it.
 #
 # Checks for Node >= 18, creates the projects root, mints the pairing token,
 # and writes the config the desktop shell (and workbench/server.mjs) reads

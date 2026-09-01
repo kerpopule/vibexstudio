@@ -4,23 +4,23 @@
  */
 import { Platform } from 'react-native';
 
-/** "your iPhone" / "your phone" / "your computer" */
+/** Device-neutral on mobile so the same copy is correct on phone and tablet. */
 export const yourDevice = Platform.select({
-  ios: 'your iPhone',
-  android: 'your phone',
+  ios: 'your device',
+  android: 'your device',
   default: 'your computer',
 });
 
-/** "this iPhone" / "this phone" / "this computer" */
+/** "this device" / "this computer" */
 export const thisDevice = Platform.select({
-  ios: 'this iPhone',
-  android: 'this phone',
+  ios: 'this device',
+  android: 'this device',
   default: 'this computer',
 });
 
-/** Bare noun: "iPhone" / "phone" / "computer" */
+/** Bare noun: "device" / "computer" */
 export const deviceNoun = Platform.select({
-  ios: 'iPhone',
-  android: 'phone',
+  ios: 'device',
+  android: 'device',
   default: 'computer',
 });

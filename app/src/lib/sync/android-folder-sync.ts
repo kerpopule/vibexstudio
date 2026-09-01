@@ -11,7 +11,7 @@
  * of project.json + chat.json + files/** replaces the loser's. No per-file
  * merging. `media/` (chat attachments) is not mirrored in v1.
  *
- * Every function is a no-op on iOS/web (iCloud covers Apple sync). SAF calls
+ * Every function is a no-op on iOS/web. SAF calls
  * throw freely — a revoked grant, a Drive hiccup, provider quirks — so
  * everything is wrapped and a failed project never stops the others.
  */

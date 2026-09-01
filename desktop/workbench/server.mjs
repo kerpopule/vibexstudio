@@ -49,6 +49,19 @@ if (config.enabled === false) {
   process.exit(0);
 }
 const PORT = Number(config.port) || 8794;
+
+// Spawned by the desktop shell: if the shell dies without a clean quit
+// (crash, force-quit) our parent changes — stop instead of squatting on
+// the port and its dev servers until reboot.
+const PARENT_PID = Number(process.env.WORKBENCH_PARENT_PID) || 0;
+if (PARENT_PID && process.ppid === PARENT_PID) {
+  setInterval(() => {
+    if (process.ppid !== PARENT_PID) {
+      console.error('workbench: parent shell went away — shutting down');
+      process.kill(process.pid, 'SIGTERM');
+    }
+  }, 2000).unref();
+}
 const projectsRoot = config.projectsRoot
   || path.join(os.homedir(), 'VibeXStudio-Projects');
 await fs.mkdir(projectsRoot, { recursive: true });
@@ -169,10 +182,24 @@ const MIME = {
   '.mp3': 'audio/mpeg', '.map': 'application/json',
 };
 
-function allocPort() {
+// Next free dev port: skip ports our own entries hold AND ports anything
+// else on this machine already listens on (a stale dev server, another
+// tool) — otherwise `serve`/`dev` die with EADDRINUSE.
+function portFree(port) {
+  return new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.unref();
+    probe.once('error', () => resolve(false));
+    probe.listen({ host: '127.0.0.1', port }, () => probe.close(() => resolve(true)));
+  });
+}
+async function allocPort() {
   const used = new Set([...devByProject.values()].map((d) => d.port));
   let p = nextDevPort;
-  while (used.has(p)) p += 1;
+  for (let tries = 0; tries < 200; tries += 1, p += 1) {
+    if (used.has(p)) continue;
+    if (await portFree(p)) break;
+  }
   nextDevPort = p + 1;
   return p;
 }
@@ -295,7 +322,7 @@ async function execTask(project, task, projectDir) {
       finishJob(job, 'failed', -1);
       return job;
     }
-    const port = allocPort();
+    const port = await allocPort();
     const proc = spawnJob(job, 'npm', ['run', 'dev'], projectDir, minimalEnv({ PORT: String(port) }));
     const entry = { kind: 'dev', port, jobId: job.id, proc, stopping: false };
     devByProject.set(project, entry);
@@ -310,7 +337,7 @@ async function execTask(project, task, projectDir) {
 
   if (task === 'serve') {
     stopDevEntry(project);
-    const port = allocPort();
+    const port = await allocPort();
     job.state = 'running';
     const server = http.createServer(async (sreq, sres) => {
       try {

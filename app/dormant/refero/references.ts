@@ -1,4 +1,15 @@
-import type { ChatMessage, DesignReference, ProjectMeta } from '@/lib/types';
+import type { ChatMessage, ProjectMeta } from '@/lib/types';
+
+export interface DesignReference {
+  schema: 'vibex/design-reference.v1';
+  source: { kind: 'refero-style'; url: string };
+  label: string;
+  promptText: string;
+  previewImageUrl?: string;
+  capturedAt: number;
+}
+
+export type DormantProjectMeta = ProjectMeta & { designReference?: DesignReference };
 
 /** Conservative cap applied after deterministic whitespace normalization. */
 export const MAX_DESIGN_PROMPT_TEXT_CHARS = 8_000;
@@ -101,14 +112,14 @@ export function buildDesignReferenceFromCapture(
 }
 
 export function applyDesignReference(
-  project: ProjectMeta,
+  project: DormantProjectMeta,
   reference: DesignReference,
   now = Date.now()
-): ProjectMeta {
+): DormantProjectMeta {
   return { ...project, designReference: reference, updatedAt: now };
 }
 
-export function removeDesignReference(project: ProjectMeta, now = Date.now()): ProjectMeta {
+export function removeDesignReference(project: DormantProjectMeta, now = Date.now()): DormantProjectMeta {
   const { designReference: _removed, ...rest } = project;
   return { ...rest, updatedAt: now };
 }
@@ -128,12 +139,12 @@ export function buildDesignAttachedMessage(
 
 /** Pure persistable transition: attach the reference and append one honest, non-generating handoff. */
 export function buildExistingProjectDesignHandoffState(
-  project: ProjectMeta,
+  project: DormantProjectMeta,
   messages: readonly ChatMessage[],
   reference: DesignReference,
   now = Date.now(),
   messageId = `design-${now.toString(36)}`
-): { project: ProjectMeta; messages: ChatMessage[] } {
+): { project: DormantProjectMeta; messages: ChatMessage[] } {
   return {
     project: applyDesignReference(project, reference, now),
     messages: [...messages, buildDesignAttachedMessage(reference, now, messageId)],

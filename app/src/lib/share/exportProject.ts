@@ -1,7 +1,7 @@
 /**
  * Sending side of `.vibex` sharing: package the project into one bundle file
  * and hand it to the iOS share sheet. That sheet IS the integration — Save to
- * Files (iCloud Drive), Google Drive, Dropbox, AirDrop, Messages, Messenger,
+ * Files, Google Drive, Dropbox, AirDrop, Messages, Messenger,
  * WhatsApp — the user's choice, their storage, no VibeXStudio servers.
  *
  * The file travels with a short note + the get-the-app link so a recipient

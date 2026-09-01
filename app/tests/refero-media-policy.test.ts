@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { REFERO_MEDIA_POLICY_SCRIPT, referoWebViewMediaProps } from '@/lib/design/refero-media-policy';
+import { REFERO_MEDIA_POLICY_SCRIPT, referoWebViewMediaProps } from '../dormant/refero/refero-media-policy';
 
 describe('Refero media policy', () => {
   it('normalizes current and dynamic videos without touching images or page scrolling', () => {

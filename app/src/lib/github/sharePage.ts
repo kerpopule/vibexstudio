@@ -13,11 +13,9 @@ export const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=stu
 
 /**
  * Public "get the app / how to open a .vibex" landing page, sent alongside
- * shared bundles for recipients who don't have VibeXStudio yet. Today it's a
- * static GitHub Pages site; swap to the App Store URL once the listing is
- * live (the page itself also forwards to the store when that happens).
+ * shared bundles for recipients who don't have VibeXStudio yet.
  */
-export const GET_APP_URL = 'https://kerpopule.github.io/vibex/';
+export const GET_APP_URL = 'https://vibexstudio.com/';
 
 export function buildImportDeepLink(owner: string, repo: string, branch: string): string {
   const params = new URLSearchParams({ repo: `${owner}/${repo}`, ref: branch });

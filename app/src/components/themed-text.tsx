@@ -33,47 +33,47 @@ export function ThemedText({ style, type = 'default', themeColor, ...rest }: The
 
 const styles = StyleSheet.create({
   small: {
+    fontFamily: Fonts.bodyMedium,
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: 500,
   },
   smallBold: {
+    fontFamily: Fonts.bodyBold,
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: 700,
   },
   default: {
+    fontFamily: Fonts.bodyMedium,
     fontSize: 16,
     lineHeight: 24,
-    fontWeight: 500,
   },
-  /** Screen-level display title — rounded, friendly, big. */
+  /** Screen-level display title — Space Grotesk, big, tight. */
   title: {
-    fontFamily: Fonts.rounded,
+    fontFamily: Fonts.displayBold,
     fontSize: 34,
-    fontWeight: 800,
     lineHeight: 40,
-    letterSpacing: 0.2,
+    letterSpacing: -0.6,
   },
   /** Hero/empty-state headline. */
   subtitle: {
-    fontFamily: Fonts.rounded,
+    fontFamily: Fonts.displayBold,
     fontSize: 26,
     lineHeight: 32,
-    fontWeight: 700,
+    letterSpacing: -0.3,
   },
   /** Card / section headline. */
   heading: {
-    fontFamily: Fonts.rounded,
+    fontFamily: Fonts.display,
     fontSize: 17,
     lineHeight: 22,
-    fontWeight: 700,
   },
   link: {
+    fontFamily: Fonts.bodyMedium,
     lineHeight: 30,
     fontSize: 14,
   },
   linkPrimary: {
+    fontFamily: Fonts.bodyMedium,
     lineHeight: 30,
     fontSize: 14,
     color: '#3c87f7',

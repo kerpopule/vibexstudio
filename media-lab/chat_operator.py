@@ -21,15 +21,25 @@ class ToolError(ValueError):
 
 READ_TOOLS = {
     "list_characters", "list_songs", "list_recent_jobs", "queue_state", "inspect_job",
+    "inspect_cut",
 }
 MUTATION_TOOLS = {
     "queue_video", "queue_image", "queue_storyboard", "queue_musicvideo", "iterate_job",
+    "cut_propose",
 }
 ALLOWED_TOOLS = READ_TOOLS | MUTATION_TOOLS
 ACTION_RE = re.compile(
-    r"\b(queue|run|render|generate|make|create|start|film|test|try|iterate|rerun|re-run|remix)\b",
+    r"\b(queue|run|render|generate|make|create|start|film|test|try|iterate|rerun|re-run|remix|cut|trim|split|propose)\b",
     re.I,
 )
+# Commands Sparky may PROPOSE on a Cut project. History, approval and master
+# rendering stay with people; a proposal never changes the project by itself.
+CUT_PROPOSABLE = {
+    "scene.replace", "clip.add", "clip.remove", "clip.trim", "clip.split", "clip.move",
+    "transition.set", "transition.remove", "caption.generate", "caption.add", "caption.edit",
+    "caption.remove", "audio.mix", "color.apply", "render.preview",
+}
+CUT_MAX_COMMANDS = 20
 SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 SENSITIVE_KEY_RE = re.compile(r"(token|secret|password|credential|access[_-]?code|admin[_-]?pin)", re.I)
 
@@ -56,6 +66,8 @@ TOOL_SCHEMAS = {
         "optional": ["style", "seed", "start_sec", "face_fix"],
     },
     "iterate_job": {"required": ["job_id", "change"], "optional": []},
+    "inspect_cut": {"required": ["project_id"], "optional": []},
+    "cut_propose": {"required": ["project_id", "commands"], "optional": ["note"]},
 }
 
 ITERATION_FIELDS = {
@@ -124,6 +136,11 @@ without action authority. Mutation tools require explicit action language in the
 A chat turn admits at most one mutation.
 
 Schemas (unknown/missing arguments are rejected): {schemas}
+Cut (the timeline editor): inspect_cut reads a project's clips, transitions, captions, mix and
+pending proposals. cut_propose submits Cut commands (clip.trim, clip.split, clip.move, clip.add,
+clip.remove, transition.set, caption.add/edit/generate/remove, audio.mix, color.apply, render.preview)
+as a PROPOSAL only; a person approves or rejects the exact diff in the Cut page. Frames are the unit
+(fps is in the project settings). Never claim an edit is applied after cut_propose.
 Rules: resolve characters by current name or ID; always use canonical returned IDs. queue_video and
 queue_musicvideo require explicit ltx25 or h3 and explicit orientation. A character identity sheet may
 feed queue_image to make an anchor, never queue_video directly. queue_musicvideo is limited to a
@@ -166,7 +183,11 @@ class StudioOperator:
         eta_estimate: Callable[[dict[str, Any]], int],
         valid_styles: set[str],
         valid_orientations: set[str],
+        cut_inspect: Callable[[str], dict[str, Any]] | None = None,
+        cut_propose: Callable[[str, list[dict[str, Any]], str], dict[str, Any]] | None = None,
     ):
+        self.cut_inspect = cut_inspect
+        self.cut_propose = cut_propose
         self.load_characters = load_characters
         self.get_jobs = get_jobs
         self.get_queue = get_queue
@@ -192,6 +213,10 @@ class StudioOperator:
             return self._read_receipt(name, self._queue_state())
         if name == "inspect_job":
             return self._read_receipt(name, self._inspect(args["job_id"]))
+        if name == "inspect_cut":
+            return self._read_receipt(name, self._cut_inspect(args["project_id"]))
+        if name == "cut_propose":
+            return self._cut_propose(args)
         if name == "iterate_job":
             return self._iterate(args)
         kind, request, meta = self._prepare(name, args, add_constraints=True, mint_seed=True)
@@ -340,6 +365,64 @@ class StudioOperator:
             "result": _safe_value({"url": job.get("url"), "poster": job.get("poster"),
                                    "message": job.get("message"), "board_id": job.get("board_id"),
                                    "scenes": job.get("scenes")}),
+        }
+
+    def _cut_project_id(self, raw: Any) -> str:
+        pid = self._text(raw, "project_id", 80)
+        if not SAFE_ID_RE.fullmatch(pid):
+            raise ToolError("project_id is not a valid Cut project ID.")
+        return pid
+
+    def _cut_inspect(self, raw: Any) -> dict[str, Any]:
+        if self.cut_inspect is None:
+            raise ToolError("Cut is not available in this studio.")
+        pid = self._cut_project_id(raw)
+        try:
+            return _safe_value(self.cut_inspect(pid))
+        except ToolError:
+            raise
+        except Exception as exc:  # the store fails closed with a plain message
+            raise ToolError(f"Cut project {pid} is unavailable: {str(exc)[:160]}.") from exc
+
+    def _cut_propose(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Persist a Sparky proposal. It never applies; a person approves the exact diff."""
+        if self.cut_propose is None:
+            raise ToolError("Cut is not available in this studio.")
+        pid = self._cut_project_id(args["project_id"])
+        commands = args["commands"]
+        if not isinstance(commands, list) or not commands or len(commands) > CUT_MAX_COMMANDS:
+            raise ToolError(f"commands must be a list of 1 to {CUT_MAX_COMMANDS} Cut commands.")
+        clean = []
+        for index, raw in enumerate(commands):
+            if not isinstance(raw, dict) or set(raw) - {"id", "type", "payload"}:
+                raise ToolError("every command is an object with type, payload and optional id.")
+            kind = raw.get("type")
+            if kind not in CUT_PROPOSABLE:
+                raise ToolError(f"command {kind!r} cannot be proposed by Sparky.")
+            payload = raw.get("payload", {})
+            if not isinstance(payload, dict):
+                raise ToolError("command payload must be an object.")
+            if any(SENSITIVE_KEY_RE.search(str(k)) for k in payload):
+                raise ToolError("command payload carries a forbidden key.")
+            cid = str(raw.get("id") or f"sparky-{index + 1}-{kind.replace('.', '-')}")
+            if not SAFE_ID_RE.fullmatch(cid) or len(cid) > 80:
+                raise ToolError("command id is not a valid studio ID.")
+            clean.append({"id": cid, "type": kind, "payload": _safe_value(payload)})
+        note = self._text(args.get("note", "proposal"), "note", 300) if args.get("note") else ""
+        try:
+            result = self.cut_propose(pid, clean, note)
+        except ToolError:
+            raise
+        except Exception as exc:
+            raise ToolError(f"Cut refused the proposal: {str(exc)[:200]}.") from exc
+        if not isinstance(result, dict) or result.get("status") not in ("proposed", "superseded"):
+            raise ToolError("Cut did not return a real proposal receipt.")
+        return {
+            "tool": "cut_propose", "accepted": True, "status": result.get("status"),
+            "transaction_id": result.get("transaction_id"), "project_id": pid,
+            "base_revision": result.get("base_revision"), "change_count": len(result.get("diff") or []),
+            "applied": False,
+            "next": f"A person must approve or reject this exact diff in /cut?project={pid}.",
         }
 
     def _orientation(self, value: Any) -> str:

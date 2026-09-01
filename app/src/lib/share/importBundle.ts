@@ -55,7 +55,7 @@ export async function importBundleFromFile(
   return importBundleText(text, onProgress);
 }
 
-/** Import from a pasted share link (Dropbox, Google Drive, iCloud, or any URL). */
+/** Import from a pasted share link (Dropbox, Google Drive, or any URL). */
 export async function importBundleFromUrl(
   raw: string,
   onProgress?: (detail: string) => void
@@ -64,9 +64,7 @@ export async function importBundleFromUrl(
   if (!link) throw new Error("That doesn't look like a share link.");
 
   onProgress?.('Fetching the app…');
-  const url = link.kind === 'icloud' ? await resolveICloudLink(link.shortGuid) : link.url;
-
-  const res = await fetch(url);
+  const res = await fetch(link.url);
   if (!res.ok) throw new Error(`Couldn't download from that link (${res.status}).`);
   const text = await res.text();
   if (looksLikeHtmlPage(text)) {
@@ -75,31 +73,4 @@ export async function importBundleFromUrl(
     );
   }
   return importBundleText(text, onProgress);
-}
-
-/**
- * iCloud Drive share links hide the file behind a short GUID; CloudKit's
- * public resolve endpoint hands back the real download URL.
- */
-async function resolveICloudLink(shortGuid: string): Promise<string> {
-  const friendly =
-    'Couldn\'t unwrap that iCloud link. Easiest path: open the .vibex file in the Files app and pick "VibeXStudio".';
-  let downloadUrl: string | undefined;
-  try {
-    const res = await fetch(
-      'https://ckdatabasews.icloud.com/database/1/com.apple.cloudkit/production/public/records/resolve',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shortGUIDs: [{ value: shortGuid }] }),
-      }
-    );
-    const data = await res.json();
-    downloadUrl = data?.results?.[0]?.rootRecord?.fields?.fileContent?.value?.downloadURL;
-  } catch {
-    throw new Error(friendly);
-  }
-  if (!downloadUrl) throw new Error(friendly);
-  // CloudKit returns a templated URL; ${f} is the filename slot.
-  return downloadUrl.replace('${f}', 'bundle.vibex');
 }

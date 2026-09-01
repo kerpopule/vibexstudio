@@ -16,14 +16,17 @@ import * as Crypto from 'expo-crypto';
 
 import type { WireProtocol } from '@/lib/ai/registry';
 
-export type SubscriptionProviderId = 'minimax-oauth' | 'kimi-oauth' | 'xai-oauth';
+export type SubscriptionProviderId = 'chatgpt-oauth' | 'minimax-oauth' | 'kimi-oauth' | 'xai-oauth';
+
+/** Display order everywhere subscriptions are offered. */
+export const SUBSCRIPTION_ORDER: SubscriptionProviderId[] = ['chatgpt-oauth', 'xai-oauth', 'minimax-oauth', 'kimi-oauth'];
 
 export interface SubscriptionProviderSpec {
   id: SubscriptionProviderId;
   name: string;
   blurb: string;
   /** How the vendor's device endpoints are shaped. */
-  flavor: 'minimax' | 'kimi' | 'xai';
+  flavor: 'chatgpt' | 'minimax' | 'kimi' | 'xai';
   portalBaseUrl: string;
   /** Where chat inference is sent once authorized. */
   inferenceBaseUrl: string;
@@ -37,6 +40,24 @@ export interface SubscriptionProviderSpec {
 }
 
 export const SUBSCRIPTION_PROVIDERS: Record<SubscriptionProviderId, SubscriptionProviderSpec> = {
+  'chatgpt-oauth': {
+    id: 'chatgpt-oauth',
+    name: 'ChatGPT (Plus / Pro)',
+    blurb: 'Sign in with your ChatGPT plan — the same login the Codex CLI uses. No API key.',
+    flavor: 'chatgpt',
+    portalBaseUrl: 'https://auth.openai.com',
+    // The Codex backend speaks the Responses API, not chat/completions.
+    inferenceBaseUrl: 'https://chatgpt.com/backend-api/codex',
+    protocol: 'codex',
+    // OpenAI's public Codex CLI client id (PKCE, no secret).
+    clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
+    scope: 'openid profile email offline_access',
+    defaultModel: 'gpt-5.5',
+    suggestedModels: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex'],
+    // Cloudflare in front of the Codex backend only admits first-party
+    // originators; this is the value the Codex CLI itself sends.
+    inferenceHeaders: { originator: 'codex_cli_rs', 'OpenAI-Beta': 'responses=experimental' },
+  },
   'minimax-oauth': {
     id: 'minimax-oauth',
     name: 'MiniMax (subscription)',
@@ -95,10 +116,72 @@ export const SUBSCRIPTION_PROVIDERS: Record<SubscriptionProviderId, Subscription
  */
 const XAI_REDIRECT_URI = 'http://127.0.0.1:56121/callback';
 
+/**
+ * The Codex CLI's registered loopback redirect. On a phone, VibeX itself
+ * listens on this port for the few seconds the sign-in takes (see
+ * loopback-callback.native.ts); anywhere it can't, the user pastes the URL.
+ */
+export const CHATGPT_LOOPBACK_PORT = 1455;
+export const CHATGPT_REDIRECT_PATH = '/auth/callback';
+const CHATGPT_REDIRECT_URI = `http://localhost:${CHATGPT_LOOPBACK_PORT}${CHATGPT_REDIRECT_PATH}`;
+
+function startChatGpt(
+  spec: SubscriptionProviderSpec,
+  verifier: string,
+  challenge: string
+): DeviceLoginSession {
+  const state = randomState();
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: spec.clientId,
+    redirect_uri: CHATGPT_REDIRECT_URI,
+    scope: spec.scope,
+    code_challenge: challenge,
+    code_challenge_method: 'S256',
+    state,
+    id_token_add_organizations: 'true',
+    codex_cli_simplified_flow: 'true',
+    originator: 'codex_cli_rs',
+  });
+  return {
+    provider: spec.id,
+    flow: 'browser',
+    redirectUri: CHATGPT_REDIRECT_URI,
+    pollHandle: '',
+    userCode: '',
+    verificationUri: `${spec.portalBaseUrl}/oauth/authorize?${params.toString()}`,
+    codeVerifier: verifier,
+    codeChallenge: challenge,
+    state,
+    expiresAt: Date.now() + 10 * 60 * 1000,
+    intervalMs: 0,
+  };
+}
+
+/** The `chatgpt_account_id` claim the Codex backend wants echoed as a header. */
+export function chatGptAccountIdFromToken(accessToken: string): string | null {
+  try {
+    const payload = accessToken.split('.')[1];
+    if (!payload) return null;
+    const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(payload.length / 4) * 4, '='));
+    const claims = JSON.parse(json);
+    const id = claims?.['https://api.openai.com/auth']?.chatgpt_account_id;
+    return typeof id === 'string' && id ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface DeviceLoginSession {
   provider: SubscriptionProviderId;
-  /** 'poll' = we wait on a device code; 'paste' = user pastes the callback URL (xAI). */
-  flow: 'poll' | 'paste';
+  /**
+   * 'poll' = we wait on a device code; 'paste' = user pastes the callback URL
+   * (xAI); 'browser' = a loopback listener on this device catches the
+   * redirect (ChatGPT) — with paste as the fallback when it can't listen.
+   */
+  flow: 'poll' | 'paste' | 'browser';
+  /** For 'browser' flows: the exact redirect the listener must answer. */
+  redirectUri?: string;
   /** Vendor handle used when polling (device_code or user_code per flavor). */
   pollHandle: string;
   userCode: string;
@@ -150,6 +233,7 @@ export async function startDeviceLogin(providerId: SubscriptionProviderId): Prom
   const spec = SUBSCRIPTION_PROVIDERS[providerId];
   const { verifier, challenge } = await pkcePair();
   if (spec.flavor === 'xai') return startXai(spec, verifier, challenge);
+  if (spec.flavor === 'chatgpt') return startChatGpt(spec, verifier, challenge);
   return spec.flavor === 'minimax'
     ? startMiniMax(spec, verifier, challenge)
     : startKimi(spec, verifier, challenge);
@@ -197,6 +281,7 @@ export async function completePasteLogin(
   pasted: string
 ): Promise<SubscriptionTokens> {
   const spec = SUBSCRIPTION_PROVIDERS[session.provider];
+  if (spec.flavor === 'chatgpt') return completeChatGptLogin(session, pasted);
   const text = pasted.trim();
   if (!text) throw new Error('Paste the link from Safari first.');
 
@@ -233,8 +318,53 @@ export async function completePasteLogin(
   });
   const data = await safeJson(res);
   if (!res.ok || !data?.access_token) {
-    const detail = data?.error_description ?? data?.error ?? `HTTP ${res.status}`;
-    throw new Error(`xAI sign-in failed (${detail}). Start over and paste the newest link.`);
+    throw new Error(`xAI sign-in failed (${oauthErrorDetail(data, res.status)}). Start over and paste the newest link.`);
+  }
+  return {
+    accessToken: String(data.access_token),
+    refreshToken: data.refresh_token ? String(data.refresh_token) : undefined,
+    expiresAt: Date.now() + Number(data.expires_in ?? 3600) * 1000,
+  };
+}
+
+/** Exchange a ChatGPT callback (full URL or bare code) for tokens. */
+export async function completeChatGptLogin(
+  session: DeviceLoginSession,
+  callbackUrlOrCode: string
+): Promise<SubscriptionTokens> {
+  const spec = SUBSCRIPTION_PROVIDERS[session.provider];
+  const text = callbackUrlOrCode.trim();
+  if (!text) throw new Error('Nothing to finish with yet — sign in first.');
+  let code = text;
+  if (text.includes('?') || text.includes('://')) {
+    const qs = new URLSearchParams((text.split('?')[1] ?? '').split('#')[0]);
+    const err = qs.get('error');
+    if (err) throw new Error(`ChatGPT sign-in was denied (${qs.get('error_description') ?? err}).`);
+    const pastedState = qs.get('state');
+    if (session.state && pastedState && pastedState !== session.state) {
+      throw new Error('That link is from an older attempt — start over and use the newest one.');
+    }
+    code = qs.get('code') ?? '';
+  }
+  if (!code) throw new Error("That link doesn't contain a sign-in code.");
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: session.redirectUri ?? CHATGPT_REDIRECT_URI,
+    client_id: spec.clientId,
+    code_verifier: session.codeVerifier,
+  });
+  const res = await fetch(`${spec.portalBaseUrl}/oauth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+    body: body.toString(),
+  });
+  const data = await safeJson(res);
+  if (!res.ok || !data?.access_token) {
+    throw new Error(`ChatGPT sign-in failed (${oauthErrorDetail(data, res.status)}). Start over and try again.`);
+  }
+  if (!chatGptAccountIdFromToken(String(data.access_token))) {
+    throw new Error('That ChatGPT account has no Codex access. Plus, Pro, Team, and Enterprise plans work.');
   }
   return {
     accessToken: String(data.access_token),
@@ -334,8 +464,8 @@ export async function pollDeviceLogin(session: DeviceLoginSession): Promise<Devi
     return { status: 'error', message: 'The sign-in code expired. Start over to get a new one.' };
   }
   const spec = SUBSCRIPTION_PROVIDERS[session.provider];
-  if (spec.flavor === 'xai') {
-    // Paste flow has nothing to poll — the screen calls completePasteLogin.
+  if (spec.flavor === 'xai' || spec.flavor === 'chatgpt') {
+    // Paste/browser flows have nothing to poll — the screen finishes them.
     return { status: 'pending' };
   }
   return spec.flavor === 'minimax' ? pollMiniMax(spec, session) : pollKimi(spec, session);
@@ -420,6 +550,7 @@ export async function refreshSubscription(
     client_id: spec.clientId,
     refresh_token: refreshToken,
   });
+  if (spec.flavor === 'chatgpt') body.set('scope', 'openid profile email');
   const tokenPath = spec.flavor === 'xai' ? '/oauth2/token' : '/oauth/token';
   const res = await fetch(`${spec.portalBaseUrl}${tokenPath}`, {
     method: 'POST',
@@ -446,6 +577,18 @@ function resolveExpiry(expiredIn: number): number {
   const nowMs = Date.now();
   if (expiredIn > nowMs / 2) return expiredIn; // already an absolute ms epoch
   return nowMs + Math.max(1, expiredIn) * 1000;
+}
+
+/** OAuth servers disagree on error shape: string, {error, error_description}, or {error:{message}}. */
+export function oauthErrorDetail(data: any, status: number): string {
+  const err = data?.error;
+  if (typeof data?.error_description === 'string' && data.error_description) return data.error_description;
+  if (typeof err === 'string' && err) return err;
+  if (err && typeof err === 'object') {
+    const message = err.message ?? err.error_description ?? err.code;
+    if (typeof message === 'string' && message) return message;
+  }
+  return `HTTP ${status}`;
 }
 
 async function safeJson(res: Response): Promise<any> {

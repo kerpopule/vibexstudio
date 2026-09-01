@@ -29,24 +29,37 @@ Apache-2.0. **No accounts, no telemetry, no per-render bills.**
 
 ## Run it
 
+One command, then scan the QR it prints with the VibeXStudio phone app:
+
+```sh
+./install.sh
+```
+
+It creates `.venv`, mints your access code, starts the server (a `systemd
+--user` service on Linux; foreground on a Mac, `--service` for a launchd
+agent), waits until it answers, and prints the URLs, the code and a pairing
+QR. Re-run it after `git pull` to update. `media-lab status|pair|code|logs`
+drive it afterwards. Details, flags, troubleshooting: [docs/INSTALL.md](docs/INSTALL.md).
+
+Manual fallback, same thing by hand:
+
+```sh
+pip install -r requirements.txt
+uvicorn app:app --host 0.0.0.0 --port 7863
+```
+
 ### On your own GPU box (the full studio)
 
 Built and battle-tested on a single NVIDIA DGX Spark; any Linux box able to
-run your chosen engines works the same way:
-
-```sh
-pip install fastapi uvicorn pydantic python-multipart
-uvicorn app:app --host 127.0.0.1 --port 7863
-```
-
-Engines (LTX, H3, ComfyUI image/music) are installed and licensed by
-**you** — see `media_lab_core/` for the hash-pinned catalog/installer
+run your chosen engines works the same way. Engines (LTX, H3, ComfyUI
+image/music) are installed and licensed by **you** from the first-run shelf
+in the web UI — see `media_lab_core/` for the hash-pinned catalog/installer
 contracts and [AGENTS.md](AGENTS.md) for the guided setup an AI agent can
 run end-to-end. No model weights ship in this repo.
 
 ### On any machine, cloud-only (no GPU)
 
-Run the server anywhere, open the theme sheet → **Cloud providers**, paste
+Run `./install.sh` anywhere, open the theme sheet → **Cloud providers**, paste
 your [fal.ai](https://fal.ai) key, and pick model ids. `fal-image` and
 `fal-video` engines appear next to the local ones. Your key, your bill, no
 middleman.

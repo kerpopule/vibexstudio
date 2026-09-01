@@ -5,7 +5,8 @@
  */
 import type { ProviderCapabilities, ProviderKind } from '@/lib/types';
 
-export type WireProtocol = 'openai' | 'anthropic' | 'gemini';
+/** 'codex' = OpenAI Responses API as served by the ChatGPT Codex backend. */
+export type WireProtocol = 'openai' | 'anthropic' | 'gemini' | 'codex';
 
 export interface ProviderSpec {
   kind: ProviderKind;

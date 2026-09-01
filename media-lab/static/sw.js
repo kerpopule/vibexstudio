@@ -1,9 +1,13 @@
 /* Media Lab service worker — app shell cached for instant open,
    network-first for API and media, web push for finished creations. */
-const CACHE = "medialab-studio-v21";
+const CACHE = "medialab-studio-v22";
 const SHELL = [
   "/",
+  "/cut",
   "/manifest.json",
+  "/static/cut.html",
+  "/static/cut.css",
+  "/static/cut.js",
   "/static/medialab-chat.js",
   "/static/image-templates.css",
   "/static/image-templates.js",

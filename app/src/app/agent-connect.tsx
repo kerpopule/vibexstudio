@@ -107,7 +107,7 @@ export default function AgentConnectScreen() {
         <Glass style={styles.card}>
           <View style={styles.statusLine}>
             <View style={[styles.dot, { backgroundColor: runtime.running ? theme.success : theme.danger }]} />
-            <ThemedText type="heading">{runtime.running ? 'Ready on this phone' : 'Agent Connect unavailable'}</ThemedText>
+            <ThemedText type="heading">{runtime.running ? 'Ready on this device' : 'Agent Connect unavailable'}</ThemedText>
           </View>
           {runtime.running && runtime.host ? (
             <>
@@ -126,7 +126,7 @@ export default function AgentConnectScreen() {
         <Glass style={styles.card}>
           <ThemedText type="heading">One-time invite</ThemedText>
           <ThemedText themeColor="textSecondary">
-            The code lasts 15 minutes, works once, and still requires you to tap Allow on this phone. The returned bearer token lives only in the agent&apos;s secret store and this device&apos;s keychain.
+            The code lasts 15 minutes, works once, and still requires you to tap Allow on this device. The returned bearer token lives only in the agent&apos;s secret store and this device&apos;s keychain.
           </ThemedText>
           {invite && ticket ? (
             <>

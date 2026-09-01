@@ -7,6 +7,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ScalePress } from '@/components/ui/scale-press';
 import { Radii, Shadows, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { enter } from '@/lib/motion';
 
 /**
  * The "vibing" panel: a tall pane of raw model output that auto-scrolls as
@@ -57,8 +58,8 @@ export function StreamWheel({ text, onStop }: { text: string; onStop: () => void
 
   return (
     <Animated.View
-      entering={FadeIn.duration(250)}
-      exiting={FadeOut.duration(200)}
+      entering={enter(FadeIn.duration(250))}
+      exiting={enter(FadeOut.duration(200))}
       style={[styles.shell, { backgroundColor: theme.backgroundElement, borderColor: theme.border }, Shadows.card]}>
       <View style={styles.header}>
         <ActivityIndicator size="small" color={theme.tint} />

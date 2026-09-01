@@ -31,7 +31,7 @@ version: 5
 
 # Connect to VibeXStudio
 
-VibeXStudio is running a small MCP server on the user's phone. The phone and
+VibeXStudio is running a small MCP server on the user's device. The device and
 this agent computer must remain on the same Wi-Fi, and VibeXStudio must stay in
 the foreground while you connect or use tools. Pairing is local-LAN only.
 
@@ -45,7 +45,7 @@ curl -sS -X POST ${base}/pair \\
   -d '{"code":"${ticket.code}","agentName":"VibeX agent"}'
 ${fence}
 
-The user must tap Allow on the phone. Save the returned ${tick}token${tick} in
+The user must tap Allow on the device. Save the returned ${tick}token${tick} in
 your own secret store. Never paste it into chat, logs, source, or a project.
 Replace ${tick}***${tick} below at configuration time; every MCP request must
 send ${tick}${authorization}${tick}. The MCP endpoint is ${tick}${base}/mcp${tick}.
@@ -126,7 +126,7 @@ ${tick}append_project_message${tick} to add a one-line hello so the user can see
 that the connection works.
 
 Tool failures are HTTP 200 JSON-RPC results with ${tick}isError: true${tick}. If
-the endpoint is unreachable, ask the user to put the phone on the same Wi-Fi
+the endpoint is unreachable, ask the user to put the device on the same Wi-Fi
 and keep VibeXStudio open in the foreground. A 401 means the link was revoked;
 ask for a fresh invite. An expired or used code also requires a fresh invite.
 `;

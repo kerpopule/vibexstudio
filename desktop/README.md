@@ -31,19 +31,93 @@ and device sync rides your own iCloud/Drive — see the app repo's
   --output-dir dist-web` in `../vibex-studio`, copied here). Projects, chat,
   and generated files persist in IndexedDB (`src/lib/storage/projects.web.ts`
   in the app repo).
-- `src-tauri/` — the native shell. Milestone 1 is a plain window; the
-  roadmap below adds the Media Lab sidecar.
-- Media Lab pairing already works from inside the app: Settings → Media Lab →
-  paste a server URL (desktop sidecar or a Spark). The Media Lab tab appears
-  once paired.
+- `src-tauri/` — the native shell (`src/lib.rs`). It spawns two sidecars
+  that ship **inside the bundle** and stops them on quit:
+  - **Workbench** — `workbench/server.mjs` (zero-dependency Node; the phone's
+    remote build/dev/preview engine, contract in `workbench/API.md`). Needs a
+    system Node ≥ 18: the shell probes the `node` hint in `workbench.json`,
+    then `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`, `~/.local/bin`,
+    then `PATH`. No Node → it logs why and `sidecar_status` reports it.
+  - **Media Lab** — the FastAPI studio, staged from the
+    [media-lab-studio](https://github.com/kerpopule/media-lab-studio) repo
+    into `src-tauri/resources/media-lab/` by `scripts/stage-medialab.sh`
+    (gitignored; 163 files / ~80 MB — no `.git`, `docs/`, `__pycache__`,
+    template-library `.jpg` previews, local secrets, or Linux engine wheels).
+    It runs only after the user opts in (below). Its Python venv lives in the
+    app data dir; its data root stays `~/media-lab-simple` (or
+    `$MEDIA_LAB_HOME`, passed through).
+- Config lives in `app_data_dir` — macOS
+  `~/Library/Application Support/studio.vibex.desktop/`:
+  `medialab.json` `{enabled, dir, python, port}`, `workbench.json`
+  `{enabled, port, token, projectsRoot}` (mode 600), `desktop.json`
+  `{mediaLabAsked, mediaLabChoice}`.
+- **Secrets never sit in those files.** The frontend stores API keys and
+  tokens through the `secret_set` / `secret_get` / `secret_delete` commands,
+  which wrap the OS keychain (`keyring` crate — macOS Keychain, Windows
+  Credential Manager, Secret Service on Linux) under the service
+  `studio.vibex.desktop`. Keys must be in the `vibex.*` namespace
+  (`vibex.github.token`, `vibex.workbench.token`,
+  `vibex.private.installation-proof`, `vibex.provider.<id>`,
+  `vibex.refresh.<id>`, `vibex.private-proof.<id>`); anything else is refused.
+
+## First launch
+
+When there is no `medialab.json` and the question was never answered, the
+shell opens a small window: **"Make media on this computer?"**
+
+- **Yes, set it up** → the shell (Rust, no scripts) creates
+  `app_data_dir/medialab-venv` with `python3 -m venv` (falls back to
+  `uv venv`), installs `requirements.txt` from the staged source — or
+  `fastapi uvicorn pydantic python-multipart` when there is none — seeds
+  `~/media-lab-simple` (links `static/` to the bundle), writes
+  `medialab.json`, mints a `workbench.json` if Node is present and none
+  exists, starts both sidecars, and then swaps to the **Pair your phone** QR.
+  Progress shows in the window; failures name the fix (no Python 3, no
+  network…).
+- **Not now** → remembered in `desktop.json`; the app never nags again.
+
+Either choice can be revisited from the **Media Lab** menu:
+*Pair your phone…* (QR + **Copy link**), *Make media on this computer…*
+(re-opens the question / repairs the env), *Rotate Workbench token*
+(new token in `workbench.json`, sidecar restarted, fresh QR — old phones are
+unpaired).
+
+The pairing payload is unchanged:
+`vibex://pair?medialab=http://<lan-ip>:7863&workbench=http://<lan-ip>:8794&wbt=<token>`
+(legacy `?url=` when no Workbench is configured).
+
+### Tauri commands (frontend ↔ shell)
+
+| Command | Returns |
+|---|---|
+| `sidecar_status` | `{workbench:{running,port,reason}, medialab:{running,port,reason}}` |
+| `medialab_status` | `{enabled, running, port, phase, message, error, pairUrl}` — `phase` ∈ idle/venv/installing/starting/ready/error |
+| `medialab_enable` / `medialab_disable` / `medialab_not_now` / `show_pair_window` | setup on a background thread / stop + `enabled:false` / remember "not now" / swap the first-launch page for the QR window |
+| `workbench_rotate_token` | new token, sidecar restarted |
+| `secret_set(key,value)` / `secret_get(key)` / `secret_delete(key)` | OS keychain, `vibex.*` keys only |
+
+`app.withGlobalTauri` is on, so `window.__TAURI__.core.invoke(...)` works
+from the web build and from the shell's own pages.
 
 ## Build
 
 ```sh
 npm install
-npx tauri build        # .app + .dmg in src-tauri/target/release/bundle
-npx tauri dev          # against `npx expo start --web` in ../vibex-studio
+bash scripts/stage-medialab.sh   # copies ../media-lab-studio (or ../media-lab) into src-tauri/resources/media-lab
+npx tauri build                  # .app + .dmg in src-tauri/target/release/bundle
+npx tauri dev                    # against `npx expo start --web` in ../vibex-studio
 ```
+
+`stage-medialab.sh` looks for `app.py` in `$MEDIALAB_SRC`,
+`../media-lab-studio`, `../media-lab`, the same two one level up (git
+worktrees), then `~/Projects/media-lab-studio`; it writes `STAGED.txt` with
+the source commit. CI clones the repo and stages it before building. A build
+without the staged directory still works — the first-launch page then says
+this build doesn't include Media Lab.
+
+Checks: `cd src-tauri && cargo build && cargo test` (add `-- --ignored` for
+the live keychain round-trip) and `bash workbench/test.sh` (the Workbench
+contract, sandboxed config).
 
 Refresh the frontend after app changes:
 
@@ -54,14 +128,12 @@ rm -rf dist && cp -R ../vibex-studio/dist-web dist
 
 ## Roadmap
 
-1. **Media Lab sidecar** — bundle the Media Lab FastAPI server with its own
-   Python (PyInstaller or uv-managed env) as a Tauri sidecar on localhost;
-   an "Enable Media Lab" toggle starts it and shows the pairing QR for
-   phones. Local engines optional; cloud-only (fal.ai) works on any Mac.
+1. ~~Media Lab sidecar~~ — bundled, opt-in on first launch (above). Still
+   open: a self-contained Python (today it needs a system `python3`), and
+   the engine shelf for GPU machines.
 2. **Native file storage** — swap IndexedDB for Tauri fs behind the same
    storage interface, so projects live as real folders.
-3. **Pairing QR** — desktop shows `vibex://pair?...`; the phone camera does
-   the rest.
+3. ~~Pairing QR~~ — shipped (`vibex://pair?...`, Copy link).
 4. **Auto-update** — Tauri updater once releases are signed.
 
 ## License

@@ -120,30 +120,40 @@ export function gradientColors(theme: Theme): [string, string, string] {
 
 export type ThemeColor = keyof Theme;
 
-export const Fonts = Platform.select({
-  ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
-    serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
-    mono: 'ui-monospace',
-  },
-  default: {
-    sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
-    mono: 'monospace',
-  },
-  web: {
-    sans: 'var(--font-display)',
-    serif: 'var(--font-serif)',
-    rounded: 'var(--font-rounded)',
-    mono: 'var(--font-mono)',
-  },
-});
+/**
+ * Typefaces — the Media Lab pairing: Space Grotesk for display (titles,
+ * headings, tab labels) and Barlow for body copy. Both are OFL and bundled
+ * via @expo-google-fonts, loaded once in the root layout. Custom families on
+ * native select weight by FAMILY NAME, so never combine these with a
+ * `fontWeight` — pick the weighted face instead.
+ */
+export const Fonts = {
+  /** Space Grotesk 600 — the workhorse display face. */
+  display: 'SpaceGrotesk_600SemiBold',
+  displayBold: 'SpaceGrotesk_700Bold',
+  displayMedium: 'SpaceGrotesk_500Medium',
+  /** Barlow — body copy. */
+  body: 'Barlow_400Regular',
+  bodyMedium: 'Barlow_500Medium',
+  bodySemi: 'Barlow_600SemiBold',
+  bodyBold: 'Barlow_700Bold',
+  /** Legacy aliases (old call sites): rounded = display, sans = body. */
+  rounded: 'SpaceGrotesk_600SemiBold',
+  sans: 'Barlow_500Medium',
+  serif: Platform.select({ ios: 'ui-serif', default: 'serif' }) as string,
+  mono: Platform.select({ ios: 'ui-monospace', default: 'monospace' }) as string,
+} as const;
+
+/** Font map for expo-font's useFonts — every face the app references. */
+export const FONT_ASSETS = {
+  SpaceGrotesk_500Medium: require('@expo-google-fonts/space-grotesk/500Medium/SpaceGrotesk_500Medium.ttf'),
+  SpaceGrotesk_600SemiBold: require('@expo-google-fonts/space-grotesk/600SemiBold/SpaceGrotesk_600SemiBold.ttf'),
+  SpaceGrotesk_700Bold: require('@expo-google-fonts/space-grotesk/700Bold/SpaceGrotesk_700Bold.ttf'),
+  Barlow_400Regular: require('@expo-google-fonts/barlow/400Regular/Barlow_400Regular.ttf'),
+  Barlow_500Medium: require('@expo-google-fonts/barlow/500Medium/Barlow_500Medium.ttf'),
+  Barlow_600SemiBold: require('@expo-google-fonts/barlow/600SemiBold/Barlow_600SemiBold.ttf'),
+  Barlow_700Bold: require('@expo-google-fonts/barlow/700Bold/Barlow_700Bold.ttf'),
+};
 
 export const Spacing = {
   half: 2,

@@ -1,8 +1,7 @@
 /**
  * On-device Media Lab gallery storage (native).
  *
- * Layout (a sibling of the projects tree — same iCloud container when Drive
- * is on, see projects.mediaLabRoot):
+ * Layout (a local sibling of the projects tree; see projects.mediaLabRoot):
  *   media-lab/
  *     <id>.json          — stored metadata (kind, prompt, provider, file)
  *     <id>.<png|jpg|mp4> — the media itself

@@ -11,61 +11,20 @@
  */
 import { Directory, File, Paths } from 'expo-file-system';
 
-import type { ChatMessage, DesignReference, ProjectFile, ProjectMeta } from '@/lib/types';
-import { icloudDocumentsUrl } from '../../../modules/vibex-icloud';
+import type { ChatMessage, ProjectFile, ProjectMeta } from '@/lib/types';
 
 /**
- * Where projects live. With iCloud Drive on (Apple platforms), the whole
- * projects tree sits in the app's iCloud Documents container and syncs
- * between the user's devices with no account of ours and no server —
- * see docs/SYNC.md. Signed out of iCloud (or on Android) it's the local
- * document directory, exactly as before.
+ * First-release storage is deliberately local-only. Ordinary OS file sharing,
+ * import, export, and Android's user-picked folder sync remain separate paths.
  */
 const localRoot = () => new Directory(Paths.document, 'projects');
+const projectsRoot = localRoot;
 
-const cloudDocuments = icloudDocumentsUrl();
-
-const projectsRoot = () =>
-  cloudDocuments ? new Directory(cloudDocuments, 'projects') : localRoot();
-
-/** True when projects are syncing via the iCloud container. */
-export function cloudSyncActive(): boolean {
-  return cloudDocuments != null;
-}
-
-/**
- * Root of the on-device Media Lab gallery — a sibling of the projects tree,
- * so it lives in the same iCloud container (and syncs between the user's
- * Apple devices) whenever the projects do.
- */
+/** Root of the on-device Media Lab gallery. */
 export function mediaLabRoot(): Directory {
-  const dir = cloudDocuments
-    ? new Directory(cloudDocuments, 'media-lab')
-    : new Directory(Paths.document, 'media-lab');
+  const dir = new Directory(Paths.document, 'media-lab');
   if (!dir.exists) dir.create({ intermediates: true });
   return dir;
-}
-
-/**
- * One-time move of pre-sync local projects into the iCloud container (runs
- * on every hydrate; no-op when local storage is empty or iCloud is off).
- * Projects that exist on both sides keep the cloud copy.
- */
-export async function migrateLocalProjectsToCloud(): Promise<void> {
-  if (!cloudDocuments) return;
-  const local = localRoot();
-  if (!local.exists) return;
-  const cloud = projectsRoot();
-  if (!cloud.exists) cloud.create({ intermediates: true });
-  for (const entry of local.list()) {
-    if (!(entry instanceof Directory)) continue;
-    const target = new Directory(cloud, entry.name);
-    try {
-      if (!target.exists) entry.move(cloud);
-    } catch {
-      // Leave the local copy in place; the next hydrate retries.
-    }
-  }
 }
 
 function projectDir(id: string): Directory {
@@ -127,11 +86,7 @@ export async function writeProject(meta: ProjectMeta): Promise<void> {
   new File(dir, 'project.json').write(JSON.stringify(meta, null, 2));
 }
 
-export async function createProject(
-  name: string,
-  emoji: string,
-  designReference?: DesignReference
-): Promise<ProjectMeta> {
+export async function createProject(name: string, emoji: string): Promise<ProjectMeta> {
   const now = Date.now();
   const meta: ProjectMeta = {
     id: newId(),
@@ -140,7 +95,6 @@ export async function createProject(
     description: '',
     createdAt: now,
     updatedAt: now,
-    designReference,
   };
   await writeProject(meta);
   filesDir(meta.id).create({ intermediates: true });

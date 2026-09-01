@@ -13,13 +13,14 @@ import {
   normalizeDesignText,
   removeDesignReference,
   resolveTemplateSelectionDestination,
-} from '@/lib/design/references';
+  type DormantProjectMeta,
+} from '../dormant/refero/references';
 import {
   buildReferoCaptureScript,
   consumeReferoCaptureMessage,
   createPendingReferoCapture,
   type ReferoCaptureMessage,
-} from '@/lib/design/refero-capture';
+} from '../dormant/refero/refero-capture';
 import type { ChatMessage, ProjectMeta } from '@/lib/types';
 
 const VALID_STYLE_URL = 'https://styles.refero.design/style/90ce5883-bb24-4466-93f7-801cd617b0d1';
@@ -203,7 +204,7 @@ describe('DesignReference project state', () => {
     const attached = applyDesignReference(project, reference, 20);
     expect(attached.designReference).toEqual(reference);
     expect(attached.updatedAt).toBe(20);
-    expect(project.designReference).toBeUndefined();
+    expect('designReference' in project).toBe(false);
 
     const replacement = { ...reference, label: 'Warm Ledger' };
     const replaced = applyDesignReference(attached, replacement, 30);
@@ -252,7 +253,7 @@ describe('selection navigation state', () => {
 
   it('persists the selected design + assistant handoff, reloads Chat, then routes to that project', async () => {
     const calls: string[] = [];
-    let persistedProject: ProjectMeta = {
+    let persistedProject: DormantProjectMeta = {
       id: 'p1',
       name: 'Budget',
       description: '',

@@ -1,15 +1,11 @@
 /**
  * Turns the share links people actually paste — Dropbox, Google Drive,
- * iCloud Drive, or any plain URL — into something fetchable, so a `.vibex`
+ * or any plain URL — into something fetchable, so a `.vibex`
  * bundle stored on the user's own cloud can be opened straight from a link.
  * Pure module — no Expo imports — so it stays unit-testable.
  */
 
-export type NormalizedLink =
-  /** Fetch this URL directly; it should return the bundle bytes. */
-  | { kind: 'direct'; url: string }
-  /** An iCloud Drive share that must be resolved through CloudKit first. */
-  | { kind: 'icloud'; shortGuid: string };
+export type NormalizedLink = { kind: 'direct'; url: string };
 
 /** Recognizes and rewrites a pasted share link. Returns null for non-URLs. */
 export function normalizeShareLink(raw: string): NormalizedLink | null {
@@ -43,12 +39,6 @@ export function normalizeShareLink(raw: string): NormalizedLink | null {
     return { kind: 'direct', url: url.toString() };
   }
 
-  // iCloud Drive share links carry a short GUID that CloudKit resolves.
-  if (host === 'www.icloud.com' || host === 'icloud.com') {
-    const guid = url.pathname.match(/\/iclouddrive\/([\w-]+)/)?.[1] ?? url.hash.match(/iclouddrive\/([\w-]+)/)?.[1];
-    if (guid) return { kind: 'icloud', shortGuid: guid };
-    return null;
-  }
 
   return { kind: 'direct', url: url.toString() };
 }

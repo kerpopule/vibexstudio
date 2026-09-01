@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseReferoStyles } from '@/lib/design/refero-catalog';
+import { parseReferoStyles } from '../dormant/refero/refero-catalog';
 
 const CARD = (id: string, name: string) => `
 <a class="block rounded-4xl" href="/style/${id}"><div><div><div class="relative h-full w-full overflow-hidden bg-card">

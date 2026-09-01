@@ -1,6 +1,6 @@
 /**
  * Media Lab setup — the four doors. Each card is worded by what the user HAS,
- * never by how it works. "Just my phone" is the pre-selected zero-setup
+ * never by how it works. "Just this device" is the pre-selected zero-setup
  * default; the other doors are upgrades, and none of them is one-shot — every
  * door can be revisited later.
  */
@@ -31,7 +31,7 @@ export default function MediaLabSetupScreen() {
         {/* Door 1 — the pre-selected zero-setup default. */}
         <DoorCard
           icon="phone-portrait"
-          title="Just my phone"
+          title="Just this device"
           body="Generate right here with the AI you already connected. Nothing to install."
           badge="Ready now"
           selected
@@ -49,7 +49,7 @@ export default function MediaLabSetupScreen() {
           <View style={[styles.steps, { backgroundColor: theme.backgroundElement }]}>
             {[
               'Open VibeX Studio on your computer',
-              'Choose “Pair your phone”',
+              'Choose “Pair your device”',
               'Point your camera at the QR code',
             ].map((step, i) => (
               <View key={step} style={styles.stepRow}>
@@ -64,7 +64,7 @@ export default function MediaLabSetupScreen() {
               </View>
             ))}
             <ThemedText type="small" themeColor="textSecondary">
-              Your phone’s regular camera works — the code opens VibeX and pairs automatically.
+              Your device’s regular camera works — the code opens VibeX and pairs automatically.
             </ThemedText>
           </View>
         ) : null}

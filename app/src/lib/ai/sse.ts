@@ -15,6 +15,8 @@ export interface SseRequest {
   /** Called once when response headers become readable. */
   onHeaders?: (get: (name: string) => string | null) => void;
   signal?: AbortSignal;
+  /** Absolute request ceiling. Omit only for callers that provide another bound. */
+  timeoutMs?: number;
 }
 
 export function ssePost(req: SseRequest): Promise<void> {
@@ -23,12 +25,33 @@ export function ssePost(req: SseRequest): Promise<void> {
     let cursor = 0;
     let buffer = '';
     let sentHeaders = false;
+    let settled = false;
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      fn();
+    };
+    const succeed = () => finish(resolve);
+    const fail = (error: Error) => finish(() => reject(error));
 
     const emitHeaders = () => {
       if (!sentHeaders && xhr.readyState >= 2) {
         sentHeaders = true;
         req.onHeaders?.((name) => xhr.getResponseHeader(name));
       }
+    };
+
+    const dispatch = (rawEvent: string) => {
+      const data = rawEvent
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trimStart())
+        .join('\n');
+      if (data && data !== '[DONE]') req.onEvent(data);
     };
 
     const pump = (final: boolean) => {
@@ -45,15 +68,6 @@ export function ssePost(req: SseRequest): Promise<void> {
       if (final && buffer.trim()) dispatch(buffer);
     };
 
-    const dispatch = (rawEvent: string) => {
-      const data = rawEvent
-        .split(/\r?\n/)
-        .filter((line) => line.startsWith('data:'))
-        .map((line) => line.slice(5).trimStart())
-        .join('\n');
-      if (data && data !== '[DONE]') req.onEvent(data);
-    };
-
     xhr.open('POST', req.url);
     for (const [key, value] of Object.entries(req.headers)) xhr.setRequestHeader(key, value);
     xhr.setRequestHeader('Accept', 'text/event-stream');
@@ -64,17 +78,32 @@ export function ssePost(req: SseRequest): Promise<void> {
       emitHeaders();
       if (xhr.status >= 200 && xhr.status < 300) {
         pump(true);
-        resolve();
+        succeed();
       } else {
-        reject(new Error(extractApiError(xhr.responseText, xhr.status)));
+        fail(new Error(extractApiError(xhr.responseText, xhr.status)));
       }
     };
-    xhr.onerror = () => reject(new Error('Network error while streaming from the model.'));
-    xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'));
+    xhr.onerror = () => fail(new Error('Network error while streaming from the model.'));
+    xhr.onabort = () => {
+      if (timedOut) {
+        fail(new Error('The model exceeded the build time limit. No partial project changes were applied.'));
+      } else {
+        fail(new DOMException('Aborted', 'AbortError'));
+      }
+    };
 
     if (req.signal) {
-      if (req.signal.aborted) return reject(new DOMException('Aborted', 'AbortError'));
+      if (req.signal.aborted) return fail(new DOMException('Aborted', 'AbortError'));
       req.signal.addEventListener('abort', () => xhr.abort(), { once: true });
+    }
+    if (req.timeoutMs != null) {
+      if (!Number.isFinite(req.timeoutMs) || req.timeoutMs <= 0) {
+        return fail(new Error('Invalid model stream timeout.'));
+      }
+      timer = setTimeout(() => {
+        timedOut = true;
+        xhr.abort();
+      }, req.timeoutMs);
     }
 
     xhr.send(JSON.stringify(req.body));

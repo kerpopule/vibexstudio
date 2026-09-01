@@ -1,5 +1,5 @@
 import { Fragment } from 'react';
-import { Linking, StyleSheet, View, type TextStyle } from 'react-native';
+import { Linking, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { Fonts, Radii, Spacing } from '@/constants/theme';
@@ -123,8 +123,7 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   heading: {
-    fontFamily: Fonts.rounded,
-    fontWeight: 700 as TextStyle['fontWeight'],
+    fontFamily: Fonts.displayBold,
     lineHeight: 26,
   },
   codeBlock: {
@@ -139,7 +138,7 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   bullet: {
-    fontWeight: 700 as TextStyle['fontWeight'],
+    fontFamily: Fonts.bodyBold,
     lineHeight: 24,
   },
   listText: {
@@ -150,7 +149,7 @@ const styles = StyleSheet.create({
     paddingLeft: Spacing.two + 2,
   },
   bold: {
-    fontWeight: 700 as TextStyle['fontWeight'],
+    fontFamily: Fonts.bodyBold,
   },
   italic: {
     fontStyle: 'italic',

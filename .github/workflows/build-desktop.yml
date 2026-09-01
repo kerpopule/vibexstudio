@@ -3,7 +3,7 @@ name: build-desktop
 on:
   push:
     branches: [main]
-    paths: ['desktop/**', '.github/workflows/build-desktop.yml']
+    paths: ['desktop/**', 'media-lab/**', '.github/workflows/build-desktop.yml']
   workflow_dispatch:
 
 jobs:
@@ -36,6 +36,11 @@ jobs:
       - name: Check frontend present
         shell: bash
         run: test -f dist/index.html
+      # Media Lab ships inside the bundle: stage ../media-lab (this repo)
+      # into src-tauri/resources/media-lab (see desktop/scripts/stage-medialab.sh).
+      - name: Stage Media Lab
+        shell: bash
+        run: bash scripts/stage-medialab.sh
       - run: npx tauri build
       - uses: actions/upload-artifact@v4
         with:

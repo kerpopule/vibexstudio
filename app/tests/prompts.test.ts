@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildSystemPrompt } from '@/lib/ai/prompts';
-import { buildDesignReferenceFromCapture } from '@/lib/design/references';
 
 describe('buildSystemPrompt', () => {
   it('handles a brand new project', () => {
@@ -42,7 +41,7 @@ describe('buildSystemPrompt', () => {
   });
 
   it('advertises video + real characters when a Media Lab is paired', () => {
-    const prompt = buildSystemPrompt('Timer', [], undefined, {
+    const prompt = buildSystemPrompt('Timer', [], {
       characters: [{ id: 'steve1', name: 'Steve' }],
     });
     expect(prompt).toContain('kind=video is available');
@@ -52,21 +51,10 @@ describe('buildSystemPrompt', () => {
   });
 
   it('paired with no characters still offers video, without a cast list', () => {
-    const prompt = buildSystemPrompt('Timer', [], undefined, { characters: [] });
+    const prompt = buildSystemPrompt('Timer', [], { characters: [] });
     expect(prompt).toContain('kind=video is available');
     expect(prompt).not.toContain('You can feature these REAL people');
   });
 
-  it('injects the persisted design reference as concrete visual direction', () => {
-    const reference = buildDesignReferenceFromCapture(
-      'https://styles.refero.design/style/90ce5883-bb24-4466-93f7-801cd617b0d1',
-      { title: 'Signal Dashboard', designText: 'Palette: #0B1020 #60A5FA\nSections: status header, metric grid' }
-    );
-    const prompt = buildSystemPrompt('Timer', [], reference);
 
-    expect(prompt).toContain('## Selected design reference');
-    expect(prompt).toContain(reference.label);
-    expect(prompt).toContain('Palette: #0B1020 #60A5FA');
-    expect(prompt).toContain('Sections: status header, metric grid');
-  });
 });

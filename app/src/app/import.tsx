@@ -16,7 +16,7 @@ import { useApp } from '@/lib/store';
  * Receiving side of every share path:
  *  - vibex://import?repo=owner/name&ref=main  (GitHub share link)
  *  - /import?file=<uri>                        (tapped/picked .vibex file)
- *  - /import?url=<link>                        (pasted Dropbox/Drive/iCloud link)
+ *  - /import?url=<link>                        (pasted Dropbox/Drive/direct link)
  * Creates a local project and opens it.
  */
 export default function ImportScreen() {

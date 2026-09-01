@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -11,18 +11,19 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { connectOpenRouter } from '@/lib/ai/openrouterOauth';
 import { PROVIDER_ORDER, PROVIDERS } from '@/lib/ai/registry';
-import { SUBSCRIPTION_PROVIDERS, type SubscriptionProviderId } from '@/lib/ai/subscriptionOauth';
+import { SUBSCRIPTION_ORDER, SUBSCRIPTION_PROVIDERS } from '@/lib/ai/subscriptionOauth';
 import { useApp } from '@/lib/store';
 import type { ProviderKind } from '@/lib/types';
-
-const SUBSCRIPTION_ORDER: SubscriptionProviderId[] = ['minimax-oauth', 'kimi-oauth', 'xai-oauth'];
 
 export default function ConnectProviderScreen() {
   const theme = useTheme();
   const addProvider = useApp((s) => s.addProvider);
-  const [kind, setKind] = useState<ProviderKind | null>(null);
+  // `?kind=` preselects a provider (onboarding / Setup tiles land here directly).
+  const params = useLocalSearchParams<{ kind?: string }>();
+  const preselect = params.kind && params.kind in PROVIDERS ? (params.kind as ProviderKind) : null;
+  const [kind, setKind] = useState<ProviderKind | null>(preselect);
   const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('');
+  const [model, setModel] = useState(preselect ? PROVIDERS[preselect].defaultModel : '');
   const [baseUrl, setBaseUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +67,7 @@ export default function ConnectProviderScreen() {
       <ThemedView style={styles.container}>
         <ScrollView contentContainerStyle={styles.content}>
           <ThemedText themeColor="textSecondary">
-            Bring your own AI. Everything is stored in this phone’s secure keychain and sent only to the provider
+            Bring your own AI. Everything is stored in this device’s secure keychain and sent only to the provider
             you choose — no VibeXStudio account, no server.
           </ThemedText>
 

@@ -1,5 +1,5 @@
-import type { ReferoRenderedCapture } from '@/lib/design/references';
-import { isEligibleReferoStyleUrl } from '@/lib/design/references';
+import type { ReferoRenderedCapture } from './references';
+import { isEligibleReferoStyleUrl } from './references';
 
 export const REFERO_CAPTURE_PROTOCOL_VERSION = 1 as const;
 export const MAX_REFERO_CAPTURE_MESSAGE_CHARS = 20_000;

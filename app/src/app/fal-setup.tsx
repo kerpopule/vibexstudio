@@ -158,7 +158,7 @@ export default function FalSetupScreen() {
             </ThemedText>
           ) : (
             <ThemedText type="small" themeColor="textSecondary">
-              It stays in this phone’s secure keychain and goes only to fal.ai.
+              It stays in this device’s secure keychain and goes only to fal.ai.
             </ThemedText>
           )}
         </View>

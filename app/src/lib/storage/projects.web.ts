@@ -72,12 +72,6 @@ export function filesRootUri(id: string): string {
   return `vibex-idb://${id}/files`;
 }
 
-/** No iCloud container on web/desktop; sync is a desktop-roadmap item. */
-export function cloudSyncActive(): boolean {
-  return false;
-}
-
-export async function migrateLocalProjectsToCloud(): Promise<void> {}
 
 export function newId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;

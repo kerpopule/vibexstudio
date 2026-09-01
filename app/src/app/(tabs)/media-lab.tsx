@@ -35,12 +35,14 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Button } from '@/components/ui/button';
 import { Glass } from '@/components/ui/glass';
+import { TAB_PILL_CLEARANCE } from '@/components/ui/tab-pill';
 import { ScalePress } from '@/components/ui/scale-press';
 import { Radii, Shadows, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { falModelName, recommendedFalModel } from '@/lib/ai/fal-catalog';
 import { canGenerateImages, canGenerateVideo } from '@/lib/ai/media';
 import { providerGlyph } from '@/lib/ai/models';
+import { cutUrl, sendToCut } from '@/lib/medialab-cut';
 import type { MediaLabLink } from '@/lib/storage/settings';
 import { useMediaStudio, type StudioJob } from '@/lib/media-studio';
 import { useApp } from '@/lib/store';
@@ -55,7 +57,13 @@ export default function MediaLabScreen() {
   const insets = useSafeAreaInsets();
   const mediaLab = useApp((s) => s.mediaLab);
   const [view, setView] = useState<'server' | 'device'>('server');
+  // A page the on-device studio wants the server view to open (Cut, after an upload).
+  const [serverPage, setServerPage] = useState<string | null>(null);
   const serverActive = mediaLab != null && view === 'server';
+  const openServerPage = (url: string) => {
+    setServerPage(url);
+    setView('server');
+  };
 
   return (
     <ThemedView style={styles.container}>
@@ -63,9 +71,9 @@ export default function MediaLabScreen() {
           the studio pads its scroll content, the server view pushes the
           whole WebView down so the site's own header stays tappable. */}
       {serverActive ? (
-        <ServerView link={mediaLab} topInset={insets.top + 52} />
+        <ServerView link={mediaLab} topInset={insets.top + 52} page={serverPage} onNavigate={setServerPage} />
       ) : (
-        <StudioView topInset={mediaLab ? 52 : 0} />
+        <StudioView topInset={mediaLab ? 52 : 0} onOpenServerPage={mediaLab ? openServerPage : undefined} />
       )}
       {mediaLab ? (
         <Glass radius={Radii.xl} style={[styles.switchPill, { top: insets.top + Spacing.one }]}>
@@ -112,19 +120,35 @@ async function probe(url: string): Promise<boolean> {
   }
 }
 
-function ServerView({ link, topInset }: { link: MediaLabLink; topInset: number }) {
+function ServerView({
+  link,
+  topInset,
+  page,
+  onNavigate,
+}: {
+  link: MediaLabLink;
+  topInset: number;
+  /** A specific page to show (Cut after an upload, or the Studio⇄Cut chip). */
+  page: string | null;
+  onNavigate: (url: string | null) => void;
+}) {
   const theme = useTheme();
   const focusJob = useApp((s) => s.mediaLabFocusJob);
   const clearFocusJob = useApp((s) => s.setMediaLabFocusJob);
   // A tapped "finished" notification lands on that item: the server opens
   // ?job=<id> straight to the screening. Consume the focus once.
-  const sourceUri = focusJob
-    ? `${link.url.replace(/\/+$/, '')}/?job=${encodeURIComponent(focusJob)}`
-    : link.url;
+  const [focusUri] = useState(() =>
+    focusJob ? `${link.url.replace(/\/+$/, '')}/?job=${encodeURIComponent(focusJob)}` : null
+  );
   useEffect(() => {
     if (focusJob) clearFocusJob(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Page precedence: an explicit page (Cut after an upload, or the chip)
+  // beats the notification focus, which beats the studio home.
+  const sourceUri = page ?? focusUri ?? link.url;
+  const inCut = /\/cut(\?|$)/.test(sourceUri);
+  const setUri = onNavigate;
   const [reach, setReach] = useState<Reach>('checking');
   const checkedFor = useRef<string | null>(null);
 
@@ -196,6 +220,16 @@ function ServerView({ link, topInset }: { link: MediaLabLink; topInset: number }
       <Pressable onPress={check} style={styles.reload} hitSlop={10}>
         <Ionicons name="refresh" size={16} color="#FFFFFF" />
       </Pressable>
+      {/* Studio ⇄ Cut: the editor is one tap from anywhere in the server view. */}
+      <Glass radius={Radii.pill} style={styles.cutChip}>
+        <Pressable
+          onPress={() => setUri(inCut ? null : cutUrl(link))}
+          hitSlop={8}
+          style={styles.cutChipInner}>
+          <Ionicons name={inCut ? 'film-outline' : 'cut-outline'} size={14} color={theme.tint} />
+          <ThemedText type="smallBold" style={{ color: theme.tint }}>{inCut ? 'Studio' : 'Cut'}</ThemedText>
+        </Pressable>
+      </Glass>
     </View>
   );
 }
@@ -206,12 +240,14 @@ function ServerView({ link, topInset }: { link: MediaLabLink; topInset: number }
 
 type StudioRow = { type: 'job'; job: StudioJob } | { type: 'item'; item: GalleryItem };
 
-function StudioView({ topInset }: { topInset: number }) {
+function StudioView({ topInset, onOpenServerPage }: { topInset: number; onOpenServerPage?: (url: string) => void }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const providers = useApp((s) => s.providers);
+  const mediaLab = useApp((s) => s.mediaLab);
   const { items, jobs, hydrated, hydrate, generate, retryJob, dismissJob, removeItem } =
     useMediaStudio();
+  const [sending, setSending] = useState<string | null>(null);
 
   const [mode, setMode] = useState<'image' | 'video'>('image');
   const [prompt, setPrompt] = useState('');
@@ -249,6 +285,35 @@ function StudioView({ topInset }: { topInset: number }) {
     } catch {
       // User dismissed the sheet, or sharing is unsupported here (web).
     }
+  };
+
+  const openInCut = async (item: GalleryItem) => {
+    if (!mediaLab || !onOpenServerPage) return;
+    setSending(item.id);
+    try {
+      onOpenServerPage(await sendToCut(mediaLab, item));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Could not send this to Cut.';
+      if (Platform.OS === 'web') globalThis.alert?.(message);
+      else Alert.alert('Couldn’t open in Cut', message);
+    } finally {
+      setSending(null);
+    }
+  };
+
+  /** Tap = the item's menu: share, edit in Cut (when a Media Lab is paired), delete. */
+  const itemMenu = (item: GalleryItem) => {
+    if (Platform.OS === 'web') {
+      shareItem(item);
+      return;
+    }
+    const buttons: { text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }[] = [
+      { text: 'Share', onPress: () => shareItem(item) },
+    ];
+    if (mediaLab && onOpenServerPage) buttons.push({ text: '✂️ Edit in Cut', onPress: () => void openInCut(item) });
+    buttons.push({ text: 'Delete', style: 'destructive', onPress: () => confirmDelete(item) });
+    buttons.push({ text: 'Cancel', style: 'cancel' });
+    Alert.alert(item.kind === 'video' ? 'This video' : 'This image', item.prompt.slice(0, 120), buttons);
   };
 
   const confirmDelete = (item: GalleryItem) => {
@@ -348,7 +413,7 @@ function StudioView({ topInset }: { topInset: number }) {
             {mode === 'image' ? 'Nothing can make images yet' : 'Nothing can make video yet'}
           </ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            Pick how you want to create — your phone alone works great, and there are upgrades when
+            Pick how you want to create — this device alone works great, and there are upgrades when
             you want them.
           </ThemedText>
           <Button
@@ -378,7 +443,7 @@ function StudioView({ topInset }: { topInset: number }) {
       columnWrapperStyle={styles.galleryRow}
       contentContainerStyle={[
         styles.gallery,
-        { paddingTop: insets.top + topInset + Spacing.three, paddingBottom: Spacing.five },
+        { paddingTop: insets.top + topInset + Spacing.three, paddingBottom: TAB_PILL_CLEARANCE },
       ]}
       ListHeaderComponent={header}
       renderItem={({ item: row }) =>
@@ -387,7 +452,8 @@ function StudioView({ topInset }: { topInset: number }) {
         ) : (
           <GalleryCell
             item={row.item}
-            onPress={() => shareItem(row.item)}
+            busy={sending === row.item.id}
+            onPress={() => itemMenu(row.item)}
             onLongPress={() => confirmDelete(row.item)}
           />
         )
@@ -453,10 +519,12 @@ function engineLabel(p: ProviderConnection, mode: 'image' | 'video'): string {
 
 function GalleryCell({
   item,
+  busy,
   onPress,
   onLongPress,
 }: {
   item: GalleryItem;
+  busy?: boolean;
   onPress: () => void;
   onLongPress: () => void;
 }) {
@@ -474,9 +542,15 @@ function GalleryCell({
           <ThemedText type="small" themeColor="textSecondary" numberOfLines={2} style={styles.center}>
             {item.prompt}
           </ThemedText>
-          <ThemedText type="smallBold" themeColor="tint">Tap to share / play</ThemedText>
+          <ThemedText type="smallBold" themeColor="tint">Tap for options</ThemedText>
         </View>
       )}
+      {busy ? (
+        <View style={styles.cellBusy}>
+          <ActivityIndicator color="#FFFFFF" />
+          <ThemedText type="smallBold" style={{ color: '#FFFFFF' }}>Sending to Cut…</ThemedText>
+        </View>
+      ) : null}
       <View style={styles.cellMeta}>
         <ThemedText type="small" numberOfLines={1}>{item.prompt}</ThemedText>
         <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
@@ -540,6 +614,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.32)',
+  },
+  cutChip: {
+    position: 'absolute',
+    right: Spacing.three,
+    bottom: TAB_PILL_CLEARANCE + 6,
+  },
+  cutChipInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  cellBusy: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
   },
   switchPill: {
     position: 'absolute',

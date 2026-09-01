@@ -10,3 +10,7 @@ __pycache__/
 *.py[cod]
 __pycache__/
 *.pyc
+
+# Local virtualenv created by ./install.sh
+.venv/
+.worktrees/

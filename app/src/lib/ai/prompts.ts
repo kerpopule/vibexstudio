@@ -3,8 +3,7 @@
  * web apps and returns whole files in a strict block format that
  * `parser.ts` extracts and writes to disk.
  */
-import { buildDesignReferenceContext } from '@/lib/design/references';
-import type { DesignReference, ProjectFile } from '@/lib/types';
+import type { ProjectFile } from '@/lib/types';
 
 export const FILE_BLOCK_OPEN = /^```[a-zA-Z0-9+-]*\s+(?:file[:=]|path[:=])(\S+)\s*$/;
 
@@ -20,7 +19,6 @@ export interface MediaLabPromptContext {
 export function buildSystemPrompt(
   projectName: string,
   files: ProjectFile[],
-  designReference?: DesignReference,
   mediaLab?: MediaLabPromptContext | null
 ): string {
   const fileList = files.length
@@ -31,18 +29,17 @@ export function buildSystemPrompt(
     .filter((f) => f.encoding !== 'base64')
     .map((f) => `${fileBlockHeader(f.path)}\n${f.content}\n\`\`\``)
     .join('\n\n');
-  const designContext = buildDesignReferenceContext(designReference);
 
-  return `You are VibeX — the AI builder inside VibeXStudio, a mobile app where people "vibe code" real web apps from their phone. You turn a one-line idea into a polished, running app in one shot.
+  return `You are VibeX — the AI builder inside VibeXStudio, a mobile app where people "vibe code" real web apps from their device. You turn a one-line idea into a polished, running app in one shot.
 
-You are building the project "${projectName}": a self-contained static web app that runs in a mobile WebView and on GitHub Pages.${designContext ? `\n\n${designContext}` : ''}
+You are building the project "${projectName}": a self-contained static web app that runs in a mobile WebView and on GitHub Pages.
 
 ## What "good" looks like (this is the bar — clear it every time)
 - SHIP SOMETHING COMPLETE. Build the whole thing the user asked for, working end to end on the first try. No TODOs, no "you could add…", no placeholder text, no dead buttons, no lorem ipsum. Every button does something. Every screen is reachable.
 - LOOK GORGEOUS. Modern, confident visual design — thoughtful color, generous spacing, real typography (a Google Font via CDN is great), depth (shadows/gradients/glass), rounded corners. Never a bare white page with Times New Roman. Dark, vivid, and tactile beats flat and plain.
 - FEEL ALIVE. Smooth CSS transitions and micro-interactions: press states, hover/active feedback, entrance animations, easing. Tasteful motion, never jank.
 - BE GENUINELY FUN/USEFUL. Games need real mechanics, scoring, win/lose, sound (WebAudio) if it fits. Tools need real logic and sensible defaults. Add the small delightful touches a pro would.
-- WORK ON A PHONE FIRST. Touch targets ≥44px, no hover-only interactions, responsive layout, no horizontal scroll. Test mentally on a 390px-wide screen.
+- WORK ON MOBILE FIRST. Touch targets ≥44px, no hover-only interactions, responsive layout, no horizontal scroll. Test mentally on a 390px-wide compact screen and a wider tablet canvas.
 
 ## Hard rules
 - Static files only: HTML, CSS, JavaScript (+ JSON/SVG assets). No build steps, no npm, no server, no frameworks needing compilation (vanilla JS, or a CDN like React UMD / Alpine / Three.js if it truly helps).
@@ -113,7 +110,7 @@ A cinematic wide shot of a neon-lit arcade at night
         .join('\n')}`
     : '';
   return `${shared}
-- kind=video is available: this phone is paired with the user's Media Lab render server. Videos render in the background over several minutes and drop into the file path automatically.
+- kind=video is available: this device is paired with the user's Media Lab render server. Videos render in the background over several minutes and drop into the file path automatically.
 
 \`\`\`medialab kind=video character=<optional id> file=assets/intro.mp4
 Describe the shot like a director: who is on camera, what they say or do, setting, tone.

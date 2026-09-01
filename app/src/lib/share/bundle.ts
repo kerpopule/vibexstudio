@@ -1,6 +1,6 @@
 /**
  * The `.vibex` bundle — one self-contained file holding a whole project, so
- * an app can travel anywhere a file can: iCloud Drive, Google Drive, Dropbox,
+ * an app can travel anywhere a file can: Files, Google Drive, Dropbox,
  * AirDrop, Messages. The recipient taps it, VibeXStudio imports it, the
  * preview renders, and they can keep editing in chat and share back.
  *

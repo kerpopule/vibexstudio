@@ -44,26 +44,74 @@
           }
         ],
         "ITSAppUsesNonExemptEncryption": false,
-        "NSLocalNetworkUsageDescription": "VibeXStudio lets an agent you approve connect to projects on this phone over your local Wi-Fi.",
-        "NSSpeechRecognitionUsageDescription": "VibeXStudio uses on-device speech recognition to turn your voice into prompts.",
+        "NSLocalNetworkUsageDescription": "VibeXStudio lets an agent you approve connect to projects on this device over your local Wi-Fi.",
+        "NSSpeechRecognitionUsageDescription": "VibeXStudio uses speech recognition to turn your voice into prompts.",
         "NSMicrophoneUsageDescription": "VibeXStudio uses the microphone so you can dictate prompts.",
+        "UIApplicationSupportsIndirectInputEvents": true,
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
           "NSAllowsLocalNetworking": true
-        }
+        },
+        "NSCameraUsageDescription": "VibeXStudio uses the camera only to read the pairing QR code shown by your computer or Spark."
       },
-      "buildNumber": "25",
-      "usesIcloudStorage": true,
-      "entitlements": {
-        "com.apple.developer.icloud-services": [
-          "CloudDocuments"
+      "buildNumber": "26",
+      "privacyManifests": {
+        "NSPrivacyAccessedAPITypes": [
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryFileTimestamp",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "C617.1",
+              "0A2A.1",
+              "3B52.1"
+            ]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "CA92.1"
+            ]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategorySystemBootTime",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "35F9.1"
+            ]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryDiskSpace",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "E174.1",
+              "85F4.1"
+            ]
+          }
         ],
-        "com.apple.developer.icloud-container-identifiers": [
-          "iCloud.studio.vibex.app"
+        "NSPrivacyCollectedDataTypes": [
+          {
+            "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeDeviceID",
+            "NSPrivacyCollectedDataTypeLinked": true,
+            "NSPrivacyCollectedDataTypeTracking": false,
+            "NSPrivacyCollectedDataTypePurposes": [
+              "NSPrivacyCollectedDataTypePurposeAppFunctionality"
+            ]
+          },
+          {
+            "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeProductInteraction",
+            "NSPrivacyCollectedDataTypeLinked": true,
+            "NSPrivacyCollectedDataTypeTracking": false,
+            "NSPrivacyCollectedDataTypePurposes": [
+              "NSPrivacyCollectedDataTypePurposeAppFunctionality"
+            ]
+          },
+          {
+            "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeOtherUserContent",
+            "NSPrivacyCollectedDataTypeLinked": true,
+            "NSPrivacyCollectedDataTypeTracking": false,
+            "NSPrivacyCollectedDataTypePurposes": [
+              "NSPrivacyCollectedDataTypePurposeAppFunctionality"
+            ]
+          }
         ],
-        "com.apple.developer.ubiquity-container-identifiers": [
-          "iCloud.studio.vibex.app"
-        ]
+        "NSPrivacyTracking": false
       }
     },
     "android": {
@@ -119,7 +167,12 @@
           "imageWidth": 140
         }
       ],
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ],
       "expo-sharing",
       [
         "expo-image-picker",
@@ -132,17 +185,18 @@
         "expo-speech-recognition",
         {
           "microphonePermission": "VibeXStudio uses the microphone so you can dictate prompts.",
-          "speechRecognitionPermission": "VibeXStudio uses on-device speech recognition to turn your voice into prompts."
-        }
-      ],
-      [
-        "expo-notifications",
-        {
-          "color": "#5EC2FF"
+          "speechRecognitionPermission": "VibeXStudio uses speech recognition to turn your voice into prompts."
         }
       ],
       "expo-background-task",
-      "expo-video"
+      "expo-video",
+      "./plugins/with-local-notifications-only",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "VibeXStudio uses the camera only to read the pairing QR code shown by your computer or Spark."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

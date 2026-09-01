@@ -21,7 +21,8 @@
     ],
     "security": {
       "csp": null
-    }
+    },
+    "withGlobalTauri": true
   },
   "bundle": {
     "active": true,
@@ -38,6 +39,10 @@
     },
     "macOS": {
       "hardenedRuntime": true
+    },
+    "resources": {
+      "../workbench/server.mjs": "workbench/server.mjs",
+      "resources/media-lab": "media-lab"
     }
   }
 }

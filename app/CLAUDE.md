@@ -42,9 +42,25 @@ optionally publish to their own GitHub + Pages.
   components.
 - Brand: Co-Agent NOIR — violet→cyan gradient over warm near-black (see
   `src/constants/theme.ts`; use `gradientColors(theme)` for the 3-stop array,
-  and `onGradient` for text/icons on it). Icons/splash are drawn
-  programmatically by `scripts/generate-assets.js` (always overwrites — it is
-  the artwork's source of truth; keep its color constants in sync with theme).
+  and `onGradient` for text/icons on it). Type is Media Lab's pairing —
+  Space Grotesk (display) + Barlow (body), bundled via `@expo-google-fonts`
+  and loaded in the root layout (`FONT_ASSETS`). Custom families select
+  weight BY FAMILY NAME: use `Fonts.displayBold` / `Fonts.bodyBold`, never
+  `fontWeight` next to a custom `fontFamily`.
+- Navigation is the floating glass pill (`src/components/ui/tab-pill.tsx`:
+  Studio · Media Lab · Setup). Scrolling screens pad their bottom by
+  `TAB_PILL_CLEARANCE`.
+- First run is `src/app/onboarding.tsx` — a four-step SETUP (your AI /
+  Media Lab / your computer / done), each step skippable and mirrored by
+  the Setup tab's checklist (`src/lib/setup.ts` is the single source of
+  "what's connected"). The marketing slides are `studio-tour.tsx`.
+- Reanimated `entering`/`exiting` must go through `enter()` from
+  `src/lib/motion.ts` — the static web export otherwise leaves remounted
+  content `visibility:hidden`. Zustand selectors return primitives (an
+  object-returning selector re-renders forever on web).
+- Icons/splash are drawn programmatically by `scripts/generate-assets.js`
+  (always overwrites — it is the artwork's source of truth; keep its color
+  constants in sync with theme).
 - Glass surfaces go through `src/components/ui/glass.tsx` — real iOS liquid
   glass (`expo-glass-effect`) with `expo-blur` then a translucent fallback.
   Use it for cards/composer/sheets instead of a flat `backgroundElement` fill.
@@ -52,7 +68,12 @@ optionally publish to their own GitHub + Pages.
   the builder witty, hype, all-ages-clean. Keep the hard rules + output format
   intact when editing it (the parser depends on the fenced-block contract).
 - "Bring your subscription" OAuth lives in `src/lib/ai/subscriptionOauth.ts`
-  (MiniMax + Kimi device-code flows, real public client ids from their CLIs).
+  (ChatGPT/Codex PKCE with an on-device loopback catcher on port 1455 —
+  `src/lib/ai/loopback-callback.native.ts`, paste fallback everywhere;
+  MiniMax + Kimi device-code flows; xAI paste-back; real public client ids
+  from their CLIs). ChatGPT inference uses the `codex` wire protocol in
+  `chat.ts` (Responses API on chatgpt.com/backend-api/codex, with the
+  `chatgpt-account-id` header read from the token).
   Tokens: access in keychain via secrets.ts, refresh via
   setProviderRefreshToken; `store.refreshSubscriptionIfNeeded` tops them up
   before a turn. Routing/headers resolve in `chat.ts` from the subscription
@@ -66,6 +87,14 @@ optionally publish to their own GitHub + Pages.
   `vibex.json` (project meta), and `README.md` alongside the app files.
 - Share links: Pages URL + `/s/` → `vibex://import?repo=owner/name&ref=br`
   handled by `src/app/import.tsx` via `src/lib/github/importRepo.ts`.
+- Pairing: `vibex://pair?medialab=…&workbench=…&wbt=…` lands on
+  `src/app/pair.tsx`; the in-app door is `src/app/pair-scan.tsx` (camera QR
+  or typed link/address → `pairParamsFromInput` in `src/lib/media-pairing.ts`).
+- Cut (Media Lab's editor): `src/lib/medialab-cut.ts` uploads an on-device
+  item to the paired server (`/api/upload`, cookies shared with the
+  WebView) and opens `/cut?project=<id>` in the Media Lab tab.
+- Secrets on web/desktop go through `src/lib/storage/secrets.web.ts`: the
+  Tauri shell's keyring commands when present, else localStorage.
 
 ## iOS builds & testing — use FlowDeck (macOS only)
 
@@ -91,6 +120,13 @@ agents. Docs: https://flowdeck.studio/docs/cli/introduction
 
 This shell may be a Linux sandbox; check `uname` before reaching for
 FlowDeck/Xcode and fall back to typecheck/lint/vitest when not on macOS.
+
+Native-module hygiene on this Mac: after adding a module run
+`LANG=en_US.UTF-8 pod install` in `ios/` (Ruby 4 + CocoaPods choke on the
+default locale) and keep `"ios.buildReactNativeFromSource": "true"` in
+`ios/Podfile.properties.json` — the prebuilt RN core fails to link Debug
+builds (`Undefined symbol: facebook::react::Sealable`). Metro runs on
+port 8083 (`.flowdeck/config.json`).
 
 ## Xcode 27 beta workarounds (verified working 2026-06-11)
 

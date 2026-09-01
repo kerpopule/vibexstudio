@@ -103,7 +103,7 @@ export async function syncProjectToGitHub(opts: {
     },
     {
       path: 'README.md',
-      content: `# ${meta.name}\n\nMade with [VibeXStudio](https://github.com/kerpopule/vibex-studio) on a phone.\n\n- Live app: https://${owner}.github.io/${repoName}/\n- Open in VibeXStudio: https://${owner}.github.io/${repoName}/s/\n`,
+      content: `# ${meta.name}\n\nMade with [VibeXStudio](https://github.com/kerpopule/vibex-studio) on a mobile device.\n\n- Live app: https://${owner}.github.io/${repoName}/\n- Open in VibeXStudio: https://${owner}.github.io/${repoName}/s/\n`,
     },
   ];
 

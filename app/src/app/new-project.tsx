@@ -13,6 +13,7 @@ import { TextField } from '@/components/ui/text-field';
 import { Radii, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useApp } from '@/lib/store';
+import { enter } from '@/lib/motion';
 
 const EMOJI_CHOICES = ['🪄', '🎮', '📝', '🎵', '🧮', '🗺️', '📚', '💪', '🍳', '🎨', '⏱️', '🌙'];
 
@@ -20,8 +21,6 @@ export default function NewProjectScreen() {
   const theme = useTheme();
   const createProject = useApp((s) => s.createProject);
   const providers = useApp((s) => s.providers);
-  const pendingDesignReference = useApp((s) => s.pendingDesignReference);
-  const setPendingDesignReference = useApp((s) => s.setPendingDesignReference);
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState('🪄');
   const [busy, setBusy] = useState(false);
@@ -99,35 +98,9 @@ export default function NewProjectScreen() {
             })}
           </View>
         </View>
-        <View style={styles.designBlock}>
-          <ThemedText type="smallBold" themeColor="textSecondary">
-            DESIGN DIRECTION
-          </ThemedText>
-          {pendingDesignReference ? (
-            <View style={[styles.designCard, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-              <View style={styles.designCopy}>
-                <ThemedText type="smallBold" numberOfLines={1}>{pendingDesignReference.label}</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary" numberOfLines={2}>
-                  Captured from Refero. Chat will ask what to build before generating.
-                </ThemedText>
-              </View>
-              <ScalePress onPress={() => router.replace('/(tabs)/templates' as never)} style={styles.designAction}>
-                <ThemedText type="smallBold" style={{ color: theme.tint }}>Change</ThemedText>
-              </ScalePress>
-              <ScalePress onPress={() => setPendingDesignReference(null)} style={styles.designAction}>
-                <ThemedText type="smallBold" style={{ color: theme.danger }}>Remove</ThemedText>
-              </ScalePress>
-            </View>
-          ) : (
-            <Button
-              title="Browse Refero designs"
-              variant="secondary"
-              onPress={() => router.replace('/(tabs)/templates' as never)}
-            />
-          )}
-        </View>
+
         {providers.length === 0 ? (
-          <Animated.View entering={FadeIn.delay(250)} style={[styles.tip, { backgroundColor: theme.tintSoft }]}>
+          <Animated.View entering={enter(FadeIn.delay(250))} style={[styles.tip, { backgroundColor: theme.tintSoft }]}>
             <ThemedText type="small" style={{ color: theme.tint }}>
               ✨ Tip: connect an AI provider in Settings to start vibing — you can still create the project now.
             </ThemedText>
@@ -140,7 +113,7 @@ export default function NewProjectScreen() {
             GOT A SHARED APP?
           </ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            Open a .vibex file from iCloud Drive, Google Drive, Dropbox, or AirDrop — or paste a share link.
+            Open a .vibex file from Files, Google Drive, Dropbox, or AirDrop — or paste a share link.
           </ThemedText>
           <Button title="Open a .vibex file" variant="secondary" onPress={openSharedFile} />
           <TextField
@@ -172,27 +145,7 @@ const styles = StyleSheet.create({
   emojiBlock: {
     gap: Spacing.two,
   },
-  designBlock: {
-    gap: Spacing.two,
-  },
-  designCard: {
-    minHeight: 68,
-    borderRadius: Radii.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: Spacing.three,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
-  designCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  designAction: {
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.one,
-  },
+
   emojiGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

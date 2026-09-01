@@ -22,16 +22,6 @@ export interface GitHubLink {
   lastSyncedAt?: number;
 }
 
-export interface DesignReference {
-  schema: 'vibex/design-reference.v1';
-  source: { kind: 'refero-style'; url: string };
-  label: string;
-  /** Bounded, normalized, AI-readable visual language captured from the rendered page. */
-  promptText: string;
-  previewImageUrl?: string;
-  capturedAt: number;
-}
-
 export interface ProjectMeta {
   id: string;
   name: string;
@@ -40,8 +30,6 @@ export interface ProjectMeta {
   updatedAt: number;
   /** Emoji used as the project icon in lists. */
   emoji: string;
-  /** Optional, locally persisted design direction selected before the first prompt. */
-  designReference?: DesignReference;
   /** Provider connection id + model the user picked for this project's chat. */
   ai?: { connectionId: string; model: string };
   github?: GitHubLink;
@@ -139,7 +127,7 @@ export interface ProviderConnection {
    * SUBSCRIPTION_PROVIDERS; the bearer token + refresh handle live in the
    * keychain.
    */
-  subscription?: 'minimax-oauth' | 'kimi-oauth' | 'xai-oauth';
+  subscription?: 'chatgpt-oauth' | 'minimax-oauth' | 'kimi-oauth' | 'xai-oauth';
   /** Unix ms expiry of the subscription access token, for proactive refresh. */
   tokenExpiresAt?: number;
   /** Signed, non-secret metadata for a device-bound Private VibeX grant. */

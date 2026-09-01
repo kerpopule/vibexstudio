@@ -16,12 +16,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Glass } from '@/components/ui/glass';
+import { TAB_PILL_CLEARANCE } from '@/components/ui/tab-pill';
 import { ScalePress } from '@/components/ui/scale-press';
-import { gradientColors, Radii, Shadows, Spacing } from '@/constants/theme';
+import { Fonts, gradientColors, Radii, Shadows, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { type ChatSession, useChat } from '@/lib/chat-engine';
-import { thisDevice, yourDevice } from '@/lib/device';
+import { thisDevice } from '@/lib/device';
 import { workspaceLayoutForWidth } from '@/lib/layout';
+import { enter } from '@/lib/motion';
+import { readyToBuild } from '@/lib/setup';
 import { useApp } from '@/lib/store';
 import type { ProjectMeta } from '@/lib/types';
 
@@ -168,7 +171,12 @@ export default function ProjectsScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const wide = workspaceLayoutForWidth(width) === 'wide';
-  const { projects, providers, hydrated, refreshProjects, deleteProject } = useApp();
+  const { projects, hydrated, refreshProjects, deleteProject } = useApp();
+  const providers = useApp((s) => s.providers);
+  const mediaLab = useApp((s) => s.mediaLab);
+  const workbench = useApp((s) => s.workbench);
+  const github = useApp((s) => s.github);
+  const canBuild = readyToBuild({ providers, mediaLab, workbench, github });
   const sessions = useChat((s) => s.sessions);
 
   useFocusEffect(
@@ -207,7 +215,7 @@ export default function ProjectsScreen() {
           { paddingTop: insets.top + Spacing.two },
         ]}
         ListHeaderComponent={
-          <Animated.View entering={FadeInDown.duration(480)} style={styles.hero}>
+          <Animated.View entering={enter(FadeInDown.duration(480))} style={styles.hero}>
             <View style={styles.heroTopline}>
               <View style={styles.wordmark}>
                 <Image
@@ -218,19 +226,24 @@ export default function ProjectsScreen() {
                 />
                 <View>
                   <ThemedText type="smallBold">VibeX Studio</ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">Local-first app builder</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">Apps + media, on your terms</ThemedText>
                 </View>
               </View>
-              <View style={[styles.readyChip, { backgroundColor: theme.tintSoft }]}>
-                <View style={[styles.readyDot, { backgroundColor: providers.length ? theme.success : theme.warning }]} />
-                <ThemedText type="smallBold" style={{ color: theme.tint, fontSize: 10 }}>
-                  {providers.length ? 'READY' : 'SET UP AI'}
+              <ScalePress
+                accessibilityRole="button"
+                accessibilityLabel={canBuild ? 'AI connected. Open Setup' : 'Connect an AI'}
+                onPress={() => (canBuild ? router.push('/(tabs)/settings') : router.push('/connect-provider'))}
+                style={[styles.readyChip, { backgroundColor: theme.tintSoft }]}>
+                <View style={[styles.readyDot, { backgroundColor: canBuild ? theme.success : theme.warning }]} />
+                <ThemedText style={[styles.readyLabel, { color: theme.tint }]}>
+                  {canBuild ? 'READY' : 'CONNECT AI'}
                 </ThemedText>
-              </View>
+                <Ionicons name="chevron-forward" size={11} color={theme.tint} />
+              </ScalePress>
             </View>
             <ThemedText type="title" style={styles.heroTitle}>Create anything.{`\n`}Keep it yours.</ThemedText>
             <ThemedText themeColor="textSecondary" style={styles.heroBody}>
-              Build, remix, preview, and publish real web apps from {yourDevice}.
+              Build, remix, preview, and publish real web apps from your device.
             </ThemedText>
             <ScalePress onPress={() => router.push('/new-project')} style={[styles.quickStart, { shadowColor: theme.glow }, Shadows.float]}>
               <LinearGradient colors={gradientColors(theme)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.quickStartFill}>
@@ -248,7 +261,7 @@ export default function ProjectsScreen() {
         }
         ListEmptyComponent={
           hydrated ? (
-            <Animated.View entering={FadeInDown.duration(500)} style={styles.empty}>
+            <Animated.View entering={enter(FadeInDown.duration(500))} style={styles.empty}>
               <LinearGradient colors={gradientColors(theme)} style={styles.emptyOrb}>
                 <ThemedText style={styles.emptyEmoji}>✨</ThemedText>
               </LinearGradient>
@@ -256,14 +269,14 @@ export default function ProjectsScreen() {
                 Vibe your first app
               </ThemedText>
               <ThemedText themeColor="textSecondary" style={[styles.center, styles.emptyBody]}>
-                Describe an app in chat and watch it come to life — right on {yourDevice}. Everything stays on your
+                Describe an app in chat and watch it come to life — right on your device. Everything stays on your
                 device unless you sync it to your own GitHub.
               </ThemedText>
             </Animated.View>
           ) : null
         }
         renderItem={({ item, index }) => (
-          <Animated.View entering={FadeInDown.delay(Math.min(index, 8) * 55).duration(420)}>
+          <Animated.View entering={enter(FadeInDown.delay(Math.min(index, 8) * 55).duration(420))}>
             <ProjectCard
               item={item}
               activity={activityFor(sessions[item.id])}
@@ -301,7 +314,7 @@ const styles = StyleSheet.create({
     padding: Spacing.three,
     gap: 14,
     flexGrow: 1,
-    paddingBottom: 104,
+    paddingBottom: TAB_PILL_CLEARANCE,
   },
   listWide: {
     width: '100%',
@@ -341,6 +354,11 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
+  },
+  readyLabel: {
+    fontFamily: Fonts.display,
+    fontSize: 10,
+    letterSpacing: 1,
   },
   heroTitle: {
     fontSize: 42,

@@ -6,6 +6,10 @@ A fresh user can give this repository URL to a capable agent or run one document
 
 The public controller does not bundle model weights, private deployment settings, production media, voices, likenesses, credentials, or restricted runtimes.
 
+## One command
+
+`./install.sh --yes` installs, starts and prints the pairing QR without asking anything; `media-lab status --json` (or `tools/media-lab status --json`) reports health, GPU, engines and service state for scripts. See `docs/INSTALL.md`.
+
 ## Required setup sequence
 
 1. Read `README.md`, `docs/architecture.md`, `docs/installation-and-onboarding.md`, `docs/external-agent-setup.md`, and `docs/open-source-readiness.md`.

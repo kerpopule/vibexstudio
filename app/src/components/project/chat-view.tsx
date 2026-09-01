@@ -34,6 +34,7 @@ import { providerGlyph, shortModelLabel } from '@/lib/ai/models';
 import { EMPTY_SESSION, useChat } from '@/lib/chat-engine';
 import { useApp } from '@/lib/store';
 import type { ChatMessage, ProjectMeta, ProviderConnection } from '@/lib/types';
+import { enter } from '@/lib/motion';
 
 type ComposeMode = 'chat' | 'image' | 'video';
 
@@ -44,17 +45,11 @@ const STARTER_IDEAS = [
   { emoji: '🌦️', prompt: 'A cozy weather dashboard with animated icons' },
 ];
 
-export function ChatView({
-  project,
-  onProjectChanged,
-}: {
-  project: ProjectMeta;
-  onProjectChanged?: (project: ProjectMeta) => void;
-}) {
+export function ChatView({ project }: { project: ProjectMeta }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const providers = useApp((s) => s.providers);
-  const setProjectDesignReference = useApp((s) => s.setProjectDesignReference);
+
   const refreshSubscriptionIfNeeded = useApp((s) => s.refreshSubscriptionIfNeeded);
   const refreshPrivateProviderIfNeeded = useApp((s) => s.refreshPrivateProviderIfNeeded);
   const session = useChat((s) => s.sessions[project.id]) ?? EMPTY_SESSION;
@@ -193,19 +188,6 @@ export function ChatView({
             ? 'Describe the app you want to build…'
             : 'What should we change?';
 
-  const removeDesignReference = () => {
-    Alert.alert('Remove design direction?', 'Future build and edit turns will stop using this Refero visual language.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: async () => {
-          const next = await setProjectDesignReference(project.id);
-          onProjectChanged?.(next);
-        },
-      },
-    ]);
-  };
 
   return (
     <KeyboardAvoidingView
@@ -213,31 +195,7 @@ export function ChatView({
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       // Header (56) + tab bar (46) + status bar: what sits above this view.
       keyboardVerticalOffset={insets.top + 102}>
-      {project.designReference ? (
-        <View style={[styles.designBar, { backgroundColor: theme.tintSoft, borderColor: theme.border }]}>
-          <Ionicons name="color-palette" size={17} color={theme.tint} />
-          <View style={styles.designBarCopy}>
-            <ThemedText type="smallBold" numberOfLines={1}>{project.designReference.label}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>Refero design language active</ThemedText>
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Change design reference"
-            hitSlop={8}
-            onPress={() => router.push({ pathname: '/(tabs)/templates', params: { projectId: project.id } } as never)}
-            style={styles.designBarAction}>
-            <ThemedText type="smallBold" style={{ color: theme.tint }}>Change</ThemedText>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Remove design reference"
-            hitSlop={8}
-            onPress={removeDesignReference}
-            style={styles.designBarAction}>
-            <Ionicons name="close" size={18} color={theme.textSecondary} />
-          </Pressable>
-        </View>
-      ) : null}
+
       {chatProviders.length > 0 ? (
         <View style={styles.barRow}>
           {/* Horizontal ScrollView (not a nested FlatList) so it can't collapse
@@ -306,7 +264,7 @@ export function ChatView({
               </ThemedText>
               <View style={styles.ideas}>
                 {STARTER_IDEAS.map((idea, i) => (
-                  <Animated.View key={idea.prompt} entering={FadeInDown.delay(120 + i * 70).duration(350)}>
+                  <Animated.View key={idea.prompt} entering={enter(FadeInDown.delay(120 + i * 70).duration(350))}>
                     <ScalePress
                       onPress={() => setInput(idea.prompt)}
                       style={[styles.ideaChip, { backgroundColor: theme.backgroundElement }, Shadows.card]}>
@@ -376,27 +334,6 @@ export function ChatView({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  designBar: {
-    minHeight: 52,
-    marginHorizontal: Spacing.two,
-    marginTop: Spacing.one,
-    borderRadius: Radii.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: Spacing.three,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
-  designBarCopy: {
-    flex: 1,
-    gap: 1,
-  },
-  designBarAction: {
-    minWidth: 44,
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   barRow: {
     flexDirection: 'row',

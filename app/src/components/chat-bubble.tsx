@@ -13,6 +13,7 @@ import { ScalePress } from '@/components/ui/scale-press';
 import { gradientColors, Radii, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import type { ChatMessage } from '@/lib/types';
+import { enter } from '@/lib/motion';
 
 export function ChatBubble({ message }: { message: ChatMessage }) {
   const theme = useTheme();
@@ -58,7 +59,7 @@ export function ChatBubble({ message }: { message: ChatMessage }) {
 
   return (
     <Animated.View
-      entering={FadeInUp.duration(280)}
+      entering={enter(FadeInUp.duration(280))}
       style={[styles.row, isUser ? styles.rowUser : styles.rowAssistant]}>
       {/* Long-press anywhere on a bubble copies its text. */}
       <Pressable onLongPress={copyText} delayLongPress={300}>
