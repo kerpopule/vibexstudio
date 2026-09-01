@@ -8,7 +8,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Segmented } from '@/components/segmented';
@@ -29,6 +29,7 @@ import { hostLabel, setupSteps, type SetupStepId } from '@/lib/setup';
 import { projectSizeBytes } from '@/lib/storage/projects';
 import type { AppearancePref } from '@/lib/storage/settings';
 import { useApp } from '@/lib/store';
+import { checkForUpdate, currentVersion, hasNativeUpdater, runNativeUpdater, updateDestination } from '@/lib/update-check';
 import { clearSyncFolder, pickSyncFolder, syncFolderUri, syncNow } from '@/lib/sync/android-folder-sync';
 import { safTreeLabel } from '@/lib/sync/sync-plan';
 
@@ -45,6 +46,30 @@ export default function SetupScreen() {
   const [syncFolder, setSyncFolder] = useState<string | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
   const [showStorage, setShowStorage] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+
+  const checkUpdates = async () => {
+    if (checkingUpdate) return;
+    setCheckingUpdate(true);
+    try {
+      if (hasNativeUpdater()) {
+        await runNativeUpdater();
+        return;
+      }
+      const info = await checkForUpdate(true);
+      if (!info) {
+        Alert.alert('You’re up to date', `VibeX Studio ${currentVersion()} is the latest release.`);
+        return;
+      }
+      const destination = updateDestination(info);
+      Alert.alert(`VibeX Studio ${info.version} is out`, info.notes.slice(0, 400) || 'A newer release is available.', [
+        { text: 'Later', style: 'cancel' },
+        { text: destination.label, onPress: () => void Linking.openURL(destination.url) },
+      ]);
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
 
   const steps = setupSteps({ providers, mediaLab, workbench, github });
   const doneCount = steps.filter((s) => s.done).length;
@@ -400,9 +425,18 @@ export default function SetupScreen() {
           />
           <RowDivider />
           <Row
+            title={checkingUpdate ? 'Checking…' : `Check for updates · ${currentVersion()}`}
+            subtitle={hasNativeUpdater() ? 'Updates install in place on this computer' : Platform.OS === 'ios' ? 'Beta builds arrive through TestFlight; the App Store updates on its own' : 'Compares this build with the latest GitHub release'}
+            left={<EmojiTile emoji="⬆️" size={36} />}
+            right={checkingUpdate ? <ActivityIndicator size="small" color={theme.textSecondary} /> : undefined}
+            onPress={checkingUpdate ? undefined : checkUpdates}
+          />
+          <RowDivider />
+          <Row
             title="Open source · Apache-2.0"
             subtitle="github.com/kerpopule/vibexstudio"
             left={<EmojiTile emoji="🌐" size={36} />}
+            onPress={() => void Linking.openURL('https://github.com/kerpopule/vibexstudio')}
           />
         </Section>
       </ScrollView>

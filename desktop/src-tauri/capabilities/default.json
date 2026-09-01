@@ -8,6 +8,9 @@
     "welcome"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "updater:default",
+    "dialog:default",
+    "process:default"
   ]
 }

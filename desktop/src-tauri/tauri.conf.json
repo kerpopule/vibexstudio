@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "VibeXStudio",
-  "version": "0.1.0",
+  "version": "1.2.0",
   "identifier": "studio.vibex.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -43,6 +43,18 @@
     "resources": {
       "../workbench/server.mjs": "workbench/server.mjs",
       "resources/media-lab": "media-lab"
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/kerpopule/vibexstudio/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgwNzIyRTRCNkI3QzE4RjYKUldUMkdIeHJTeTV5Z0labi95MWpLTGh2MHJsZ2hzazhjeFpHWXBXUVVhN0VlVFNtVVEwU3UrajIK",
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

@@ -2,7 +2,7 @@
   "expo": {
     "name": "VibeXStudio",
     "slug": "vibexstudio-xhbuhstxrbw2xkidpow9",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "vibex",
@@ -54,7 +54,7 @@
         },
         "NSCameraUsageDescription": "VibeXStudio uses the camera only to read the pairing QR code shown by your computer or Spark."
       },
-      "buildNumber": "26",
+      "buildNumber": "27",
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
           {

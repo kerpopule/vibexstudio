@@ -2,6 +2,18 @@ import { describe, expect, it, vi } from 'vitest';
 
 // subscriptionOauth imports expo-crypto at top level (which drags in
 // react-native); stub it — nothing under test touches randomness.
+vi.mock('react-native', () => ({ Platform: { OS: 'ios', select: (o: any) => o.ios ?? o.default } }));
+vi.mock('expo-constants', () => ({ default: { expoConfig: { version: '1.2.0' } } }));
+vi.mock('@react-native-async-storage/async-storage', () => {
+  const store = new Map<string, string>();
+  return {
+    default: {
+      getItem: async (k: string) => store.get(k) ?? null,
+      setItem: async (k: string, v: string) => void store.set(k, v),
+      removeItem: async (k: string) => void store.delete(k),
+    },
+  };
+});
 vi.mock('expo-crypto', () => ({
   getRandomBytes: () => new Uint8Array(32),
   digestStringAsync: async () => 'ZGlnZXN0',
@@ -92,5 +104,18 @@ describe('oauthErrorDetail', () => {
     expect(oauthErrorDetail({ error: 'x', error_description: 'Code expired' }, 400)).toBe('Code expired');
     expect(oauthErrorDetail({ error: { message: 'Invalid authorization code' } }, 400)).toBe('Invalid authorization code');
     expect(oauthErrorDetail({}, 502)).toBe('HTTP 502');
+  });
+});
+
+describe('update check', () => {
+  it('orders versions and only reports newer, published releases', async () => {
+    const { compareVersions, newerRelease } = await import('../src/lib/update-check');
+    expect(compareVersions('1.2.0', '1.1.0')).toBe(1);
+    expect(compareVersions('v1.2.0', '1.2')).toBe(0);
+    expect(compareVersions('1.2.0', '1.10.0')).toBe(-1);
+    expect(newerRelease({ tag_name: 'v1.3.0', html_url: 'u', body: 'notes' }, '1.2.0')?.version).toBe('1.3.0');
+    expect(newerRelease({ tag_name: 'v1.2.0' }, '1.2.0')).toBeNull();
+    expect(newerRelease({ tag_name: 'v9.0.0', prerelease: true }, '1.2.0')).toBeNull();
+    expect(newerRelease({ tag_name: 'v9.0.0', draft: true }, '1.2.0')).toBeNull();
   });
 });

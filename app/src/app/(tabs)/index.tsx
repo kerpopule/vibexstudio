@@ -14,6 +14,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
+import { UpdateBanner } from '@/components/update-banner';
 import { ThemedView } from '@/components/themed-view';
 import { Glass } from '@/components/ui/glass';
 import { TAB_PILL_CLEARANCE } from '@/components/ui/tab-pill';
@@ -216,6 +217,7 @@ export default function ProjectsScreen() {
         ]}
         ListHeaderComponent={
           <Animated.View entering={enter(FadeInDown.duration(480))} style={styles.hero}>
+            <UpdateBanner />
             <View style={styles.heroTopline}>
               <View style={styles.wordmark}>
                 <Image

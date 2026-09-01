@@ -12,7 +12,8 @@ the place [Media Lab](https://github.com/kerpopule/media-lab-studio) plugs in.
 
 ## Download
 
-Grab the [latest release](https://github.com/kerpopule/vibexstudio-desktop/releases/latest):
+Grab the [latest release](https://github.com/kerpopule/vibexstudio/releases/latest)
+— after that the app updates itself (see **Releases + auto-update** below):
 
 | OS | File | Notes |
 |---|---|---|
@@ -95,6 +96,7 @@ The pairing payload is unchanged:
 | `medialab_enable` / `medialab_disable` / `medialab_not_now` / `show_pair_window` | setup on a background thread / stop + `enabled:false` / remember "not now" / swap the first-launch page for the QR window |
 | `workbench_rotate_token` | new token, sidecar restarted |
 | `secret_set(key,value)` / `secret_get(key)` / `secret_delete(key)` | OS keychain, `vibex.*` keys only |
+| `check_for_updates` | `{current, available, version, notes, error}` — also shows the native update / up-to-date / error dialog |
 
 `app.withGlobalTauri` is on, so `window.__TAURI__.core.invoke(...)` works
 from the web build and from the shell's own pages.
@@ -126,6 +128,52 @@ cd ../vibex-studio && npx expo export --platform web --output-dir dist-web
 rm -rf dist && cp -R ../vibex-studio/dist-web dist
 ```
 
+## Releases + auto-update
+
+Public releases live on the monorepo
+[kerpopule/vibexstudio](https://github.com/kerpopule/vibexstudio/releases),
+whose `desktop/` directory is a snapshot of this repo. One release = one tag
+`vX.Y.Z` that matches `version` in `src-tauri/tauri.conf.json` (CI refuses
+a mismatch). Three parts:
+
+1. **Tag → CI** (`.github/workflows/build-desktop.yml` on the monorepo,
+   `release` job): `tauri-apps/tauri-action` builds Windows x64, Linux x64
+   and Linux arm64, signs each updater bundle with the minisign key in the
+   `TAURI_SIGNING_PRIVATE_KEY` secret, and publishes the release
+   "VibeXStudio vX.Y.Z" with the installers, their `.sig` files and
+   `latest.json` (the updater manifest; NSIS preferred on Windows). The
+   macOS runner only proves the build compiles — its artifact is unsigned
+   and never published. Pushes to `main` still run the artifacts-only
+   `build` job.
+2. **Mac → `scripts/release-mac.sh vX.Y.Z`** on the Mac with the Developer
+   ID cert. It exports the same signing key from
+   `~/.vibex-secrets/tauri-updater.key`, so `tauri build` also emits
+   `VibeXStudio.app.tar.gz` + `.sig`; notarizes; uploads the DMG, tarball
+   and signature to the tag's release (`gh release upload --clobber`); then
+   `scripts/merge-latest-json.mjs` downloads the release's `latest.json`,
+   adds/replaces the `darwin-aarch64` entry (url + signature), refreshes
+   `version`/`notes`/`pub_date`, and re-uploads it. The script creates the
+   release if CI hasn't yet. Dry-run the merge against a fixture with
+   `node scripts/merge-latest-json.mjs v1.2.0 --input latest.json --tarball x.tar.gz --dry-run`.
+3. **The app** (`tauri-plugin-updater`, `plugins.updater` in
+   tauri.conf.json): 3 s after launch it fetches
+   `https://github.com/kerpopule/vibexstudio/releases/latest/download/latest.json`,
+   compares `version` with its own, and — only if newer — shows
+   "VibeX Studio X.Y.Z is ready — Update now / Later" with the release
+   notes. *Update now* downloads (progress in the log), verifies the `.sig`
+   against the embedded pubkey, installs (Windows: passive installer) and
+   relaunches. Failures on launch (no release yet, offline) are logged, never
+   shown. **VibeX Studio → Check for updates…** (Help menu on
+   Windows/Linux) runs the same check and reports "You're up to date" or the
+   error. `VIBEX_NO_UPDATE_CHECK=1` skips the launch check.
+
+Bumping a version: edit `version` in `src-tauri/tauri.conf.json`,
+`src-tauri/Cargo.toml` and `package.json`, commit, refresh the monorepo
+(`oss-publish/refresh-monorepo.sh`), tag it there, run the mac script.
+The public key is in tauri.conf.json; the private key exists only in
+`~/.vibex-secrets/` (README there) and the GitHub secret — lose it and no
+installed copy can ever update again.
+
 ## Roadmap
 
 1. ~~Media Lab sidecar~~ — bundled, opt-in on first launch (above). Still
@@ -134,7 +182,8 @@ rm -rf dist && cp -R ../vibex-studio/dist-web dist
 2. **Native file storage** — swap IndexedDB for Tauri fs behind the same
    storage interface, so projects live as real folders.
 3. ~~Pairing QR~~ — shipped (`vibex://pair?...`, Copy link).
-4. **Auto-update** — Tauri updater once releases are signed.
+4. ~~Auto-update~~ — shipped (Releases + auto-update above). Still open:
+   Windows code signing so SmartScreen stops asking.
 
 ## License
 

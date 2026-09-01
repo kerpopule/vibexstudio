@@ -1,13 +1,42 @@
 name: build-desktop
 
+# Two jobs share one matrix:
+#   build   — every push to main: artifacts only (no release, no upload).
+#   release — tags `v*` (or workflow_dispatch with a tag): tauri-action
+#             builds, signs the updater bundles with TAURI_SIGNING_PRIVATE_KEY,
+#             creates/updates the GitHub release "VibeXStudio v1.2.0" with the
+#             installers + latest.json (the auto-updater manifest).
+#
+# macOS stays in the matrix so a broken mac build is caught, but its artifact
+# is unsigned and NEVER uploaded to a release: the signed + notarized mac
+# build (and its darwin-aarch64 latest.json entry) comes from
+# desktop/scripts/release-mac.sh on the fleet Mac.
+
 on:
   push:
     branches: [main]
+    tags: ['v*']            # paths filters don't apply to tag pushes
     paths: ['desktop/**', 'media-lab/**', '.github/workflows/build-desktop.yml']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build + publish (e.g. v1.2.0). Empty = artifacts only.
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+env:
+  # Updater signing (minisign; the pubkey lives in desktop/src-tauri/tauri.conf.json).
+  # The plain build also needs it: with a pubkey configured, `tauri build`
+  # refuses to run without the private key.
+  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
 jobs:
   build:
+    if: startsWith(github.ref, 'refs/heads/') && (github.event_name != 'workflow_dispatch' || inputs.tag == '')
     strategy:
       fail-fast: false
       matrix:
@@ -26,6 +55,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
       - name: Linux system deps
         if: startsWith(matrix.os, 'ubuntu')
         run: |
@@ -51,4 +82,79 @@ jobs:
             desktop/src-tauri/target/release/bundle/**/*.exe
             desktop/src-tauri/target/release/bundle/**/*.deb
             desktop/src-tauri/target/release/bundle/**/*.AppImage
+            desktop/src-tauri/target/release/bundle/**/*.tar.gz
+            desktop/src-tauri/target/release/bundle/**/*.sig
+          if-no-files-found: warn
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest      # .msi / .exe (NSIS) + updater .sig
+            publish: true
+          - os: ubuntu-latest       # x86_64 .deb/.AppImage + updater .sig
+            publish: true
+          - os: ubuntu-24.04-arm    # arm64 .deb/.AppImage + updater .sig
+            publish: true
+          - os: macos-latest        # build check only — unsigned, not published
+            publish: false
+    runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # workflow_dispatch builds the tagged snapshot, not the branch tip.
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Linux system deps
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - name: Check frontend present
+        shell: bash
+        run: test -f dist/index.html
+      - name: Check tag matches app version
+        shell: bash
+        run: |
+          v="$(node -p 'require("./src-tauri/tauri.conf.json").version')"
+          [ "v$v" = "$RELEASE_TAG" ] || { echo "tag $RELEASE_TAG != tauri.conf.json version $v"; exit 1; }
+      - name: Stage Media Lab
+        shell: bash
+        run: bash scripts/stage-medialab.sh
+      # Windows/Linux: build, sign the updater bundles, upload installers +
+      # latest.json to the release (tauri-action merges latest.json across
+      # runners). macOS: tagName is empty, so it only builds.
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: desktop
+          tagName: ${{ matrix.publish && env.RELEASE_TAG || '' }}
+          releaseName: VibeXStudio ${{ env.RELEASE_TAG }}
+          releaseBody: See the assets below. Installed copies update themselves (VibeX Studio → Check for updates…).
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+      - name: Keep the unsigned macOS build as an artifact
+        if: ${{ !matrix.publish }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibexstudio-${{ matrix.os }}-unsigned
+          path: |
+            desktop/src-tauri/target/release/bundle/**/*.dmg
           if-no-files-found: warn

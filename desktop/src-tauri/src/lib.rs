@@ -26,7 +26,7 @@ use std::sync::Mutex;
 
 use serde::Serialize;
 use serde_json::{json, Value};
-use tauri::menu::{Menu, MenuItem, Submenu};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 const MEDIALAB_PORT: u16 = 7863;
@@ -995,6 +995,193 @@ fn should_ask_first_launch(app: &AppHandle) -> bool {
         && !desktop_config(app)["mediaLabAsked"].as_bool().unwrap_or(false)
 }
 
+// ------------------------------------------------------------------ updates
+//
+// The updater reads `plugins.updater.endpoints` from tauri.conf.json (the
+// monorepo's `releases/latest/download/latest.json`) and only accepts a
+// bundle whose `.sig` verifies against the embedded pubkey. Two callers:
+// a silent check 3 s after launch (errors are logged, never shown) and the
+// "Check for updates…" menu item / `check_for_updates` command, which also
+// report "up to date" and errors in a dialog.
+
+/// What a check found. Also the return value of the `check_for_updates`
+/// command so the web frontend can render its own banner.
+#[derive(Serialize, Clone, Debug)]
+struct UpdateCheck {
+    /// The running version.
+    current: String,
+    /// A newer build is on the endpoint (and, if the user said yes, is
+    /// being installed right now).
+    available: bool,
+    version: Option<String>,
+    notes: Option<String>,
+    /// Why the check failed (offline, no latest.json yet, bad signature…).
+    error: Option<String>,
+}
+
+fn update_check_result(app: &AppHandle) -> UpdateCheck {
+    UpdateCheck {
+        current: app.package_info().version.to_string(),
+        available: false,
+        version: None,
+        notes: None,
+        error: None,
+    }
+}
+
+/// Set `VIBEX_NO_UPDATE_CHECK=1` to skip the launch check (tests, CI).
+fn update_checks_disabled() -> bool {
+    std::env::var_os("VIBEX_NO_UPDATE_CHECK").is_some_and(|v| !v.is_empty() && v != "0")
+}
+
+fn message_dialog(app: &AppHandle, title: &str, body: &str) {
+    use tauri_plugin_dialog::DialogExt;
+    app.dialog()
+        .message(body)
+        .title(title)
+        .kind(tauri_plugin_dialog::MessageDialogKind::Info)
+        .blocking_show();
+}
+
+/// Runs the whole check → ask → download → install → relaunch flow.
+/// Blocks its thread (dialogs + download), so call it off the main thread.
+fn run_update_check(app: &AppHandle, interactive: bool) -> UpdateCheck {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    use tauri_plugin_updater::UpdaterExt;
+
+    let mut result = update_check_result(app);
+    let updater = match app.updater() {
+        Ok(u) => u,
+        Err(e) => {
+            let why = format!("updater is not configured: {e}");
+            log::warn!("update check: {why}");
+            if interactive {
+                message_dialog(app, "Check for updates", &format!("Couldn't check for updates.\n\n{why}"));
+            }
+            result.error = Some(why);
+            return result;
+        }
+    };
+
+    let update = match tauri::async_runtime::block_on(updater.check()) {
+        Ok(Some(update)) => update,
+        Ok(None) => {
+            log::info!("update check: {} is up to date", result.current);
+            if interactive {
+                message_dialog(
+                    app,
+                    "Check for updates",
+                    &format!("You're up to date.\n\nVibeX Studio {} is the newest version.", result.current),
+                );
+            }
+            return result;
+        }
+        Err(e) => {
+            // No release yet, offline, GitHub down, malformed latest.json —
+            // all routine. Log it; only the menu item gets a dialog.
+            let why = e.to_string();
+            log::warn!("update check failed: {why}");
+            if interactive {
+                message_dialog(
+                    app,
+                    "Check for updates",
+                    &format!("Couldn't check for updates right now.\n\n{why}\n\nYou're on VibeX Studio {}.", result.current),
+                );
+            }
+            result.error = Some(why);
+            return result;
+        }
+    };
+
+    result.available = true;
+    result.version = Some(update.version.clone());
+    result.notes = update.body.clone();
+    log::info!("update available: {} → {}", result.current, update.version);
+
+    let notes = update
+        .body
+        .as_deref()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map(|n| format!("\n\n{n}"))
+        .unwrap_or_default();
+    let yes = app
+        .dialog()
+        .message(format!(
+            "VibeX Studio {} is ready (you have {}).{notes}",
+            update.version, result.current
+        ))
+        .title("Update available")
+        .kind(MessageDialogKind::Info)
+        .buttons(MessageDialogButtons::OkCancelCustom("Update now".into(), "Later".into()))
+        .blocking_show();
+    if !yes {
+        log::info!("update {}: user chose Later", update.version);
+        return result;
+    }
+
+    let version = update.version.clone();
+    let mut received: u64 = 0;
+    let mut last_logged_pct: u64 = 0;
+    let installed = tauri::async_runtime::block_on(update.download_and_install(
+        |chunk, total| {
+            received += chunk as u64;
+            if let Some(total) = total {
+                let pct = received * 100 / total.max(1);
+                if pct >= last_logged_pct + 10 || pct == 100 {
+                    last_logged_pct = pct;
+                    log::info!("update {version}: downloaded {pct}% ({received}/{total} bytes)");
+                }
+            }
+        },
+        || log::info!("update {version}: download complete, installing"),
+    ));
+    match installed {
+        Ok(()) => {
+            log::info!("update {version}: installed, relaunching");
+            app.restart();
+        }
+        Err(e) => {
+            let why = format!("update to {version} failed: {e}");
+            log::error!("{why}");
+            message_dialog(
+                app,
+                "Update failed",
+                &format!("{why}\n\nYou can keep using this version or download the release by hand from github.com/kerpopule/vibexstudio/releases."),
+            );
+            result.error = Some(why);
+            result
+        }
+    }
+}
+
+/// Frontend-triggered check: shows the same dialogs as the menu item and
+/// returns what it found.
+#[tauri::command]
+async fn check_for_updates(app: AppHandle) -> UpdateCheck {
+    tauri::async_runtime::spawn_blocking(move || run_update_check(&app, true))
+        .await
+        .unwrap_or_else(|e| {
+            let mut r = UpdateCheck {
+                current: String::new(),
+                available: false,
+                version: None,
+                notes: None,
+                error: None,
+            };
+            r.error = Some(format!("update check panicked: {e}"));
+            r
+        })
+}
+
+fn spawn_update_check(app: &AppHandle, interactive: bool, delay: std::time::Duration) {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(delay);
+        run_update_check(&handle, interactive);
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
@@ -1010,7 +1197,11 @@ pub fn run() {
             medialab_not_now,
             show_pair_window,
             workbench_rotate_token,
+            check_for_updates,
         ])
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
         .register_uri_scheme_protocol("vxpair", |ctx, request| {
             let handle = ctx.app_handle();
             let body = match request.uri().path() {
@@ -1040,8 +1231,24 @@ pub fn run() {
             let media_menu = Submenu::with_items(app, "Media Lab", true, &[&pair, &make, &rotate])?;
             let menu = Menu::default(app.handle())?;
             menu.append(&media_menu)?;
+            // "Check for updates…": under the app menu (VibeX Studio → …) on
+            // macOS, right after About; in a Help menu elsewhere.
+            let check = MenuItem::with_id(app, "check-updates", "Check for updates…", true, None::<&str>)?;
+            let app_menu = if cfg!(target_os = "macos") {
+                menu.items()?.into_iter().next().and_then(|item| item.as_submenu().cloned())
+            } else {
+                None
+            };
+            match app_menu {
+                Some(sub) => {
+                    sub.insert(&PredefinedMenuItem::separator(app)?, 1)?;
+                    sub.insert(&check, 2)?;
+                }
+                None => menu.append(&Submenu::with_items(app, "Help", true, &[&check])?)?,
+            }
             app.set_menu(menu)?;
             app.on_menu_event(|handle, event| match event.id().as_ref() {
+                "check-updates" => spawn_update_check(handle, true, std::time::Duration::ZERO),
                 "pair-phone" => open_pair_window(handle),
                 "make-media" => open_welcome_window(handle),
                 "rotate-token" => {
@@ -1063,6 +1270,14 @@ pub fn run() {
 
             if should_ask_first_launch(&handle) {
                 open_welcome_window(&handle);
+            }
+
+            // Silent update check once the window is up. Failures (no
+            // release yet, offline) only reach the log.
+            if update_checks_disabled() {
+                log::info!("update check on launch skipped (VIBEX_NO_UPDATE_CHECK)");
+            } else {
+                spawn_update_check(&handle, false, std::time::Duration::from_secs(3));
             }
             Ok(())
         })
