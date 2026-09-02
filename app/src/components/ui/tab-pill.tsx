@@ -13,6 +13,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Glass } from '@/components/ui/glass';
 import { Fonts, Radii, Shadows } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useUiChrome } from '@/lib/ui-chrome';
 
 /** Bottom padding a scrolling screen needs so its last row clears the pill. */
 export const TAB_PILL_CLEARANCE = 96;
@@ -39,7 +40,9 @@ export interface TabPillProps {
 export function TabPill({ state, descriptors, navigation }: TabPillProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const hidden = useUiChrome((s) => s.tabPillHidden);
   const bottom = Math.max(insets.bottom, 10) + (Platform.OS === 'web' ? 6 : 0);
+  if (hidden) return null;
 
   return (
     <View pointerEvents="box-none" style={[styles.host, { bottom }]}>

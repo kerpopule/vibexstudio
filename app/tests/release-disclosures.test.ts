@@ -34,9 +34,9 @@ function pluginOptions(name: string): Record<string, unknown> {
 }
 
 describe('iOS release disclosure contract', () => {
-  it('pins the release Expo version to 1.2.0 (27)', () => {
+  it('pins the release Expo version to 1.2.0 (28)', () => {
     expect(appConfig.expo.version).toBe('1.2.0');
-    expect(appConfig.expo.ios.buildNumber).toBe('27');
+    expect(appConfig.expo.ios.buildNumber).toBe('28');
     expect(easConfig.cli.appVersionSource).toBe('local');
     expect(easConfig.build.production.autoIncrement).toBe(false);
   });

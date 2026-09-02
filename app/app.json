@@ -54,7 +54,7 @@
         },
         "NSCameraUsageDescription": "VibeXStudio uses the camera only to read the pairing QR code shown by your computer or Spark."
       },
-      "buildNumber": "27",
+      "buildNumber": "28",
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
           {

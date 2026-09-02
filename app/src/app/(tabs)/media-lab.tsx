@@ -46,6 +46,7 @@ import { cutUrl, sendToCut } from '@/lib/medialab-cut';
 import type { MediaLabLink } from '@/lib/storage/settings';
 import { useMediaStudio, type StudioJob } from '@/lib/media-studio';
 import { useApp } from '@/lib/store';
+import { useUiChrome } from '@/lib/ui-chrome';
 import type { GalleryItem, ProviderConnection } from '@/lib/types';
 
 // ---------------------------------------------------------------------------
@@ -56,46 +57,89 @@ export default function MediaLabScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const mediaLab = useApp((s) => s.mediaLab);
+  const setTabPillHidden = useUiChrome((s) => s.setTabPillHidden);
   const [view, setView] = useState<'server' | 'device'>('server');
   // A page the on-device studio wants the server view to open (Cut, after an upload).
   const [serverPage, setServerPage] = useState<string | null>(null);
   const serverActive = mediaLab != null && view === 'server';
+  const inCut = serverActive && /\/cut(\?|$)/.test(serverPage ?? '');
   const openServerPage = (url: string) => {
     setServerPage(url);
     setView('server');
   };
 
+  // The paired studio brings its own bottom nav: while it is on screen the
+  // VibeX tab pill steps aside, and "‹ Studio" up top is the way out.
+  useFocusEffect(
+    useCallback(() => {
+      setTabPillHidden(serverActive);
+      return () => setTabPillHidden(false);
+    }, [serverActive, setTabPillHidden])
+  );
+
+  const topRow = insets.top + Spacing.one;
   return (
     <ThemedView style={styles.container}>
-      {/* When the switch pill floats over the top, both views clear it:
-          the studio pads its scroll content, the server view pushes the
-          whole WebView down so the site's own header stays tappable. */}
+      {/* Both views clear the floating top row: the studio pads its scroll
+          content, the server view pushes the WebView down so the site's own
+          header stays tappable. */}
       {serverActive ? (
-        <ServerView link={mediaLab} topInset={insets.top + 52} page={serverPage} onNavigate={setServerPage} />
+        <ServerView link={mediaLab} topInset={insets.top + 52} page={serverPage} />
       ) : (
         <StudioView topInset={mediaLab ? 52 : 0} onOpenServerPage={mediaLab ? openServerPage : undefined} />
       )}
       {mediaLab ? (
-        <Glass radius={Radii.xl} style={[styles.switchPill, { top: insets.top + Spacing.one }]}>
-          {(['device', 'server'] as const).map((v) => {
-            const active = view === v;
-            return (
+        <View pointerEvents="box-none" style={[styles.topRow, { top: topRow }]}>
+          {serverActive ? (
+            <Glass radius={Radii.pill} style={styles.topChip}>
               <Pressable
-                key={v}
-                onPress={() => setView(v)}
-                style={[styles.switchSeg, active && { backgroundColor: theme.tintSoft }]}>
-                <Ionicons
-                  name={v === 'device' ? 'sparkles' : 'desktop-outline'}
-                  size={13}
-                  color={active ? theme.tint : theme.textSecondary}
-                />
-                <ThemedText type="smallBold" style={{ color: active ? theme.tint : theme.textSecondary }}>
-                  {v === 'device' ? 'On device' : 'Server'}
-                </ThemedText>
+                accessibilityRole="button"
+                accessibilityLabel="Back to VibeX Studio"
+                onPress={() => router.navigate('/(tabs)')}
+                hitSlop={8}
+                style={styles.topChipInner}>
+                <Ionicons name="chevron-back" size={16} color={theme.tint} />
+                <ThemedText type="smallBold" style={{ color: theme.tint }}>Studio</ThemedText>
               </Pressable>
-            );
-          })}
-        </Glass>
+            </Glass>
+          ) : (
+            <View style={styles.topSpacer} />
+          )}
+          <Glass radius={Radii.xl} style={styles.switchPill}>
+            {(['device', 'server'] as const).map((v) => {
+              const active = view === v;
+              return (
+                <Pressable
+                  key={v}
+                  onPress={() => setView(v)}
+                  style={[styles.switchSeg, active && { backgroundColor: theme.tintSoft }]}>
+                  <Ionicons
+                    name={v === 'device' ? 'sparkles' : 'desktop-outline'}
+                    size={13}
+                    color={active ? theme.tint : theme.textSecondary}
+                  />
+                  <ThemedText type="smallBold" style={{ color: active ? theme.tint : theme.textSecondary }}>
+                    {v === 'device' ? 'On device' : 'Server'}
+                  </ThemedText>
+                </Pressable>
+              );
+            })}
+          </Glass>
+          {serverActive ? (
+            <Glass radius={Radii.pill} style={styles.topChip}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setServerPage(inCut ? null : cutUrl(mediaLab))}
+                hitSlop={8}
+                style={styles.topChipInner}>
+                <Ionicons name={inCut ? 'film-outline' : 'cut-outline'} size={15} color={theme.tint} />
+                <ThemedText type="smallBold" style={{ color: theme.tint }}>{inCut ? 'Lab' : 'Cut'}</ThemedText>
+              </Pressable>
+            </Glass>
+          ) : (
+            <View style={styles.topSpacer} />
+          )}
+        </View>
       ) : null}
     </ThemedView>
   );
@@ -124,13 +168,11 @@ function ServerView({
   link,
   topInset,
   page,
-  onNavigate,
 }: {
   link: MediaLabLink;
   topInset: number;
-  /** A specific page to show (Cut after an upload, or the Studio⇄Cut chip). */
+  /** A specific page to show (Cut after an upload, or the Lab⇄Cut chip). */
   page: string | null;
-  onNavigate: (url: string | null) => void;
 }) {
   const theme = useTheme();
   const focusJob = useApp((s) => s.mediaLabFocusJob);
@@ -147,8 +189,6 @@ function ServerView({
   // Page precedence: an explicit page (Cut after an upload, or the chip)
   // beats the notification focus, which beats the studio home.
   const sourceUri = page ?? focusUri ?? link.url;
-  const inCut = /\/cut(\?|$)/.test(sourceUri);
-  const setUri = onNavigate;
   const [reach, setReach] = useState<Reach>('checking');
   const checkedFor = useRef<string | null>(null);
 
@@ -220,16 +260,6 @@ function ServerView({
       <Pressable onPress={check} style={styles.reload} hitSlop={10}>
         <Ionicons name="refresh" size={16} color="#FFFFFF" />
       </Pressable>
-      {/* Studio ⇄ Cut: the editor is one tap from anywhere in the server view. */}
-      <Glass radius={Radii.pill} style={styles.cutChip}>
-        <Pressable
-          onPress={() => setUri(inCut ? null : cutUrl(link))}
-          hitSlop={8}
-          style={styles.cutChipInner}>
-          <Ionicons name={inCut ? 'film-outline' : 'cut-outline'} size={14} color={theme.tint} />
-          <ThemedText type="smallBold" style={{ color: theme.tint }}>{inCut ? 'Studio' : 'Cut'}</ThemedText>
-        </Pressable>
-      </Glass>
     </View>
   );
 }
@@ -606,7 +636,7 @@ const styles = StyleSheet.create({
   },
   reload: {
     position: 'absolute',
-    top: Spacing.five + Spacing.three,
+    top: Spacing.five + Spacing.three + 44,
     right: Spacing.three,
     width: 32,
     height: 32,
@@ -615,17 +645,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.32)',
   },
-  cutChip: {
+  topRow: {
     position: 'absolute',
-    right: Spacing.three,
-    bottom: TAB_PILL_CLEARANCE + 6,
-  },
-  cutChipInner: {
+    left: Spacing.two,
+    right: Spacing.two,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    justifyContent: 'space-between',
+  },
+  topSpacer: { width: 88 },
+  topChip: { minWidth: 88 },
+  topChipInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
   },
   cellBusy: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
@@ -635,8 +671,6 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   switchPill: {
-    position: 'absolute',
-    alignSelf: 'center',
     flexDirection: 'row',
     padding: 3,
     gap: 2,
