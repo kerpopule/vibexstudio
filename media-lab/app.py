@@ -20,9 +20,12 @@ from chat_operator import (MUTATION_TOOLS, StudioOperator, ToolError,
                            tool_instructions)
 from image_template_context import (ImageTemplateContextError,
                                     selected_image_template_message)
-from screenshot_song import (aligned_starts, auto_music_seconds, clean_blocks,
-                              literal_vocal_qa, lyric_weighted_starts,
-                              merge_screenshot_blocks,
+from screenshot_song import (EXACT_SONG_MAX_WORDS, aligned_starts,
+                              auto_music_seconds, clean_blocks,
+                              format_exact_song_lyrics, literal_vocal_qa,
+                              lyric_tokens, melodic_delivery_qa,
+                              lyric_weighted_starts,
+                              merge_screenshot_blocks, plan_exact_song_parts,
                               render_screenshot_video, song_first_auto_seconds,
                               song_first_lyrics_qa, song_first_word_budget)
 
@@ -446,18 +449,13 @@ _MUSIC_SECTION_TAG = re.compile(
 
 
 def _literal_song_lyrics(source: str) -> str:
-    """Add deterministic verse tags without letting an LLM rewrite screenshot text.
+    """Reflow exact words into deterministic short phrases and verse sections.
 
     Literal prose is never labelled Chorus, Intro, or Outro: those labels invite
-    repetition or omission. Extra runtime belongs to instrumental arrangement,
-    not duplicated words.
+    repetition or omission. The short lines stop Music 3 treating a paragraph as
+    narration while preserving every reviewed word in order.
     """
-    blocks = [block.strip() for block in re.split(r"\n\s*\n", source.strip())
-              if block.strip()]
-    if not blocks:
-        return ""
-    return "\n\n".join(
-        f"[Verse {index}]\n{block}" for index, block in enumerate(blocks, start=1))
+    return format_exact_song_lyrics(source)
 
 
 def _literal_words(text: str) -> str:
@@ -491,8 +489,11 @@ def _music_seconds(request: dict) -> float:
     length = str(request.get("length") or "auto").strip().lower()
     if length == "auto":
         blocks = len(request.get("screenshots") or []) or None
-        if request.get("screenshot_song_mode") == "song":
-            text = str(request.get("lyrics") or request.get("source_material") or "")
+        mode = request.get("screenshot_song_mode")
+        text = str(request.get("lyrics") or request.get("source_material") or "")
+        if mode == "exact":
+            return float(song_first_auto_seconds(text, blocks, adapted=True))
+        if mode == "song":
             return float(song_first_auto_seconds(
                 text, blocks, adapted=bool(request.get("_song_first_adapted"))))
         return float(auto_music_seconds(str(request.get("lyrics") or ""), blocks))
@@ -3092,6 +3093,8 @@ def run_music(j, finalize: bool = True):
     jd = JOBS_DIR / j["id"]; jd.mkdir(parents=True, exist_ok=True)
     song_first = (j.get("kind") == "screenshotsong" and
                   r.get("screenshot_song_mode") == "song")
+    melodic_exact = (j.get("kind") == "screenshotsong" and
+                     r.get("screenshot_song_mode") in ("exact", "verbatim"))
     auto_duration = (str(r.get("length") or "auto").strip().lower() == "auto" and
                      r.get("duration_seconds") is None)
     try:
@@ -3126,6 +3129,13 @@ def run_music(j, finalize: bool = True):
         )
     if own:
         user += f"\nThe user supplied these lyrics — keep their words, add section tags:\n{own}"
+    if melodic_exact:
+        user += (
+            "\nThis is an exact-lyrics screenshot song. Every supplied word is immutable and "
+            "must be sung exactly once in order. Add only non-vocal section tags. Compose "
+            "a clearly pitched melodic performance with sustained notes and instrumental "
+            "breathing room; never speak, narrate, recite, chant, or rap the lyrics."
+        )
     try:
         data = qwen_json(MUSIC_SYS, user)
         caption = str(data.get("caption", "")).strip()
@@ -3134,6 +3144,18 @@ def run_music(j, finalize: bool = True):
         assert "Global Metadata" in caption and "Arrangement" in caption
         if literal:
             caption = _literal_music_caption(caption)
+        if melodic_exact:
+            caption = (
+                caption.rstrip() +
+                " The exact supplied words are sung on sustained pitched melody with "
+                "instrumental bars between sections; never spoken, narrated, recited, "
+                "chanted, or rapped."
+            )
+            if auto_duration:
+                secs = float(song_first_auto_seconds(own, adapted=True))
+                r["duration_seconds"] = secs
+                r["auto_duration_resolved"] = True
+                j["duration_seconds"] = secs
         if song_first:
             structure = song_first_lyrics_qa(lyrics, max_words=budget)
             if not structure["passed"]:
@@ -3166,8 +3188,8 @@ def run_music(j, finalize: bool = True):
     if st == "fail":
         return fail(j, friendly("comfy_boot"))
 
-    # Screenshot songs receive a real post-render Director gate against either
-    # the reviewed verbatim text or the approved song-first adaptation.
+    # Screenshot songs receive a real post-render Director gate against exact
+    # reviewed text; the legacy adaptation branch remains only for old jobs.
     vocal_contract = literal or song_first
     vocal_target = own if literal else _literal_words(lyrics)
     max_attempts = 3 if vocal_contract else 1
@@ -3221,14 +3243,22 @@ def run_music(j, finalize: bool = True):
         report = literal_vocal_qa(
             vocal_target, transcript.get("words") or [], requested_duration=secs,
             actual_duration=media_duration(candidate), duration_policy="maximum",
-            delivery_policy="song" if song_first else "literal")
+            delivery_policy=("exact" if melodic_exact else
+                             ("song" if song_first else "literal")))
+        if melodic_exact or song_first:
+            melody = melodic_delivery_qa(_screenshot_song_melody_report(candidate))
+            report["melodic_delivery"] = melody
+            if not melody["passed"]:
+                report["passed"] = False
+                report["reason"] = melody["reason"]
         report.update({"attempt": attempt, "seed": seed})
         attempts.append(report)
         (jd / f"director-qa-attempt-{attempt}.json").write_text(
             json.dumps({"report": report, "transcript": transcript}, indent=2,
                        ensure_ascii=False), encoding="utf-8")
         j["director_qa"] = {"passed": report["passed"], "attempts": attempts,
-                            "policy": ("song-first-asr-v1" if song_first else
+                            "policy": ("exact-song-asr-v1" if melodic_exact else
+                                       "song-first-asr-v1" if song_first else
                                        "verbatim-asr-v1")}
         if report["passed"]:
             approved = candidate; approved_transcript = transcript; j["seed"] = seed
@@ -3247,7 +3277,8 @@ def run_music(j, finalize: bool = True):
     if vocal_contract:
         j["director_qa"] = {"passed": True, "attempts": attempts,
                             "approved_attempt": attempts[-1]["attempt"],
-                            "policy": ("song-first-asr-v1" if song_first else
+                            "policy": ("exact-song-asr-v1" if melodic_exact else
+                                       "song-first-asr-v1" if song_first else
                                        "verbatim-asr-v1")}
         # Reuse the exact approved transcript for screenshot timing; the child
         # runner removes this temporary evidence before the persisted job save.
@@ -3282,6 +3313,25 @@ def _screenshot_song_transcript(song: Path) -> dict:
         return json.loads(result.stdout)
     except Exception:
         return {"error": "Whisper returned unreadable timing data"}
+
+
+def _screenshot_song_melody_report(song: Path) -> dict:
+    """Measure pitch movement on CPU so spoken/recited takes fail closed."""
+    python = Path.home() / "runtime/comfy-ltx25/ComfyUI/.venv/bin/python"
+    analyzer = ROOT / "runner/screenshot_song_melody.py"
+    if not python.is_file() or not analyzer.is_file():
+        return {"error": "melodic delivery analyzer is unavailable"}
+    env = dict(os.environ, CUDA_VISIBLE_DEVICES="", HF_HUB_OFFLINE="1",
+               TRANSFORMERS_OFFLINE="1")
+    result = subprocess.run([str(python), str(analyzer), str(song)],
+                            capture_output=True, text=True, timeout=600, env=env)
+    if result.returncode:
+        return {"error": (result.stderr or result.stdout or
+                          "melodic delivery analysis failed")[-800:]}
+    try:
+        return json.loads(result.stdout)
+    except Exception:
+        return {"error": "melodic delivery analyzer returned unreadable evidence"}
 
 def run_screenshot_song(j):
     """Music 3 song -> CPU lyric alignment -> deterministic screenshot cut."""
@@ -3338,7 +3388,8 @@ def run_screenshot_song(j):
              "request": {"song_id": j["id"], "parent_id": j["id"],
                          "timing_method": timing["method"]},
              "url": j["video_url"], "poster": j["video_poster"],
-             "message": None, "parent_id": j["id"]}
+             "message": None, "parent_id": j["id"],
+             "board_id": j.get("board_id")}
     jobs[video_id] = child
     gallery_add(j["id"], f"🎵 {str(request.get('vibe') or 'Screenshot song')[:120]}",
                 "music", song_url, wave_url if (MEDIA / f"{j['id']}-wave.png").exists() else "")
@@ -4391,6 +4442,112 @@ def recompose_board(board, chars=None):
     for b in board.get("beats", []):
         b["composed_prompt"] = compose_beat_prompt(board, b, chars)
     return board
+
+
+_storyboard_creation_lock = threading.Lock()
+
+
+def ensure_multi_scene_storyboard(j):
+    """Atomically enforce the one-board-per-multi-scene-job invariant."""
+    with _storyboard_creation_lock:
+        return _ensure_multi_scene_storyboard_unlocked(j)
+
+
+def _ensure_multi_scene_storyboard_unlocked(j):
+    """Persist one editable Storyboard for every completed multi-scene job.
+
+    This is a backend invariant, not a UI convenience: phones, web, desktop,
+    queue clients, and future surfaces all read the same ``/api/storyboards``
+    records. Repeated calls are idempotent by ``source_job_id``.
+    """
+    if not isinstance(j, dict) or j.get("kind") in {
+            "storyboard", "filmbeat", "assemble", "boardfilm"}:
+        return None
+    request = j.get("request") or {}
+    scenes = []
+    if j.get("kind") == "screenshotsong":
+        frames = [row for row in (request.get("screenshots") or [])
+                  if str(row.get("text") or "").strip()]
+        cues = j.get("screenshot_cues") or []
+        for index, frame in enumerate(frames):
+            cue = cues[index] if index < len(cues) else {}
+            start = float(cue.get("start") or 0.0)
+            end = float(cue.get("end") or start)
+            scenes.append({
+                "i": index,
+                "title": f"Screenshot {index + 1}",
+                "text": str(frame.get("text") or ""),
+                "seconds": max(0.0, end - start),
+                "still_url": str(frame.get("source") or "") or None,
+                "poster": str(frame.get("source") or "") or None,
+                "url": None,
+            })
+    else:
+        scenes = [scene for scene in (j.get("scenes") or [])
+                  if isinstance(scene, dict)]
+    if len(scenes) <= 1:
+        return None
+
+    source_id = str(j.get("id") or "")
+    boards = _load(BOARDS_FILE, [])
+    board = next((row for row in boards
+                  if str(row.get("source_job_id") or "") == source_id), None)
+    if board is None:
+        concept = str(request.get("concept") or request.get("vibe") or
+                      request.get("prompt") or "Multi-scene production").strip()
+        part_count = int(request.get("part_count") or 1)
+        part_index = int(request.get("part_index") or 1)
+        suffix = f" — Part {part_index} of {part_count}" if part_count > 1 else ""
+        title = (concept or "Multi-scene production")[:80] + suffix
+        board = {
+            "id": uuid.uuid4().hex[:12],
+            "title": title[:120],
+            "idea": concept,
+            "song_id": (source_id if j.get("kind") == "screenshotsong"
+                        else request.get("song_id") or None),
+            "cast": request.get("cast") or [],
+            "orientation": (request.get("orientation")
+                            if request.get("orientation") in SIZES else "landscape"),
+            "bible": {"style": str(j.get("identity") or "")[:900],
+                      "world": "", "camera": "", "characters": []},
+            "seed": board_seed({"id": source_id}),
+            "beats": [],
+            "final_url": (j.get("video_url") if j.get("kind") == "screenshotsong"
+                          else j.get("url")),
+            "source_job_id": source_id,
+            "source_kind": j.get("kind"),
+            "auto_created": True,
+            "series_id": request.get("series_id"),
+            "ts": int(time.time()),
+        }
+        for index, scene in enumerate(scenes):
+            seconds = float(scene.get("seconds") or 0.0)
+            text = str(scene.get("text") or "")
+            still_url = scene.get("still_url")
+            board["beats"].append({
+                "title": str(scene.get("title") or f"Scene {index + 1}")[:200],
+                "description": text[:4000],
+                "video_prompt": text[:8000],
+                "characters": None,
+                "speaker": "",
+                "duration": str(beat_seconds(seconds or 6)),
+                "source_duration": round(seconds, 3) if seconds else None,
+                "still_url": still_url,
+                "clip_url": scene.get("url"),
+                "poster": scene.get("poster") or still_url,
+            })
+        recompose_board(board)
+        boards.insert(0, board)
+    else:
+        board["final_url"] = (j.get("video_url") if j.get("kind") == "screenshotsong"
+                              else j.get("url")) or board.get("final_url")
+    _save(BOARDS_FILE, boards)
+    j["board_id"] = board["id"]
+    child = jobs.get(f"{source_id}-screens")
+    if isinstance(child, dict):
+        child["board_id"] = board["id"]
+    return board["id"]
+
 
 def board_seed(board):
     """The one seed every beat of this board films with.
@@ -6778,6 +6935,12 @@ def run_queued_job(job_id):
             fail(j, "Something went wrong — the studio stopped this job safely.", e)
         j["finished"] = time.time()
         if j["status"] == "done":
+            try:
+                ensure_multi_scene_storyboard(j)
+            except Exception as exc:
+                fail(j, "The media finished, but its Storyboard record could not be created.",
+                     str(exc))
+        if j["status"] == "done":
             eta_record(j)
             notify_done(j)
         save_state()
@@ -7012,7 +7175,7 @@ class ScreenshotSongReq(BaseModel):
     duration_seconds: Optional[int] = None
     orientation: str = "portrait"
     motion: bool = True
-    screenshot_song_mode: str = "song"
+    screenshot_song_mode: str = "exact"
     screenshots: list[ScreenshotSongFrame] = []
 class MaestroReq(BaseModel):
     settings: dict
@@ -7180,8 +7343,9 @@ def screenshot_song_make(r: ScreenshotSongReq):
         return JSONResponse({"error": "review at least one screenshot"}, status_code=400)
     if r.orientation not in ("portrait", "landscape", "square"):
         return JSONResponse({"error": "unsupported video shape"}, status_code=400)
-    if r.screenshot_song_mode not in ("song", "verbatim"):
+    if r.screenshot_song_mode not in ("exact", "song", "verbatim"):
         return JSONResponse({"error": "unsupported screenshot-song mode"}, status_code=400)
+    mode = "exact" if r.screenshot_song_mode in ("exact", "song") else "verbatim"
     frames = []
     for index, frame in enumerate(r.screenshots):
         source = media_path(frame.source)
@@ -7203,32 +7367,100 @@ def screenshot_song_make(r: ScreenshotSongReq):
         return JSONResponse({"error": "There is no reviewed text to sing."}, status_code=400)
     if len(lyrics) > SCREENSHOT_TEXT_TOTAL_MAX:
         return JSONResponse({"error": (f"That screenshot set has {len(lyrics):,} reviewed characters; "
-                                       f"the one-song limit is {SCREENSHOT_TEXT_TOTAL_MAX:,}. Nothing was truncated.")},
+                                       f"the submission limit is {SCREENSHOT_TEXT_TOTAL_MAX:,}. Nothing was truncated.")},
                             status_code=400)
-    song_first = r.screenshot_song_mode == "song"
-    request = {"manifest_id": r.manifest_id,
-               "vibe": r.vibe.strip()[:8000] or
-                       "Playful, catchy acoustic song with hand percussion and warm vocals",
-               "length": str(r.length), "orientation": r.orientation,
-               "duration_seconds": r.duration_seconds,
-               "motion": bool(r.motion), "screenshots": frames,
-               "source_material": lyrics,
-               "screenshot_song_mode": r.screenshot_song_mode,
-               "lyrics": "" if song_first else lyrics,
-               "literal_lyrics": not song_first}
-    try:
-        estimated_seconds = _music_seconds(request)
-    except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=400)
     automatic = (str(r.length).strip().lower() == "auto" and
                  r.duration_seconds is None)
-    request["duration_seconds"] = None if automatic else estimated_seconds
-    request["auto_duration_estimate"] = estimated_seconds if automatic else None
+    max_words = EXACT_SONG_MAX_WORDS
+    if r.duration_seconds is not None:
+        max_words = max(40, min(EXACT_SONG_MAX_WORDS,
+                               int(max(20.0, float(r.duration_seconds) - 18.0) * 0.9)))
+    if mode == "exact":
+        try:
+            parts = plan_exact_song_parts(frames, max_words=max_words)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+    else:
+        parts = [{"index": 1, "count": 1, "frames": frames,
+                  "lyrics": lyrics, "word_count": len(lyric_tokens(lyrics))}]
+    series_id = f"{r.manifest_id}-{uuid.uuid4().hex[:8]}"
+    job_rows = []
+    submitted_jobs = []
+    reviewed_parts = []
+    for part in parts:
+        part_frames = part["frames"]
+        part_lyrics = part["lyrics"]
+        request = {"manifest_id": r.manifest_id,
+                   "series_id": series_id,
+                   "part_index": part["index"], "part_count": part["count"],
+                   "vibe": r.vibe.strip()[:8000] or
+                           "Playful, catchy acoustic song with hand percussion and warm vocals",
+                   "length": str(r.length), "orientation": r.orientation,
+                   "duration_seconds": r.duration_seconds,
+                   "motion": bool(r.motion), "screenshots": part_frames,
+                   "source_material": part_lyrics,
+                   "screenshot_song_mode": mode,
+                   "lyrics": part_lyrics,
+                   "literal_lyrics": True}
+        try:
+            estimated_seconds = _music_seconds(request)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        request["duration_seconds"] = None if automatic else estimated_seconds
+        request["auto_duration_estimate"] = estimated_seconds if automatic else None
+        job = submit_job("screenshotsong", request, extra={"warm": engine_up("music")})
+        row = {"id": job["id"], "part_index": part["index"],
+               "part_count": part["count"], "word_count": part["word_count"],
+               "duration_seconds": estimated_seconds, "eta_min": eta_estimate(job)}
+        job_rows.append(row)
+        submitted_jobs.append(job)
+        reviewed_parts.append({**part, "job_id": job["id"],
+                               "duration_seconds": estimated_seconds})
+    board_id = None
+    if len(frames) > 1:
+        estimated_total = sum(float(row["duration_seconds"]) for row in job_rows)
+        total_words = max(1, len(lyric_tokens(lyrics)))
+        series_job = {
+            "id": series_id,
+            "kind": "screenshotseries",
+            "status": "queued",
+            "request": {
+                "concept": (r.vibe.strip() or "Screenshot song series"),
+                "orientation": r.orientation,
+                "song_id": job_rows[0]["id"],
+                "series_id": series_id,
+                "timing_estimated": True,
+            },
+            "scenes": [
+                {
+                    "i": index,
+                    "title": f"Screenshot {index + 1}",
+                    "text": frame["text"],
+                    "seconds": estimated_total * len(lyric_tokens(frame["text"])) / total_words,
+                    "still_url": frame["source"],
+                    "poster": frame["source"],
+                    "url": None,
+                }
+                for index, frame in enumerate(frames)
+            ],
+        }
+        board_id = ensure_multi_scene_storyboard(series_job)
+        if board_id:
+            for submitted, row in zip(submitted_jobs, job_rows):
+                submitted["board_id"] = board_id
+                submitted["request"]["series_board_id"] = board_id
+                row["board_id"] = board_id
+            save_state()
     reviewed = SCREENSHOT_SONGS_DIR / r.manifest_id / "reviewed.json"
-    reviewed.write_text(json.dumps(request, indent=2, ensure_ascii=False), encoding="utf-8")
-    j = submit_job("screenshotsong", request, extra={"warm": engine_up("music")})
-    return {"id": j["id"], "eta_min": eta_estimate(j),
-            "duration_seconds": estimated_seconds, "automatic": automatic}
+    reviewed.write_text(json.dumps({
+        "manifest_id": r.manifest_id, "series_id": series_id,
+        "screenshot_song_mode": mode, "automatic": automatic,
+        "max_words_per_part": max_words, "parts": reviewed_parts,
+    }, indent=2, ensure_ascii=False), encoding="utf-8")
+    return {"id": job_rows[0]["id"], "ids": [row["id"] for row in job_rows],
+            "jobs": job_rows, "parts": len(job_rows), "automatic": automatic,
+            "duration_seconds": job_rows[0]["duration_seconds"],
+            "board_id": board_id}
 
 @app.post("/api/image")
 def image(r: ImageReq):
@@ -8015,39 +8247,16 @@ def mv_suggest(song_id: str):
 
 @app.post("/api/musicvideo/{mid}/to-board")
 def musicvideo_to_board(mid: str):
-    """Turn a finished music video into a storyboard — one beat per scene, each
-    already filmed — so scenes can be refilmed, reordered, deleted, extended and
-    reassembled. Only works for videos that recorded their scenes (2026-08-16+)."""
+    """Return the auto-created storyboard for a recorded multi-scene video."""
     j = jobs.get(mid)
     if not j or j.get("kind") != "musicvideo":
         return JSONResponse({"error": "unknown music video"}, status_code=404)
-    scenes = j.get("scenes") or []
-    if not scenes:
-        return JSONResponse({"error": "this video predates per-scene records — remake it and every scene will carry over"},
-                            status_code=400)
-    r = j.get("request") or {}
-    identity = str(j.get("identity") or "").strip()
-    board = {"id": uuid.uuid4().hex[:12],
-             "title": (str(r.get("concept") or "Music video"))[:80],
-             "idea": str(r.get("concept") or ""),
-             "song_id": r.get("song_id") or None, "cast": r.get("cast") or [],
-             "orientation": r.get("orientation") if r.get("orientation") in SIZES else "landscape",
-             "bible": {"style": identity[:900], "world": "", "camera": "", "characters": []},
-             "seed": board_seed({"id": mid}),
-             "beats": [{"title": f"Scene {sc.get('i', k) + 1}",
-                        "description": str(sc.get("text") or "")[:300],
-                        "video_prompt": str(sc.get("text") or ""),
-                        "characters": None, "speaker": "",
-                        "duration": str(beat_seconds(sc.get("seconds") or 6)),
-                        "still_url": None, "clip_url": sc.get("url"),
-                        "poster": sc.get("poster")}
-                       for k, sc in enumerate(scenes)],
-             "final_url": j.get("url"), "ts": int(time.time())}
-    recompose_board(board)
-    boards = _load(BOARDS_FILE, [])
-    boards.insert(0, board)
-    _save(BOARDS_FILE, boards)
-    return {"ok": True, "board_id": board["id"]}
+    if len(j.get("scenes") or []) <= 1:
+        return JSONResponse(
+            {"error": "this video has no multi-scene record to open as a storyboard"},
+            status_code=400)
+    board_id = ensure_multi_scene_storyboard(j)
+    return {"ok": True, "board_id": board_id}
 
 @app.post("/api/musicvideo")
 def musicvideo(r: MVReq):

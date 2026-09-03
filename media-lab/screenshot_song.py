@@ -154,7 +154,163 @@ def song_first_auto_seconds(text: str, block_count: int | None = None,
                            if part.strip()])
     sections = max(4, min(8, int(block_count or 1) + 3))
     raw = singable_words / 1.2 + sections * 2.0 + 16.0
-    return max(75, min(180, int(math.ceil(raw / 5.0) * 5)))
+    minimum = 30 if adapted else 75
+    return max(minimum, min(180, int(math.ceil(raw / 5.0) * 5)))
+
+
+EXACT_SONG_MAX_WORDS = 60
+EXACT_SONG_WORDS_PER_LINE = 7
+EXACT_SONG_LINES_PER_VERSE = 3
+
+
+def format_exact_song_lyrics(source: str,
+                             words_per_line: int = EXACT_SONG_WORDS_PER_LINE,
+                             lines_per_verse: int = EXACT_SONG_LINES_PER_VERSE) -> str:
+    """Reflow immutable words into short Music 3 phrases without rewriting them.
+
+    Music 3 treats a prose paragraph like narration even when the caption says
+    "sing". Short lines and small verse sections give the model places to hold
+    notes and insert bars while preserving every reviewed token in order.
+    """
+    units = str(source or "").split()
+    if not units:
+        return ""
+    words_per_line = max(3, min(10, int(words_per_line)))
+    lines_per_verse = max(1, min(6, int(lines_per_verse)))
+    lines = [" ".join(units[index:index + words_per_line])
+             for index in range(0, len(units), words_per_line)]
+    sections = []
+    for index in range(0, len(lines), lines_per_verse):
+        verse = index // lines_per_verse + 1
+        sections.append(f"[Verse {verse}]\n" +
+                        "\n".join(lines[index:index + lines_per_verse]))
+    return "\n\n".join(sections)
+
+
+def melodic_delivery_qa(metrics: dict | None) -> dict:
+    """Fail closed when the rendered vocal behaves like recitation, not a song.
+
+    Thresholds are calibrated against Steve's rejected recitative outputs and
+    known melodic Music 3 renders. They intentionally favor rerendering over
+    publishing a monotone take.
+    """
+    metrics = dict(metrics or {})
+    try:
+        analyzed = float(metrics.get("analyzed_seconds") or 0.0)
+        pitch_iqr = float(metrics.get("pitch_iqr_semitones") or 0.0)
+        pitch_range = float(metrics.get("pitch_p90_p10_semitones") or 0.0)
+    except (TypeError, ValueError):
+        analyzed = pitch_iqr = pitch_range = 0.0
+    minimum_iqr = 8.0
+    minimum_range = 18.0
+    passed = (analyzed >= 5.0 and pitch_iqr >= minimum_iqr and
+              pitch_range >= minimum_range)
+    reasons = []
+    if analyzed < 5.0:
+        reasons.append("not enough analyzable audio")
+    if pitch_iqr < minimum_iqr:
+        reasons.append("vocal pitch stayed too narrow")
+    if pitch_range < minimum_range:
+        reasons.append("vocal lacked a melodic pitch range")
+    return {
+        "passed": passed,
+        "reason": ("melodic singing contract passed" if passed else
+                   "recitation detected: " + "; ".join(reasons)),
+        "analyzed_seconds": round(analyzed, 3),
+        "pitch_iqr_semitones": round(pitch_iqr, 3),
+        "pitch_p90_p10_semitones": round(pitch_range, 3),
+        "minimum_pitch_iqr_semitones": minimum_iqr,
+        "minimum_pitch_p90_p10_semitones": minimum_range,
+    }
+
+
+def _split_oversized_frame(frame: dict, max_words: int) -> list[dict]:
+    """Split one long screenshot at word boundaries without changing its words."""
+    text = str(frame.get("text") or "").strip()
+    matches = list(re.finditer(r"[\w']+", text, re.UNICODE))
+    if len(matches) <= max_words:
+        return [dict(frame, text=text)]
+    chunks: list[dict] = []
+    for begin in range(0, len(matches), max_words):
+        end_index = min(begin + max_words, len(matches))
+        start_char = matches[begin].start()
+        end_char = (matches[end_index].start() if end_index < len(matches)
+                    else len(text))
+        chunks.append(dict(frame, text=text[start_char:end_char].strip()))
+    return chunks
+
+
+def plan_exact_song_parts(frames: Sequence[dict],
+                          max_words: int = EXACT_SONG_MAX_WORDS) -> list[dict]:
+    """Balance exact screenshot lyrics into the fewest contiguous singable parts.
+
+    Every source word is preserved in order. Normal screenshots stay whole; only a
+    single screenshot that exceeds the ceiling is split at a word boundary and
+    retains the same source image for each resulting chunk.
+    """
+    if max_words < 20:
+        raise ValueError("exact-song word ceiling must be at least 20")
+    expanded: list[dict] = []
+    for frame in frames:
+        if str(frame.get("text") or "").strip():
+            expanded.extend(_split_oversized_frame(frame, max_words))
+    if not expanded:
+        raise ValueError("exact-song planning needs at least one non-empty screenshot")
+    weights = [len(lyric_tokens(frame["text"])) for frame in expanded]
+    if any(weight > max_words for weight in weights):
+        raise ValueError("exact-song planner produced an oversized part")
+    total = sum(weights)
+    prefix = [0]
+    for weight in weights:
+        prefix.append(prefix[-1] + weight)
+
+    selected: tuple[int, list[list[float]], list[list[int | None]]] | None = None
+    minimum_parts = max(1, int(math.ceil(total / max_words)))
+    for part_count in range(minimum_parts, len(expanded) + 1):
+        target = total / part_count
+        costs = [[math.inf] * (len(expanded) + 1) for _ in range(part_count + 1)]
+        previous: list[list[int | None]] = [
+            [None] * (len(expanded) + 1) for _ in range(part_count + 1)
+        ]
+        costs[0][0] = 0.0
+        for group in range(1, part_count + 1):
+            for end in range(group, len(expanded) + 1):
+                for begin in range(group - 1, end):
+                    group_words = prefix[end] - prefix[begin]
+                    if group_words > max_words or math.isinf(costs[group - 1][begin]):
+                        continue
+                    cost = costs[group - 1][begin] + (group_words - target) ** 2
+                    if cost < costs[group][end]:
+                        costs[group][end] = cost
+                        previous[group][end] = begin
+        if not math.isinf(costs[part_count][len(expanded)]):
+            selected = (part_count, costs, previous)
+            break
+    if selected is None:
+        raise RuntimeError("could not partition exact screenshot lyrics")
+
+    part_count, _costs, previous = selected
+    ranges: list[tuple[int, int]] = []
+    end = len(expanded)
+    for group in range(part_count, 0, -1):
+        begin = previous[group][end]
+        if begin is None:
+            raise RuntimeError("exact-song partition reconstruction failed")
+        ranges.append((begin, end))
+        end = begin
+    ranges.reverse()
+    parts: list[dict] = []
+    for index, (begin, end) in enumerate(ranges, start=1):
+        rows = expanded[begin:end]
+        lyrics = "\n\n".join(str(row["text"]).strip() for row in rows)
+        parts.append({
+            "index": index,
+            "count": part_count,
+            "frames": rows,
+            "lyrics": lyrics,
+            "word_count": len(lyric_tokens(lyrics)),
+        })
+    return parts
 
 
 _SONG_SECTION = re.compile(
@@ -262,7 +418,15 @@ def literal_vocal_qa(target_text: str, transcript_words: Sequence[dict],
     omitted = len(target) - len(matched_target)
     coverage = matched / max(1, len(target))
     max_extra_run = max((len(run) for run in extra_runs), default=0)
-    if delivery_policy == "song":
+    if delivery_policy == "exact":
+        # Exact Auto-fit parts are intentionally short (<=110 words), so two
+        # missing or substituted words are material and must trigger a retry.
+        # One isolated token remains available for unavoidable ASR uncertainty.
+        minimum_coverage = 0.985
+        allowed_omissions = 1
+        allowed_extras = 1
+        allowed_extra_run = 1
+    elif delivery_policy == "song":
         minimum_coverage = 0.88
         allowed_omissions = max(2, int(math.floor(len(target) * 0.12)))
         allowed_extras = max(3, int(math.floor(len(target) * 0.08)))
@@ -312,8 +476,9 @@ def literal_vocal_qa(target_text: str, transcript_words: Sequence[dict],
     return {
         "passed": passed,
         "reason": "; ".join(reasons) if reasons else (
-            "song-first vocal contract passed" if delivery_policy == "song"
-            else "verbatim vocal contract passed"),
+            "exact lyric contract passed" if delivery_policy == "exact"
+            else ("song-first vocal contract passed" if delivery_policy == "song"
+                  else "verbatim vocal contract passed")),
         "target_words": len(target), "heard_words": len(heard),
         "matched_words": matched, "matched_fraction": round(coverage, 4),
         "omitted_words": omitted, "extra_words": len(extras),

@@ -1,37 +1,23 @@
 # Screenshot songs
 
-Screenshot songs support two delivery modes.
+**Exact Auto-fit** is the default. Reviewed screenshot text is immutable: every word must be sung exactly once, in order, with no paraphrase.
 
-## Catchy song (default)
+## Automatic planning
 
-Use this when the result should sound like a song rather than a literal reading.
-
-- Reviewed screenshot text is source material, not a verbatim vocal contract.
-- The local songwriter selects the strongest moments in screenshot order.
-- Lyrics must contain at least two short verses and the same chorus written out at least twice.
-- Lyric lines are capped at 16 words and the total lyric is capped at 180 words.
-- The Music 3 caption explicitly requires pitched melodic singing, a repeated hook, instrumental transitions, and no spoken-word, recitative, narration, or rap.
-- Screenshots use deterministic story-weighted timing because adapted lyrics do not reproduce every source sentence.
-
-## Every word
-
-Use this when every reviewed word must be performed in order. This mode keeps the deterministic literal-vocal Director gate and Whisper word alignment. Long prose may sound more like narration; that is an intentional trade-off, not the default.
+- Each part is capped at 60 words, and exact text is reflowed into short
+  seven-word melodic phrases without changing or reordering any word.
+- Long submissions split into the fewest balanced parts.
+- Normal screenshots stay whole and in order.
+- Each part is its own `screenshotsong` queue job and video output.
 
 ## Auto duration
 
-Auto is content-aware:
+With **Auto** selected, each planned part receives its own runtime ceiling from its exact word count and scene count (as short as 30 seconds for a tiny lyric; up to 180 seconds). Adding or removing reviewed text recalculates the estimate immediately. Music 3 may end naturally before that ceiling; the rendered duration drives screenshot timing, so the audio is never stretched just to fill a slider value.
 
-1. The UI recalculates whenever included text changes or a screenshot is included/excluded.
-2. Song-first estimates assume the source will be compressed to roughly 48 percent of its prose word count, bounded to 60–180 lyric words.
-3. After the songwriter produces the actual lyric, the server recalculates the Music 3 duration ceiling from the real lyric and section count.
-4. Music 3 may end naturally before that ceiling. A shorter render is valid when the vocal contract passes; it is never stretched to an arbitrary requested length.
-5. A manually selected duration remains an explicit override.
+## Director gate and queue visibility
 
-The maximum supported ceiling is three minutes. Auto favors enough space for melody, repeated hooks, instrumental transitions, and an outro instead of maximizing words per second.
+Each part must pass both local word-order ASR QA and a CPU pitch-movement test before it is published. Exact Auto-fit allows no more than one isolated ASR uncertainty per part; two missing/substituted words, repeated runs, confident additions, prompt leakage, or recitative/spoken delivery trigger a retry or rejection. A passing part creates both a `screenshotsong` queue record and a `screenshotmusicvideo` child record.
 
-## Director gates
+A submission with more than one included screenshot creates exactly one editable group Storyboard immediately—even when Auto-fit splits it into several one-screenshot songs. Every screenshot becomes a beat with its exact text and estimated timing; every split song and its screenshot-video child share the same `board_id`, so **Open storyboard** is available from queue history and the Music gallery on every paired Media Lab surface. Completed multi-scene jobs from other Media Lab workflows use the same backend invariant, while one-shot jobs stay one-shot.
 
-- Written numbers and their spoken equivalents are normalized for ASR comparison.
-- Only low-confidence Whisper hallucinations after the last matched lyric may be ignored.
-- Confident extra vocals, missing passages, prompt leakage, and unordered lyrics still fail closed.
-- Technical QA does not imply creative approval.
+**Force one exact song** bypasses automatic splitting. It still preserves the text and must pass the same melody gate, so long prose that forces read-like delivery is rejected; Exact Auto-fit is the recommended default.
