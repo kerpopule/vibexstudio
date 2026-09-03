@@ -18,7 +18,7 @@ Apache-2.0. **No accounts, no telemetry, no per-render bills.**
 - **Video** — fast drafts (LTX) and cinematic renders (MiniMax H3 modes:
   text-to-video, image-to-video, reference-identity, v2v motion transfer),
   long-form via segment chaining, 500+ curated style templates.
-- **Music & music videos** — full songs and storyboarded MVs.
+- **Music & music videos** — full songs and storyboarded MVs. Screenshot songs default to a song-first mode that selects the strongest moments, writes a repeated hook, and automatically gives melody and instrumental passages enough time; an Every word mode preserves literal text when needed. See [docs/screenshot-songs.md](docs/screenshot-songs.md).
 - **Images** — generation, SAM-powered tap-to-select editing, FLUX Kontext,
   and a big template library.
 - **Characters** — reusable identities with consistent look and voice

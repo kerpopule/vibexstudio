@@ -972,6 +972,9 @@
       <div class="label">Review what will be sung</div>
       <div class="hint" id="ss_summary"></div>
       <div class="ssreview" id="ss_items"></div>
+      <div class="label">Song approach</div>
+      <div class="chips" id="ss_mode"><div class="chip sel" data-v="song">🎵 Catchy song</div><div class="chip" data-v="verbatim">📝 Every word</div></div>
+      <div class="hint" id="ss_mode_hint">Recommended: selects the strongest moments, writes a repeated hook, and leaves room for melody and instruments.</div>
       <textarea id="ss_vibe" style="margin-top:12px" maxlength="8000" placeholder="Music style or direction — e.g. a fun bongo song, playful duet, smoky jazz ballad…">A playful, catchy bongo song with warm vocals and lively hand percussion</textarea>
       <div class="label">Song length</div>
       <div class="durrow">
@@ -979,7 +982,7 @@
         <input type="range" id="ssDurSlider" min="20" max="180" step="1" value="90" aria-label="Screenshot song length in seconds">
         <div class="durval" id="ssDurVal">Auto</div>
       </div>
-      <div class="hint" id="ssDurHint">Auto gives every reviewed line readable time; extra time stays instrumental.</div>
+      <div class="hint" id="ssDurHint">Auto follows the included scenes and recalculates after the song lyrics are written.</div>
       <div class="label">Video shape</div>
       <div class="chips" id="ss_shape"><div class="chip sel" data-v="portrait">▯ Phone</div><div class="chip" data-v="landscape">▭ Wide</div><div class="chip" data-v="square">◻ Square</div></div>
       <div class="togglechip sel" id="ss_motion" style="margin-top:12px">✨ Gentle motion behind each screenshot</div>
@@ -2827,16 +2830,25 @@ const err=(box,btn)=>m=>{btn.disabled=false;box.textContent=m;box.style.display=
 
 /* ---- music ---- */
 const SS={manifest:null,rows:[],job:null};
-function autoSongSeconds(text,blocks){
+function songFirstAutoSeconds(text,blocks){
+  const words=(String(text||'').match(/[\p{L}\p{N}_']+/gu)||[]).length;
+  if(!words)return 90;
+  const n=Math.max(1,blocks||1);
+  const lyricBudget=Math.max(60,Math.min(180,Math.round(words*.48)));
+  const sections=Math.max(4,Math.min(8,n+3));
+  return Math.max(75,Math.min(180,Math.ceil((lyricBudget/1.2+sections*2+16)/5)*5));
+}
+function autoSongSeconds(text,blocks,mode='verbatim'){
   const words=(String(text||'').match(/[\p{L}\p{N}_']+/gu)||[]).length;
   if(!words)return 90;
   const n=Math.max(1,blocks||String(text).trim().split(/\n\s*\n/).filter(Boolean).length||1);
+  if(mode==='song')return songFirstAutoSeconds(text,n);
   return Math.max(30,Math.min(180,Math.ceil((words/1.65+n*1.5+12)/5)*5));
 }
-function musicDurationControl(autoSel,sliderSel,valueSel,textFn,blocksFn){
+function musicDurationControl(autoSel,sliderSel,valueSel,textFn,blocksFn,modeFn){
   let automatic=true;
   const auto=$(autoSel),slider=$(sliderSel),value=$(valueSel);
-  function estimate(){return autoSongSeconds(textFn?textFn():'',blocksFn?blocksFn():null)}
+  function estimate(){return autoSongSeconds(textFn?textFn():'',blocksFn?blocksFn():null,modeFn?modeFn():'verbatim')}
   function paint(){
     auto.classList.toggle('sel',automatic);
     value.textContent=automatic?`Auto · ~${estimate()}s`:`${slider.value}s`;
@@ -2853,11 +2865,18 @@ function musicDurationControl(autoSel,sliderSel,valueSel,textFn,blocksFn){
     duration_seconds:automatic?null:Number(slider.value)})};
 }
 const SS_DUR=musicDurationControl('#ssDurAuto','#ssDurSlider','#ssDurVal',
-  ()=>[...document.querySelectorAll('#ss_items textarea')].map(x=>x.value.trim()).filter(Boolean).join('\n\n'),
-  ()=>[...document.querySelectorAll('#ss_items textarea')].filter(x=>x.value.trim()).length);
+  ()=>[...document.querySelectorAll('#ss_items .ssitem')].filter(x=>x.querySelector('input[type=checkbox]')?.checked).map(x=>x.querySelector('textarea').value.trim()).filter(Boolean).join('\n\n'),
+  ()=>[...document.querySelectorAll('#ss_items .ssitem')].filter(x=>x.querySelector('input[type=checkbox]')?.checked&&x.querySelector('textarea').value.trim()).length,
+  ()=>sel('#ss_mode')||'song');
 const M_DUR=musicDurationControl('#mDurAuto','#mDurSlider','#mDurVal',()=>$('#m_lyrics').value.trim());
 $('#m_lyrics').addEventListener('input',()=>M_DUR.paint());
 chips('#ss_shape');
+chips('#ss_mode');
+$('#ss_mode').addEventListener('click',()=>{
+  const song=(sel('#ss_mode')||'song')==='song';
+  $('#ss_mode_hint').textContent=song?'Recommended: selects the strongest moments, writes a repeated hook, and leaves room for melody and instruments.':'Preserves every included word in order; long prose may sound more like narration.';
+  SS_DUR.paint();
+});
 $('#ss_motion').onclick=()=>$('#ss_motion').classList.toggle('sel');
 const ssDrop=$('#ss_drop'),ssFiles=$('#ss_files');
 ssDrop.onclick=()=>ssFiles.click();
@@ -2895,9 +2914,13 @@ function ssRenderReview(){
     const body=document.createElement('div');
     const meta=document.createElement('div');meta.className='ssmeta';
     meta.innerHTML=`<b>${index+1}. ${esc(row.name||'Screenshot')}</b>${row.overlap_removed?` · ${row.overlap_removed} repeated line${row.overlap_removed===1?'':'s'} skipped`:''}${row.unique_text?'':' · no new text; this frame will be skipped'}`;
+    const use=document.createElement('label');use.style.cssText='display:flex;gap:7px;align-items:center;margin:7px 0;font-size:12px';
+    use.innerHTML='<input class="ss_include" type="checkbox" checked> Include this scene';
+    const check=use.querySelector('input');check.disabled=!row.unique_text;check.checked=!!row.unique_text;
+    check.addEventListener('change',()=>{item.classList.toggle('skip',!check.checked);SS_DUR.paint()});
     const text=document.createElement('textarea');text.value=row.unique_text||'';text.placeholder='Text to sing when this screenshot appears · 4,000-character limit';
     text.addEventListener('input',()=>SS_DUR.paint());
-    body.append(meta,text);item.append(img,body);host.appendChild(item);
+    body.append(meta,use,text);item.append(img,body);host.appendChild(item);
   });
   SS_DUR.paint();
   $('#ss_review').style.display='block';$('#ss_review').scrollIntoView({behavior:'smooth',block:'start'});
@@ -2909,7 +2932,7 @@ const SS_STAGES={queued:'Taking a number…',writing:'Turning the screenshots in
   'cutting screenshots':'Cutting the screenshot music video…'};
 $('#ss_go').onclick=async()=>{
   if(!SS.manifest)return;
-  const screenshots=[...document.querySelectorAll('#ss_items .ssitem')].map(item=>{
+  const screenshots=[...document.querySelectorAll('#ss_items .ssitem')].filter(item=>item.querySelector('input[type=checkbox]')?.checked).map(item=>{
     const row=SS.rows[+item.dataset.index];return {source:row.url,text:item.querySelector('textarea').value.trim()};
   }).filter(row=>row.text);
   if(!screenshots.length){$('#ss_err').textContent='There is no reviewed text to sing.';$('#ss_err').style.display='block';return}
@@ -2921,7 +2944,7 @@ $('#ss_go').onclick=async()=>{
   const duration=SS_DUR.payload();
   const response=await fetch('/api/screenshot-song',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
     manifest_id:SS.manifest,vibe:$('#ss_vibe').value.trim(),...duration,orientation:sel('#ss_shape'),
-    motion:$('#ss_motion').classList.contains('sel'),screenshots})});
+    motion:$('#ss_motion').classList.contains('sel'),screenshot_song_mode:sel('#ss_mode')||'song',screenshots})});
   const data=await response.json().catch(()=>({}));
   if(!response.ok){btn.disabled=false;$('#ss_err').textContent=data.error||'Could not start the screenshot song.';$('#ss_err').style.display='block';return}
   SS.job=data.id;$('#ss_prog').style.display='block';$('#ss_hint').textContent=`Planned ${Math.round(data.duration_seconds)} sec · about ${data.eta_min} min · it stays in the queue if you close this.`;
@@ -2929,6 +2952,7 @@ $('#ss_go').onclick=async()=>{
     btn.disabled=false;LAST_SONG=j.id;$('#ss_audio').src=j.song_url||j.url;$('#ss_video').src=j.video_url;
     $('#ss_save_song').href=j.song_url||j.url;$('#ss_save_video').href=j.video_url;
     const tm=(j.timing||{}).method==="whisper-word-aligned"?'Word-timed with local Whisper':
+      (j.timing||{}).method==="story-weighted"?'Story-weighted timing for the adapted song':
       'Lyric-weighted timing (Whisper could not confidently align the sung words)';
     $('#ss_timing').textContent=tm;$('#ss_result').style.display='block';loadMusicLib();
     $('#ss_result').scrollIntoView({behavior:'smooth',block:'center'});$('#ss_video').play().catch(()=>{});

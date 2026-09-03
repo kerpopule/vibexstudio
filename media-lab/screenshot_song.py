@@ -83,8 +83,32 @@ def merge_screenshot_blocks(screenshots: Sequence[Sequence[object]]) -> dict:
     return {"screenshots": rows, "blocks": merged, "lyrics": "\n".join(merged).strip()}
 
 
+_SMALL_NUMBERS = {
+    0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five",
+    6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten",
+    11: "eleven", 12: "twelve", 13: "thirteen", 14: "fourteen",
+    15: "fifteen", 16: "sixteen", 17: "seventeen", 18: "eighteen",
+    19: "nineteen", 20: "twenty", 30: "thirty", 40: "forty",
+    50: "fifty", 60: "sixty", 70: "seventy", 80: "eighty", 90: "ninety",
+}
+
+
+def _spoken_number_tokens(token: str) -> list[str]:
+    """Normalize simple written numbers to how Whisper commonly transcribes them."""
+    if not token.isdecimal():
+        return [token]
+    value = int(token)
+    if value in _SMALL_NUMBERS:
+        return [_SMALL_NUMBERS[value]]
+    if 20 < value < 100:
+        tens, ones = divmod(value, 10)
+        return [_SMALL_NUMBERS[tens * 10], _SMALL_NUMBERS[ones]]
+    return [token]
+
+
 def lyric_tokens(text: str) -> list[str]:
-    return re.findall(r"[\w']+", str(text or "").casefold(), flags=re.UNICODE)
+    raw = re.findall(r"[\w']+", str(text or "").casefold(), flags=re.UNICODE)
+    return [spoken for token in raw for spoken in _spoken_number_tokens(token)]
 
 
 def auto_music_seconds(text: str, block_count: int | None = None) -> int:
@@ -106,9 +130,73 @@ def auto_music_seconds(text: str, block_count: int | None = None) -> int:
     return max(30, min(180, int(math.ceil(raw / 5.0) * 5)))
 
 
+def song_first_word_budget(source_text: str) -> int:
+    """How much reviewed prose to retain when musicality is the priority."""
+    words = len(lyric_tokens(source_text))
+    if not words:
+        return 90
+    return max(60, min(180, int(round(words * 0.48))))
+
+
+def song_first_auto_seconds(text: str, block_count: int | None = None,
+                            adapted: bool = False) -> int:
+    """Best-fit Music 3 ceiling with room for melody and instrumental passages.
+
+    Before songwriting, ``text`` is source prose and is compressed to a safe
+    lyric budget. After songwriting, ``adapted=True`` uses the actual generated
+    lyric count. The value remains a ceiling because Music 3 may end naturally
+    before it without making the render invalid.
+    """
+    words = len(lyric_tokens(text))
+    singable_words = words if adapted else song_first_word_budget(text)
+    if block_count is None:
+        block_count = len([part for part in re.split(r"\n\s*\n", str(text).strip())
+                           if part.strip()])
+    sections = max(4, min(8, int(block_count or 1) + 3))
+    raw = singable_words / 1.2 + sections * 2.0 + 16.0
+    return max(75, min(180, int(math.ceil(raw / 5.0) * 5)))
+
+
+_SONG_SECTION = re.compile(
+    r"^\[(Intro|Verse(?:\s+\d+)?|Pre-Chorus|Chorus(?:\s+\d+)?|Bridge|Outro)\]$",
+    re.IGNORECASE,
+)
+
+
+def song_first_lyrics_qa(lyrics: str, max_words: int = 180) -> dict:
+    """Deterministic preflight that rejects prose-shaped 'songs'."""
+    lines = [line.strip() for line in str(lyrics or "").splitlines() if line.strip()]
+    sections = [match.group(1).casefold() for line in lines
+                if (match := _SONG_SECTION.fullmatch(line))]
+    lyric_lines = [line for line in lines if not _SONG_SECTION.fullmatch(line)]
+    words = len(lyric_tokens("\n".join(lyric_lines)))
+    verse_count = sum(section.startswith("verse") for section in sections)
+    chorus_count = sum(section.startswith("chorus") for section in sections)
+    max_line_words = max((len(lyric_tokens(line)) for line in lyric_lines), default=0)
+    reasons: list[str] = []
+    if not 40 <= words <= max_words:
+        reasons.append(f"song-first lyrics must contain 40 to {max_words} words")
+    if verse_count < 2:
+        reasons.append("song-first lyrics need at least two verses")
+    if chorus_count < 2:
+        reasons.append("song-first lyrics need at least two written-out choruses")
+    if max_line_words > 16:
+        reasons.append("song-first lyric lines must stay at or below 16 words")
+    return {
+        "passed": not reasons,
+        "reason": "; ".join(reasons) if reasons else "song-first structure passed",
+        "word_count": words,
+        "verse_count": verse_count,
+        "chorus_count": chorus_count,
+        "max_line_words": max_line_words,
+    }
+
+
 def literal_vocal_qa(target_text: str, transcript_words: Sequence[dict],
                      requested_duration: float | None = None,
-                     actual_duration: float | None = None) -> dict:
+                     actual_duration: float | None = None,
+                     duration_policy: str = "target",
+                     delivery_policy: str = "literal") -> dict:
     """Fail-closed ASR evidence for one ordered, verbatim vocal pass.
 
     The comparison is deterministic. The Director may rerender from this receipt,
@@ -118,8 +206,15 @@ def literal_vocal_qa(target_text: str, transcript_words: Sequence[dict],
     """
     target = lyric_tokens(target_text)
     heard: list[str] = []
+    heard_probabilities: list[float | None] = []
     for row in transcript_words or []:
-        heard.extend(lyric_tokens(str(row.get("word", ""))))
+        tokens = lyric_tokens(str(row.get("word", "")))
+        heard.extend(tokens)
+        try:
+            probability = float(row["probability"])
+        except (KeyError, TypeError, ValueError):
+            probability = None
+        heard_probabilities.extend([probability] * len(tokens))
     if not target or not heard:
         return {
             "passed": False,
@@ -141,21 +236,44 @@ def literal_vocal_qa(target_text: str, transcript_words: Sequence[dict],
             matched_heard.add(block.b + offset)
             matched += 1
 
-    extra_runs: list[list[str]] = []
-    run: list[str] = []
+    extra_runs_indexed: list[list[tuple[int, str]]] = []
+    run: list[tuple[int, str]] = []
     for index, token in enumerate(heard):
         if index not in matched_heard:
-            run.append(token)
+            run.append((index, token))
         elif run:
-            extra_runs.append(run); run = []
+            extra_runs_indexed.append(run); run = []
     if run:
-        extra_runs.append(run)
+        extra_runs_indexed.append(run)
+
+    ignored_tail: list[str] = []
+    if extra_runs_indexed and matched_heard:
+        tail = extra_runs_indexed[-1]
+        probabilities = [heard_probabilities[index] for index, _token in tail]
+        if (tail[0][0] > max(matched_heard) and probabilities and
+                all(value is not None for value in probabilities) and
+                sum(value for value in probabilities if value is not None) /
+                len(probabilities) < 0.65):
+            ignored_tail = [token for _index, token in tail]
+            extra_runs_indexed.pop()
+
+    extra_runs = [[token for _index, token in run] for run in extra_runs_indexed]
     extras = [token for run in extra_runs for token in run]
     omitted = len(target) - len(matched_target)
     coverage = matched / max(1, len(target))
     max_extra_run = max((len(run) for run in extra_runs), default=0)
-    allowed_omissions = max(1, int(math.floor(len(target) * 0.08)))
-    allowed_extras = max(2, int(math.floor(len(target) * 0.04)))
+    if delivery_policy == "song":
+        minimum_coverage = 0.88
+        allowed_omissions = max(2, int(math.floor(len(target) * 0.12)))
+        allowed_extras = max(3, int(math.floor(len(target) * 0.08)))
+        allowed_extra_run = 3
+    elif delivery_policy == "literal":
+        minimum_coverage = 0.90
+        allowed_omissions = max(1, int(math.floor(len(target) * 0.08)))
+        allowed_extras = max(2, int(math.floor(len(target) * 0.04)))
+        allowed_extra_run = 2
+    else:
+        raise ValueError(f"unknown delivery policy: {delivery_policy}")
 
     duration_ok = True
     duration_reason = ""
@@ -170,31 +288,44 @@ def literal_vocal_qa(target_text: str, transcript_words: Sequence[dict],
             duration_ok = False
             duration_reason = "rendered duration could not be measured"
         else:
-            minimum = max(1.0, requested * 0.88, requested - 12.0)
             maximum = requested + 8.0
-            duration_ok = minimum <= actual <= maximum
+            if duration_policy == "maximum":
+                duration_ok = 1.0 <= actual <= maximum
+            elif duration_policy == "target":
+                minimum = max(1.0, requested * 0.88, requested - 12.0)
+                duration_ok = minimum <= actual <= maximum
+            else:
+                raise ValueError(f"unknown duration policy: {duration_policy}")
             if not duration_ok:
                 duration_reason = f"rendered {actual:.1f}s for a {requested:.1f}s request"
 
-    passed = (coverage >= 0.90 and omitted <= allowed_omissions and
-              len(extras) <= allowed_extras and max_extra_run <= 2 and duration_ok)
+    passed = (coverage >= minimum_coverage and omitted <= allowed_omissions and
+              len(extras) <= allowed_extras and
+              max_extra_run <= allowed_extra_run and duration_ok)
     reasons: list[str] = []
-    if coverage < 0.90 or omitted > allowed_omissions:
+    if coverage < minimum_coverage or omitted > allowed_omissions:
         reasons.append(f"only {coverage:.0%} of reviewed words matched")
-    if len(extras) > allowed_extras or max_extra_run > 2:
+    if len(extras) > allowed_extras or max_extra_run > allowed_extra_run:
         reasons.append(f"{len(extras)} unapproved words detected")
     if duration_reason:
         reasons.append(duration_reason)
     return {
         "passed": passed,
-        "reason": "; ".join(reasons) if reasons else "verbatim vocal contract passed",
+        "reason": "; ".join(reasons) if reasons else (
+            "song-first vocal contract passed" if delivery_policy == "song"
+            else "verbatim vocal contract passed"),
         "target_words": len(target), "heard_words": len(heard),
         "matched_words": matched, "matched_fraction": round(coverage, 4),
         "omitted_words": omitted, "extra_words": len(extras),
         "max_extra_run": max_extra_run,
         "extra_samples": [" ".join(run[:12]) for run in extra_runs[:4]],
+        "ignored_low_confidence_tail": ignored_tail,
         "allowed_omissions": allowed_omissions, "allowed_extras": allowed_extras,
         "duration_ok": duration_ok,
+        "duration_policy": duration_policy,
+        "delivery_policy": delivery_policy,
+        "minimum_coverage": minimum_coverage,
+        "allowed_extra_run": allowed_extra_run,
         "requested_duration": round(float(requested_duration), 3) if requested_duration else None,
         "actual_duration": (round(actual, 3) if requested_duration and actual > 0 and
                             math.isfinite(actual) else None),

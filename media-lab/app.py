@@ -21,9 +21,10 @@ from chat_operator import (MUTATION_TOOLS, StudioOperator, ToolError,
 from image_template_context import (ImageTemplateContextError,
                                     selected_image_template_message)
 from screenshot_song import (aligned_starts, auto_music_seconds, clean_blocks,
-                              literal_vocal_qa,
+                              literal_vocal_qa, lyric_weighted_starts,
                               merge_screenshot_blocks,
-                              render_screenshot_video)
+                              render_screenshot_video, song_first_auto_seconds,
+                              song_first_lyrics_qa, song_first_word_budget)
 
 ROOT = Path.home() / "media-lab-simple"
 JOBS_DIR = ROOT / "jobs"
@@ -490,6 +491,10 @@ def _music_seconds(request: dict) -> float:
     length = str(request.get("length") or "auto").strip().lower()
     if length == "auto":
         blocks = len(request.get("screenshots") or []) or None
+        if request.get("screenshot_song_mode") == "song":
+            text = str(request.get("lyrics") or request.get("source_material") or "")
+            return float(song_first_auto_seconds(
+                text, blocks, adapted=bool(request.get("_song_first_adapted"))))
         return float(auto_music_seconds(str(request.get("lyrics") or ""), blocks))
     legacy = {"1": 60.0, "2": 120.0, "3": 180.0}
     if length in legacy:
@@ -3085,16 +3090,40 @@ def run_video(j):
 def run_music(j, finalize: bool = True):
     r = j["request"]
     jd = JOBS_DIR / j["id"]; jd.mkdir(parents=True, exist_ok=True)
+    song_first = (j.get("kind") == "screenshotsong" and
+                  r.get("screenshot_song_mode") == "song")
+    auto_duration = (str(r.get("length") or "auto").strip().lower() == "auto" and
+                     r.get("duration_seconds") is None)
     try:
         secs = _music_seconds(r)
     except ValueError as exc:
         return fail(j, str(exc))
-    r["duration_seconds"] = secs
+    if auto_duration:
+        r["auto_duration_estimate"] = secs
+    else:
+        r["duration_seconds"] = secs
     j["duration_seconds"] = secs
     j["stage"] = "writing"
     user = f"Song idea: {r.get('vibe','')}\nTarget length: about {int(secs)} seconds."
     own = str(r.get("lyrics", "")).strip()
     literal = bool(own and r.get("literal_lyrics"))
+    budget = 180
+    if song_first:
+        source_material = str(r.get("source_material") or "").strip()
+        budget = min(
+            song_first_word_budget(source_material),
+            max(40, min(180, int(max(20.0, secs - 18.0) * 1.2))),
+        )
+        user += (
+            "\nAdapt the source stories below into a genuinely melodic, catchy song. "
+            "Select only the strongest moments and preserve their order; do not read or "
+            "summarize every prose sentence. Write two or three short verses and write the "
+            "same memorable chorus out in full at least twice, with short lyric lines. "
+            f"Keep the complete lyric between 60 and {budget} words. Leave room for an "
+            "instrumental intro, musical transitions, and an outro. The lead must sing "
+            "sustained pitched notes—never spoken word, recitative, narration, or rap."
+            f"\nSource stories:\n{source_material}"
+        )
     if own:
         user += f"\nThe user supplied these lyrics — keep their words, add section tags:\n{own}"
     try:
@@ -3105,6 +3134,28 @@ def run_music(j, finalize: bool = True):
         assert "Global Metadata" in caption and "Arrangement" in caption
         if literal:
             caption = _literal_music_caption(caption)
+        if song_first:
+            structure = song_first_lyrics_qa(lyrics, max_words=budget)
+            if not structure["passed"]:
+                repair = (user + "\nYour prior draft failed this deterministic structure check: " +
+                          structure["reason"] + ". Return a corrected JSON object now.")
+                data = qwen_json(MUSIC_SYS, repair)
+                caption = str(data.get("caption", "")).strip()
+                lyrics = str(data.get("lyrics", "")).strip()
+                structure = song_first_lyrics_qa(lyrics, max_words=budget)
+            if not structure["passed"]:
+                raise ValueError(structure["reason"])
+            caption = (caption.rstrip() +
+                       " The lead vocal is clearly sung on sustained pitched melody, not "
+                       "spoken, narrated, recited, or rapped. The written chorus repeats "
+                       "as the main hook; instrumental bars separate vocal sections.")
+            j["song_first_qa"] = structure
+            if auto_duration:
+                r["lyrics"] = lyrics
+                secs = float(song_first_auto_seconds(lyrics, adapted=True))
+                r["duration_seconds"] = secs
+                r["auto_duration_resolved"] = True
+                j["duration_seconds"] = secs
     except Exception as e:
         return fail(j, "The studio's songwriter is unavailable — try again in a minute.", str(e))
     j["caption"] = caption; j["lyrics"] = lyrics
@@ -3115,10 +3166,11 @@ def run_music(j, finalize: bool = True):
     if st == "fail":
         return fail(j, friendly("comfy_boot"))
 
-    # Literal screenshot/prose songs receive a real post-render Director gate.
-    # Each failed take is retained only in the private job folder for diagnosis;
-    # nothing enters Media Lab's gallery until ASR proves one ordered lyric pass.
-    max_attempts = 3 if literal else 1
+    # Screenshot songs receive a real post-render Director gate against either
+    # the reviewed verbatim text or the approved song-first adaptation.
+    vocal_contract = literal or song_first
+    vocal_target = own if literal else _literal_words(lyrics)
+    max_attempts = 3 if vocal_contract else 1
     attempts: list[dict] = []
     approved: Path | None = None
     approved_transcript: dict = {}
@@ -3160,22 +3212,24 @@ def run_music(j, finalize: bool = True):
             candidate.unlink(missing_ok=True)
             return fail(j, "The song rendered but could not be packaged — try again.",
                         encoded.stderr)
-        if not literal:
+        if not vocal_contract:
             approved = candidate; j["seed"] = seed
             break
 
         j["stage"] = "director qa"
         transcript = _screenshot_song_transcript(candidate)
         report = literal_vocal_qa(
-            own, transcript.get("words") or [], requested_duration=secs,
-            actual_duration=media_duration(candidate))
+            vocal_target, transcript.get("words") or [], requested_duration=secs,
+            actual_duration=media_duration(candidate), duration_policy="maximum",
+            delivery_policy="song" if song_first else "literal")
         report.update({"attempt": attempt, "seed": seed})
         attempts.append(report)
         (jd / f"director-qa-attempt-{attempt}.json").write_text(
             json.dumps({"report": report, "transcript": transcript}, indent=2,
                        ensure_ascii=False), encoding="utf-8")
         j["director_qa"] = {"passed": report["passed"], "attempts": attempts,
-                            "policy": "verbatim-asr-v1"}
+                            "policy": ("song-first-asr-v1" if song_first else
+                                       "verbatim-asr-v1")}
         if report["passed"]:
             approved = candidate; approved_transcript = transcript; j["seed"] = seed
             break
@@ -3190,10 +3244,11 @@ def run_music(j, finalize: bool = True):
     shutil.copy2(approved, mp3)
     for candidate in jd.glob("candidate-attempt-*.mp3"):
         candidate.unlink(missing_ok=True)
-    if literal:
+    if vocal_contract:
         j["director_qa"] = {"passed": True, "attempts": attempts,
                             "approved_attempt": attempts[-1]["attempt"],
-                            "policy": "verbatim-asr-v1"}
+                            "policy": ("song-first-asr-v1" if song_first else
+                                       "verbatim-asr-v1")}
         # Reuse the exact approved transcript for screenshot timing; the child
         # runner removes this temporary evidence before the persisted job save.
         j["_literal_transcript"] = approved_transcript
@@ -3252,8 +3307,14 @@ def run_screenshot_song(j):
     duration = media_duration(song) or float(transcript.get("duration") or 0)
     if duration <= 0:
         return fail(j, "The song finished, but its duration could not be measured.")
-    timing = aligned_starts([str(row["text"]) for row in frames],
-                            transcript.get("words") or [], duration)
+    if request.get("screenshot_song_mode") == "song":
+        timing = {"starts": lyric_weighted_starts(
+                      [str(row["text"]) for row in frames], duration),
+                  "method": "story-weighted", "matched_fraction": None,
+                  "fallback_boundaries": []}
+    else:
+        timing = aligned_starts([str(row["text"]) for row in frames],
+                                transcript.get("words") or [], duration)
     j["timing"] = timing
     j["transcript"] = {k: transcript.get(k) for k in ("language", "text", "error")
                        if transcript.get(k)}
@@ -6951,6 +7012,7 @@ class ScreenshotSongReq(BaseModel):
     duration_seconds: Optional[int] = None
     orientation: str = "portrait"
     motion: bool = True
+    screenshot_song_mode: str = "song"
     screenshots: list[ScreenshotSongFrame] = []
 class MaestroReq(BaseModel):
     settings: dict
@@ -7118,6 +7180,8 @@ def screenshot_song_make(r: ScreenshotSongReq):
         return JSONResponse({"error": "review at least one screenshot"}, status_code=400)
     if r.orientation not in ("portrait", "landscape", "square"):
         return JSONResponse({"error": "unsupported video shape"}, status_code=400)
+    if r.screenshot_song_mode not in ("song", "verbatim"):
+        return JSONResponse({"error": "unsupported screenshot-song mode"}, status_code=400)
     frames = []
     for index, frame in enumerate(r.screenshots):
         source = media_path(frame.source)
@@ -7141,22 +7205,30 @@ def screenshot_song_make(r: ScreenshotSongReq):
         return JSONResponse({"error": (f"That screenshot set has {len(lyrics):,} reviewed characters; "
                                        f"the one-song limit is {SCREENSHOT_TEXT_TOTAL_MAX:,}. Nothing was truncated.")},
                             status_code=400)
+    song_first = r.screenshot_song_mode == "song"
     request = {"manifest_id": r.manifest_id,
                "vibe": r.vibe.strip()[:8000] or
                        "Playful, catchy acoustic song with hand percussion and warm vocals",
                "length": str(r.length), "orientation": r.orientation,
                "duration_seconds": r.duration_seconds,
                "motion": bool(r.motion), "screenshots": frames,
-               "lyrics": lyrics, "literal_lyrics": True}
+               "source_material": lyrics,
+               "screenshot_song_mode": r.screenshot_song_mode,
+               "lyrics": "" if song_first else lyrics,
+               "literal_lyrics": not song_first}
     try:
-        request["duration_seconds"] = _music_seconds(request)
+        estimated_seconds = _music_seconds(request)
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
+    automatic = (str(r.length).strip().lower() == "auto" and
+                 r.duration_seconds is None)
+    request["duration_seconds"] = None if automatic else estimated_seconds
+    request["auto_duration_estimate"] = estimated_seconds if automatic else None
     reviewed = SCREENSHOT_SONGS_DIR / r.manifest_id / "reviewed.json"
     reviewed.write_text(json.dumps(request, indent=2, ensure_ascii=False), encoding="utf-8")
     j = submit_job("screenshotsong", request, extra={"warm": engine_up("music")})
     return {"id": j["id"], "eta_min": eta_estimate(j),
-            "duration_seconds": request["duration_seconds"]}
+            "duration_seconds": estimated_seconds, "automatic": automatic}
 
 @app.post("/api/image")
 def image(r: ImageReq):
