@@ -18,12 +18,16 @@ Apache-2.0. **No accounts, no telemetry, no per-render bills.**
 - **Video** — fast drafts (LTX) and cinematic renders (MiniMax H3 modes:
   text-to-video, image-to-video, reference-identity, v2v motion transfer),
   long-form via segment chaining, 500+ curated style templates.
-- **Music & music videos** — full songs and storyboarded MVs.
+- **Music & music videos** — full songs and storyboarded MVs. Screenshot songs default to Exact Auto-fit: reviewed words remain immutable, text is reflowed into short melodic phrases, Auto chooses each part's runtime, and long inputs split into ordered queue-owned songs plus matching screenshot videos. Director checks both the words and measurable pitch movement, so read/recited takes are retried instead of published. See [docs/screenshot-songs.md](docs/screenshot-songs.md).
 - **Images** — generation, SAM-powered tap-to-select editing, FLUX Kontext,
   and a big template library.
 - **Characters** — reusable identities with consistent look and voice
   (Voicebox voice cloning included).
 - **Sparky** — a chat director that plans, queues, and narrates the work.
+- **Automatic Storyboards** — every completed Media Lab production with more
+  than one scene is persisted as an editable Storyboard and linked from its
+  queue/gallery record. This is enforced by the shared backend for paired
+  phone/tablet, web, desktop, and Spark surfaces; one-shot jobs stay one-shot.
 - **Show presets** — music video · performance short · 30s ad · explainer ·
   motion text · episode, each one tap from a finished brief.
 
