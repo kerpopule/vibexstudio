@@ -655,7 +655,16 @@ fn independent_serve_args(cfg: &Value, installation: &Path) -> Result<Vec<String
     }
     let bind = independent_bind(cfg)?;
     let origins = independent_origins(cfg)?;
-    let mut args = vec!["--port".to_string(), port.to_string(), "--bind".to_string(), bind.to_string()];
+    // Only pass --bind when it differs from the controller's own default, so a
+    // default installation receives exactly the arguments it did before this
+    // flag existed. An installation staged before `serve --bind` (the "Choose
+    // installation folder…" door accepts any self-consistent receipt) would
+    // otherwise abort on an unrecognised argument.
+    let mut args = vec!["--port".to_string(), port.to_string()];
+    if bind != std::net::IpAddr::from(std::net::Ipv4Addr::LOCALHOST) {
+        args.push("--bind".to_string());
+        args.push(bind.to_string());
+    }
     if cfg["desktopOriginAllowed"].as_bool() == Some(true) {
         args.push("--origin".into());
         args.push(desktop_controller_origin().into());
@@ -789,7 +798,7 @@ mod independent_controller_tests {
         let cfg = json!({"enabled": true, "runtime": "independent-studio", "port": 7864, "desktopOriginAllowed": true});
         assert_eq!(
             independent_serve_args(&cfg, &installation).unwrap(),
-            ["--port", "7864", "--bind", "127.0.0.1", "--origin", desktop_controller_origin()]
+            ["--port", "7864", "--origin", desktop_controller_origin()]
         );
         std::fs::remove_dir_all(&installation).unwrap();
     }
