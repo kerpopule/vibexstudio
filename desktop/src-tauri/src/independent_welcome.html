@@ -3,23 +3,26 @@
 <p>Build projects and reuse your creations in one place.</p>
 <p>Already have Media Lab on a server or another computer? Open Studio, then choose <strong>Connect a server library</strong> in Library.</p>
 <p><button id="studio" class="primary">Open Studio</button></p>
+<p>Want Media Lab on this computer?</p>
+<p><button id="local">Set up Media Lab here…</button></p>
 <p>Have an independent Media Lab installation on this computer?</p>
 <p><button id="existing">Choose installation folder…</button></p>
-<p class="dim">Local installation from this screen is not available yet. Choosing a folder checks an existing installation; generating media also needs a verified engine.</p>
+<p class="dim">Setting up opens Studio, which runs the installation and shows what this computer supports. Choosing a folder checks an existing installation; generating media also needs a verified engine.</p>
 <p id="error" class="err" role="alert"></p>
 </main><script>
 const inv=(name)=>window.__TAURI__.core.invoke(name);
-const studio=document.getElementById('studio'),existing=document.getElementById('existing'),error=document.getElementById('error');
+const studio=document.getElementById('studio'),local=document.getElementById('local'),existing=document.getElementById('existing'),error=document.getElementById('error');
 let pending=false;
 async function choose(command){
  if(pending)return;
- pending=true;studio.disabled=true;existing.disabled=true;error.textContent='';
+ pending=true;studio.disabled=true;local.disabled=true;existing.disabled=true;error.textContent='';
  try {
   const selected=await inv(command);
   if(command==='medialab_select_installation'&&selected)location.reload();
  } catch(e){error.textContent=String(e);}
- finally{pending=false;studio.disabled=false;existing.disabled=false;}
+ finally{pending=false;studio.disabled=false;local.disabled=false;existing.disabled=false;}
 }
 studio.onclick=()=>choose('medialab_not_now');
+local.onclick=()=>choose('medialab_local_setup');
 existing.onclick=()=>choose('medialab_select_installation');
 </script></body></html>
