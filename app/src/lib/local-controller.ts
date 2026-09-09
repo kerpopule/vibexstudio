@@ -4,6 +4,22 @@ function bridge():Invoke|undefined {
   return typeof value==='function'?value:undefined;
 }
 export function canUseLocalController():boolean {return Boolean(bridge());}
+
+/**
+ * Whether this machine can actually INSTALL a local controller. The bridge
+ * only says we are inside the desktop shell; the shell still refuses to
+ * install on Windows and x86_64 Linux, and on any build without a bundled
+ * installer, so the shell is the only honest source. Unknown reads as false:
+ * offering to install where we cannot is worse than under-promising.
+ */
+export async function localInstallAvailable():Promise<boolean> {
+  const invoke=bridge();
+  if(!invoke)return false;
+  try{
+    const status=await invoke('medialab_status') as {installationAvailable?:unknown}|null;
+    return status!==null&&typeof status==='object'&&status.installationAvailable===true;
+  }catch{return false;}
+}
 /** Pairing material stays in memory; never put the access code in a URL or log. */
 export async function localControllerConnection():Promise<{url:string;code:string}> {
   const invoke=bridge();

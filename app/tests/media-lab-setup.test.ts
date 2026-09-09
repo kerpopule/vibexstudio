@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/storage/secrets',()=>({getLibraryToken:vi.fn(),setLibraryToken:vi.fn()}));
 import { appBrowserOrigin, hostHereDoor, isUnreachableFailure, originRefusalMessage, requestedSetupMethod } from '../src/lib/media-lab-setup';
 import { connectRemoteLibrary } from '@/lib/remote-library';
+import { localInstallAvailable } from '@/lib/local-controller';
 
 afterEach(()=>vi.unstubAllGlobals());
 
@@ -25,6 +26,35 @@ describe('the onboarding door that creates a Media Lab', () => {
       expect(door.title).toBeTruthy();
     }
     expect(hostHereDoor(true).body).toMatch(/engines added later, or a connected AI or fal\.ai/);
+  });
+});
+
+describe('the door only offers an install the shell can actually do', () => {
+  // canUseLocalController() is merely "the Tauri bridge is here", which is true
+  // on Windows and x86_64 Linux where the desktop refuses to install. The door
+  // must reflect medialab_status.installationAvailable instead, or those users
+  // are promised an install that cannot happen.
+  const withBridge = (status: unknown) => {
+    const g = globalThis as unknown as { __TAURI_INTERNALS__?: unknown };
+    const had = g.__TAURI_INTERNALS__;
+    g.__TAURI_INTERNALS__ = { invoke: async () => status };
+    return () => { if (had === undefined) delete g.__TAURI_INTERNALS__; else g.__TAURI_INTERNALS__ = had; };
+  };
+
+  it('offers to host here only when the shell says installation is available', async () => {
+    const restore = withBridge({ installationAvailable: true });
+    try { expect(await localInstallAvailable()).toBe(true); } finally { restore(); }
+  });
+
+  it('does not offer to host here when the shell refuses (Windows, x86_64 Linux, no bundle)', async () => {
+    const restore = withBridge({ installationAvailable: false, installationMessage: 'not here' });
+    try { expect(await localInstallAvailable()).toBe(false); } finally { restore(); }
+  });
+
+  it('treats an unusable or absent bridge as cannot-host rather than assuming yes', async () => {
+    expect(await localInstallAvailable()).toBe(false);
+    const restore = withBridge(null);
+    try { expect(await localInstallAvailable()).toBe(false); } finally { restore(); }
   });
 });
 
