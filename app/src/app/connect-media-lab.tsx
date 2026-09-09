@@ -96,8 +96,14 @@ export default function ConnectMediaLabScreen() {
       else if (!onboardingComplete) router.replace('/onboarding');
       else router.replace('/(tabs)/creations');
     } catch (e) {
-      // DOMException is not an Error in every webview (WebKitGTK); keep its message.
-      const message = e instanceof Error ? e.message : (typeof e === 'object' && e && 'message' in e && typeof (e as {message: unknown}).message === 'string') ? (e as {message: string}).message : '';
+      // Not every rejection is an Error: WebKitGTK throws DOMException, and a
+      // failing Tauri command rejects with a PLAIN STRING, so the shell-side
+      // cause used to be invisible behind the generic message below.
+      const message =
+        typeof e === 'string' ? e :
+        e instanceof Error ? e.message :
+        (typeof e === 'object' && e && 'message' in e && typeof (e as {message: unknown}).message === 'string')
+          ? (e as {message: string}).message : '';
       setError(message || 'Could not connect to Media Lab.');
     }
     finally { setBusy(false);setPairing(false); }
