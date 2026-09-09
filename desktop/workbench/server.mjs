@@ -8,6 +8,8 @@
 //
 // Zero npm dependencies. Node >= 18.
 
+import {createDevicePairing} from './device-pairing.mjs';
+import {listFolderProjects,readProjectRevisions,appendProjectRevision} from './project-sync-folder.mjs';
 import http from 'node:http';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
@@ -66,12 +68,28 @@ const projectsRoot = config.projectsRoot
   || path.join(os.homedir(), 'VibeXStudio-Projects');
 await fs.mkdir(projectsRoot, { recursive: true });
 
+// Sync is explicitly configured by the owner; build pairing alone does not enable it.
+const syncFolder=typeof config.syncFolder==='string'?config.syncFolder:null;
+if(syncFolder){
+ if(!path.isAbsolute(syncFolder))throw new Error('syncFolder must be an absolute owner-selected folder');
+ const info=await fs.lstat(syncFolder);
+ if(!info.isDirectory()||info.isSymbolicLink())throw new Error('syncFolder must be a real directory');
+}
+const syncOrigins=new Set(config.syncOrigins??[]);
+if(!Array.isArray(config.syncOrigins??[])||syncOrigins.size>20)throw new Error('syncOrigins must be a list of at most 20 exact app origins');
+for(const origin of syncOrigins){
+ if(origin==='tauri://localhost')continue;
+ let valid=false;try{const url=new URL(origin);valid=['http:','https:'].includes(url.protocol)&&url.origin===origin&&!url.username&&!url.password;}catch{}
+ if(!valid)throw new Error('syncOrigins must contain exact HTTP(S) origins, or tauri://localhost');
+}
 const TOKEN_HASH = crypto.createHash('sha256').update(config.token).digest();
 function tokenOk(candidate) {
   if (typeof candidate !== 'string' || candidate.length === 0) return false;
   const h = crypto.createHash('sha256').update(candidate).digest();
   return crypto.timingSafeEqual(h, TOKEN_HASH); // constant-time, length-safe
 }
+
+const devicePairing=await createDevicePairing(configPath+'.devices.json',config.token);
 
 // ---------------------------------------------------------------- state
 
@@ -402,7 +420,7 @@ async function handleStatus(res) {
       ...(dev ? { devPort: dev.port } : {}),
     });
   }
-  sendJson(res, 200, { ok: true, version: VERSION, projectsRoot, projects });
+  sendJson(res, 200, { ok: true, version: VERSION, projectsRoot, projects, devicePairing: {version:1}, projectSync: syncFolder ? {version:1} : null });
 }
 
 async function handleImport(req, res) {
@@ -543,6 +561,31 @@ function handlePreview(req, res, project, restPath, query) {
   req.pipe(upstream);
 }
 
+/** Authenticated portable revision transport. No project execution or deletion. */
+async function handleProjectSync(req,res){
+ if(!syncFolder){sendJson(res,404,{error:'Project sync is not enabled on this server.'});return;}
+ let body;
+ try{body=JSON.parse((await readBody(req,32*1024*1024)).toString('utf8'));}
+ catch{sendJson(res,400,{error:'Invalid project sync request.'});return;}
+ if(!body||typeof body!=='object'){sendJson(res,400,{error:'Invalid project sync request.'});return;}
+ try{
+  let result;
+  if(body.operation==='list')result={projects:await listFolderProjects(syncFolder)};
+  else if(body.operation==='read'){
+   const state=await readProjectRevisions(syncFolder,body.projectId);
+   result={heads:state.heads,revisions:state.revisions.filter(revision=>state.heads.includes(revision.revision))};
+  }else if(body.operation==='append'){
+   const payload=body.payload;
+   if(typeof payload!=='string'||payload.length>25_000_000)throw new Error('Invalid or oversized project snapshot.');
+   const snapshot=JSON.parse(payload);
+   if(snapshot?.format!=='vibex/project-snapshot'||snapshot.version!==1||snapshot.content?.meta?.id!==body.projectId)throw new Error('Snapshot identity or format does not match.');
+   result=await appendProjectRevision(syncFolder,body.projectId,payload,body.expectedHeads);
+  }else{sendJson(res,400,{error:'Unknown sync operation.'});return;}
+  if(Buffer.byteLength(JSON.stringify(result))>64*1024*1024){sendJson(res,413,{error:'Too many conflicting copies for one transfer. Review this project on the server.'});return;}
+  sendJson(res,200,result);
+ }catch(error){sendJson(res,error.message.includes('folder changed')?409:400,{error:error.message});}
+}
+
 // ---------------------------------------------------------------- server
 
 const server = http.createServer(async (req, res) => {
@@ -550,12 +593,45 @@ const server = http.createServer(async (req, res) => {
     const u = new URL(req.url, 'http://x');
     const p = u.pathname;
 
+    // CORS only grants browser access to the opt-in sync routes, never authentication.
+    if(p==='/sync'||p==='/status'||p==='/pairing/claim'){
+      const origin=req.headers.origin;
+      if(origin){
+        res.setHeader('Vary','Origin');
+        if(!syncOrigins.has(origin)){sendJson(res,403,{error:'This app origin is not allowed by the server owner.'});return;}
+        res.setHeader('Access-Control-Allow-Origin',origin);
+      }
+      if(req.method==='OPTIONS'){
+        const method=req.headers['access-control-request-method'];
+        const headers=String(req.headers['access-control-request-headers']??'').toLowerCase().split(',').map(value=>value.trim()).filter(Boolean);
+        if(!origin||method!==(p==='/status'?'GET':'POST')||headers.some(header=>!['content-type','x-workbench-token'].includes(header))){sendJson(res,403,{error:'Browser request is not allowed.'});return;}
+        res.setHeader('Access-Control-Allow-Methods',p==='/status'?'GET':'POST');
+        res.setHeader('Access-Control-Allow-Headers','Content-Type, X-Workbench-Token');
+        res.setHeader('Access-Control-Max-Age','300');res.writeHead(204);res.end();return;
+      }
+    }
+    if(req.method==='POST'&&p==='/pairing/claim'){
+      const body=JSON.parse((await readBody(req,2048)).toString('utf8'));
+      try{res.setHeader('Cache-Control','no-store');sendJson(res,200,await devicePairing.claim(body.code,body.name));}catch(error){sendJson(res,error.status??500,{error:error.status?error.message:'Could not save this device. Try again.'});}
+      return;
+    }
     // Auth: header everywhere; ?wbt= additionally accepted on preview GETs.
     let token = req.headers['x-workbench-token'];
     const isPreview = p.startsWith('/preview/');
     if (!token && isPreview) token = u.searchParams.get('wbt') || undefined;
-    if (!tokenOk(token)) { sendJson(res, 401, { ok: false, error: 'missing or bad X-Workbench-Token' }); return; }
+    const ownerAuthorized=tokenOk(token);
+    if (!ownerAuthorized&&!devicePairing.authorized(token)) { sendJson(res, 401, { ok: false, error: 'missing or bad X-Workbench-Token' }); return; }
 
+    if(p.startsWith('/pairing/')){
+      res.setHeader('Cache-Control','no-store');
+      if(!ownerAuthorized){sendJson(res,403,{error:'Only the server owner can manage paired devices.'});return;}
+      try{
+        if(p==='/pairing/invites'&&req.method==='POST'){sendJson(res,200,devicePairing.issue());return;}
+        if(p==='/pairing/devices'&&req.method==='GET'){sendJson(res,200,{devices:devicePairing.list()});return;}
+        if(p==='/pairing/revoke'&&req.method==='POST'){const body=JSON.parse((await readBody(req,2048)).toString('utf8'));sendJson(res,200,await devicePairing.revoke(body.deviceId));return;}
+      }catch(error){sendJson(res,error.status??500,{error:error.status?error.message:'Could not update paired devices. Try again.'});return;}
+    }
+    if (req.method === 'POST' && p === '/sync') return await handleProjectSync(req,res);
     if (req.method === 'GET' && p === '/status') return handleStatus(res);
     if (req.method === 'POST' && p === '/projects/import') return handleImport(req, res);
 

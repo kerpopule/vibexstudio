@@ -13,9 +13,11 @@ optionally publish to their own GitHub + Pages.
 
 ## Architecture invariants
 
-- **No backend, ever.** The app talks only to the user's chosen AI providers
-  and GitHub, directly from the device. Do not add analytics, telemetry, or
-  any VibeXStudio-owned service.
+- **Local-first, with no mandatory service.** Direct connections talk to the
+  user's chosen AI providers and GitHub. The optional Private VibeX broker
+  requires the existing disclosure and acceptance flow. Media Lab and Workbench
+  are optional user-selected hosts. Do not add analytics, telemetry, or any
+  undisclosed intermediary.
 - **Secrets only in `src/lib/storage/secrets.ts`** (expo-secure-store).
   Never put tokens/keys in AsyncStorage, project files, or zustand state.
 - Non-secret settings → `src/lib/storage/settings.ts` (AsyncStorage).
@@ -48,7 +50,7 @@ optionally publish to their own GitHub + Pages.
   weight BY FAMILY NAME: use `Fonts.displayBold` / `Fonts.bodyBold`, never
   `fontWeight` next to a custom `fontFamily`.
 - Navigation is the floating glass pill (`src/components/ui/tab-pill.tsx`:
-  Studio · Media Lab · Setup). Scrolling screens pad their bottom by
+  Build · Create · Library · Setup). Scrolling screens pad their bottom by
   `TAB_PILL_CLEARANCE`.
 - First run is `src/app/onboarding.tsx` — a four-step SETUP (your AI /
   Media Lab / your computer / done), each step skippable and mirrored by
@@ -157,7 +159,8 @@ simulator — `flowdeck ui simulator type` reports success but no text lands.
 Workaround: `flowdeck simulator pasteboard set "text"`, long-press the field
 (`tap --point x,y --duration 1.2`), tap "Paste".
 
-## Placeholders to resolve before release
+## Release verification
 
-- store URLs in `src/lib/github/sharePage.ts` (APP_STORE_URL still a dummy id;
-  GET_APP_URL + the kerpopule.github.io/vibex landing page are live)
+- Store URLs are configured in `src/lib/github/sharePage.ts`, including the
+  iOS app identifier. Verify actual store availability before claiming a release
+  is live; a configured URL alone does not prove approval or availability.

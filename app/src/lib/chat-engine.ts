@@ -1,3 +1,5 @@
+import {getFalRequest,forgetFalRequest} from '@/lib/ai/fal-recovery';
+import { retryRequest } from '@/lib/retry-request';
 /**
  * Per-project chat sessions as a global store. Generation runs here — not in
  * a component — so an in-flight vibe turn keeps streaming no matter which
@@ -5,7 +7,6 @@
  * `filesVersion` counter is the live-preview heartbeat: it bumps every time
  * the model writes files, and the preview WebView reloads off it.
  */
-import { File } from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { AppState } from 'react-native';
@@ -14,7 +15,8 @@ import { create } from 'zustand';
 import { generateImage, generateVideo } from '@/lib/ai/media';
 import { acquireTurnSlot, releaseTurnSlot } from '@/lib/concurrency';
 import { notifyProjectEvent, primeNotifications } from '@/lib/notifications';
-import { filesRootUri, newId, readChat, writeBinaryFile, writeChat } from '@/lib/storage/projects';
+import { newId, readChat, writeBinaryFile, writeChat } from '@/lib/storage/projects';
+import { importProjectAsset, writeImportedAsset } from '@/lib/storage/import-asset';
 import * as secrets from '@/lib/storage/secrets';
 import { useApp } from '@/lib/store';
 import type { ChatMessage, ProjectMeta, ProviderConnection } from '@/lib/types';
@@ -53,10 +55,11 @@ interface ChatEngine {
     project: ProjectMeta,
     prompt: string,
     kind: 'image' | 'video',
-    provider: ProviderConnection | null
+    provider: ProviderConnection | null,
+    retryMessageId?: string
   ) => Promise<void>;
   /** Copy a user-picked local file into the project's assets/ folder. */
-  attachFile: (project: ProjectMeta, srcUri: string, fileName: string, kind?: 'image' | 'video') => Promise<void>;
+  attachFile: (project: ProjectMeta, srcUri: string | Uint8Array, fileName: string, kind?: 'image' | 'video' | 'audio') => Promise<string>;
   /** Signal that project files changed outside a chat turn (manual edits). */
   bumpFiles: (projectId: string) => void;
   abort: (projectId: string) => void;
@@ -65,6 +68,8 @@ interface ChatEngine {
 /** In-flight controllers stay out of state — they're not renderable. */
 const aborters = new Map<string, AbortController>();
 const KEEP_AWAKE_TAG = 'vibex-generation';
+
+const mediaRequestsInFlight=new Set<string>();
 
 export const useChat = create<ChatEngine>((set, get) => {
   const patch = (id: string, partial: Partial<ChatSession>) =>
@@ -103,7 +108,7 @@ export const useChat = create<ChatEngine>((set, get) => {
       if (get().sessions[id]?.busy) return;
       if (!connection) {
         await appendPersisted(id, [
-          { id: newId(), role: 'user', text, createdAt: Date.now() },
+          { id: newId(), role: 'user', text, request: { mode: 'chat', prompt: text }, createdAt: Date.now() },
           {
             id: newId(),
             role: 'assistant',
@@ -117,11 +122,11 @@ export const useChat = create<ChatEngine>((set, get) => {
       const secret = await secrets.getProviderSecret(connection.id);
       if (!secret) {
         await appendPersisted(id, [
-          { id: newId(), role: 'user', text, createdAt: Date.now() },
+          { id: newId(), role: 'user', text, request: { mode: 'chat', prompt: text }, createdAt: Date.now() },
           {
             id: newId(),
             role: 'assistant',
-            text: `The key for ${connection.label} is missing from the keychain. Remove and re-add it in Settings.`,
+            text: `The key for ${connection.label} is missing from this device’s saved connection. Remove and re-add it in Settings.`,
             createdAt: Date.now(),
             error: 'no-secret',
           },
@@ -147,7 +152,7 @@ export const useChat = create<ChatEngine>((set, get) => {
         aborters.delete(id);
         patch(id, { busy: false, streamText: null });
         await appendPersisted(id, [
-          { id: newId(), role: 'user', text, createdAt: Date.now() },
+          { id: newId(), role: 'user', text, request: { mode: 'chat', prompt: text }, createdAt: Date.now() },
           { id: newId(), role: 'assistant', text: 'Stopped.', createdAt: Date.now(), error: 'aborted' },
         ]);
         return;
@@ -217,19 +222,32 @@ export const useChat = create<ChatEngine>((set, get) => {
       }
     },
 
-    sendMedia: async (project, prompt, kind, provider) => {
+    sendMedia: async (project, prompt, kind, provider, retryMessageId) => {
       const id = project.id;
-      if (get().sessions[id]?.busy) return;
+      if (get().sessions[id]?.busy || mediaRequestsInFlight.has(id)) return;
+      mediaRequestsInFlight.add(id);
+      try {
+      const recovered=retryMessageId?await getFalRequest(retryMessageId):null;
+      if(recovered){
+        if(recovered.projectId!==id||recovered.prompt!==prompt||recovered.kind!==kind)throw new Error('This saved generation belongs to another request or project.');
+        const original=useApp.getState().providers.find(row=>row.id===recovered.providerId&&row.kind==='fal');
+        if(!original)throw new Error('Reconnect the original fal.ai provider to resume this job.');
+        provider={...original,mediaModels:{...original.mediaModels,[kind]:recovered.model}};
+        if((await readChat(id)).some(message=>message.id===`fal-result-${recovered.id}`)){
+          await forgetFalRequest(recovered.id);return;
+        }
+      }
       const label = kind === 'image' ? 'image' : 'video';
       const userMessage: ChatMessage = {
-        id: newId(),
+        id: recovered?.id ?? newId(),
         role: 'user',
         text: `Generate ${label}: ${prompt}`,
+        request: { mode: kind, prompt },
         createdAt: Date.now(),
       };
       if (!provider) {
         await appendPersisted(id, [
-          userMessage,
+          ...(!recovered?[userMessage]:[]),
           {
             id: newId(),
             role: 'assistant',
@@ -244,8 +262,20 @@ export const useChat = create<ChatEngine>((set, get) => {
         return;
       }
       const secret = await secrets.getProviderSecret(provider.id);
-      if (!secret) return;
-      await appendPersisted(id, [userMessage]);
+      if (!secret) {
+        await appendPersisted(id, [
+          ...(!recovered?[userMessage]:[]),
+          {
+            id: newId(),
+            role: 'assistant',
+            text: `The saved connection for ${provider.label} is missing its key. Reconnect it in Settings, then retry this request.`,
+            createdAt: Date.now(),
+            error: 'no-secret',
+          },
+        ]);
+        return;
+      }
+      if(!recovered)await appendPersisted(id, [userMessage]);
       patch(id, { busy: true, streamText: kind === 'image' ? 'Generating image…' : 'Generating video…' });
       primeNotifications().catch(() => {});
       try {
@@ -260,13 +290,13 @@ export const useChat = create<ChatEngine>((set, get) => {
       let mediaOk = false;
       try {
         if (kind === 'image') {
-          const image = await generateImage(provider, secret, prompt);
+          const image = provider.kind==='fal'?await generateImage(provider, secret, prompt,userMessage.id,id):await generateImage(provider, secret, prompt);
           const ext = image.mimeType.includes('jpeg') ? 'jpg' : 'png';
-          const path = `assets/img-${Date.now()}.${ext}`;
+          const path = `assets/img-${newId()}.${ext}`;
           const uri = await writeBinaryFile(id, path, image.base64);
           await appendPersisted(id, [
             {
-              id: newId(),
+              id: provider.kind==='fal'?`fal-result-${userMessage.id}`:newId(),
               role: 'assistant',
               text: `Image saved to ${path} — ask me to use it in the app!`,
               createdAt: Date.now(),
@@ -274,22 +304,22 @@ export const useChat = create<ChatEngine>((set, get) => {
             },
           ]);
         } else {
-          const video = await generateVideo(provider, secret, prompt, (detail) => patch(id, { streamText: detail }));
-          const path = `assets/vid-${Date.now()}.mp4`;
-          const target = new File(`${projectFilesUri(id)}/${path}`);
-          ensureParent(target);
-          await File.downloadFileAsync(video.url, target, { idempotent: true });
+          const progress=(detail:string)=>patch(id,{streamText:detail});
+          const video = provider.kind==='fal'?await generateVideo(provider,secret,prompt,progress,userMessage.id,id):await generateVideo(provider,secret,prompt,progress);
+          const path = `assets/vid-${newId()}.mp4`;
+          const uri = await importProjectAsset(id, path, video.url);
           await appendPersisted(id, [
             {
-              id: newId(),
+              id: provider.kind==='fal'?`fal-result-${userMessage.id}`:newId(),
               role: 'assistant',
               text: `Video saved to ${path} — ask me to use it in the app!`,
               createdAt: Date.now(),
-              attachments: [{ kind: 'video', uri: target.uri, prompt }],
+              attachments: [{ kind: 'video', uri, prompt }],
             },
           ]);
         }
         patch(id, { filesVersion: (get().sessions[id]?.filesVersion ?? 0) + 1 });
+        if(provider.kind==='fal')await forgetFalRequest(userMessage.id);
         mediaOk = true;
       } catch (e) {
         await appendPersisted(id, [
@@ -306,25 +336,25 @@ export const useChat = create<ChatEngine>((set, get) => {
         releaseTurnSlot();
       }
       notifyProjectEvent(project, mediaOk ? 'done' : 'error').catch(() => {});
+      } finally {mediaRequestsInFlight.delete(id);}
     },
 
     attachFile: async (project, srcUri, fileName, kind) => {
       const id = project.id;
       const safe = fileName.replace(/[^\w.\-]+/g, '-').replace(/^-+|-+$/g, '') || `file-${Date.now()}`;
-      const path = `assets/${safe}`;
-      const target = new File(`${projectFilesUri(id)}/${path}`);
-      ensureParent(target);
-      new File(srcUri).copy(target);
+      const path = `assets/${newId()}-${safe}`;
+      const uri = typeof srcUri === 'string' ? await importProjectAsset(id, path, srcUri) : await writeImportedAsset(id, path, srcUri);
       await appendPersisted(id, [
         {
           id: newId(),
           role: 'user',
           text: `Added ${path} to the project — you can reference it from the app.`,
           createdAt: Date.now(),
-          attachments: kind ? [{ kind, uri: target.uri }] : undefined,
+          attachments: kind ? [{ kind, uri }] : undefined,
         },
       ]);
       patch(id, { filesVersion: (get().sessions[id]?.filesVersion ?? 0) + 1 });
+      return path;
     },
   };
 });
@@ -354,19 +384,13 @@ AppState.addEventListener('change', (state) => {
     resumedFailures.add(last.id);
     const connection =
       chatProviders.find((p) => p.id === project.ai?.connectionId) ?? chatProviders[0] ?? null;
-    const text = lastUser.text.replace(/^Generate (image|video): /, '');
+    const request = retryRequest(lastUser);
+    // Media requests can already be running remotely; retry them explicitly.
+    if (request.mode !== 'chat') continue;
+    const text = request.prompt;
     void (async () => {
       if (connection?.subscription) await refreshSubscriptionIfNeeded(connection.id).catch(() => {});
       await useChat.getState().sendChat(project, text, connection);
     })();
   }
 });
-
-function projectFilesUri(id: string): string {
-  return filesRootUri(id).replace(/\/+$/, '');
-}
-
-function ensureParent(file: File): void {
-  const parent = file.parentDirectory;
-  if (!parent.exists) parent.create({ intermediates: true });
-}

@@ -1,3 +1,4 @@
+import {isPrivateProjectFile} from '../private-project-files';
 /**
  * Push a local project to the user's GitHub repo and enable GitHub Pages.
  *
@@ -53,7 +54,7 @@ export async function syncProjectToGitHub(opts: {
   progress({ phase: 'preparing' });
   const meta = await readProject(projectId);
   if (!meta) throw new Error('Project not found');
-  const files = await listFiles(projectId);
+  const files = (await listFiles(projectId)).filter(file=>!isPrivateProjectFile(file.path));
   if (files.length === 0) throw new Error('This project has no files to sync yet. Vibe something first!');
 
   // Resolve or create the target repo.

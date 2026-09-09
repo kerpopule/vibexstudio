@@ -14,6 +14,7 @@ import {
 
 const job = (over: Partial<PendingMediaJob> = {}): PendingMediaJob => ({
   jobId: 'j1',
+  serverUrl: 'http://lab:7863',
   projectId: 'p1',
   targetPath: 'assets/intro.mp4',
   kind: 'video',
@@ -74,18 +75,18 @@ describe('pending list', () => {
       { id: 'j1', status: 'done', url: '/media/out.mp4' },
       { id: 'j2', status: 'error' },
       { id: 'j3', status: 'done' }, // done without a url is a failure
-    ]);
+    ], 'http://lab:7863');
     expect(resolved).toEqual([{ job: list[0], url: '/media/out.mp4' }]);
     expect(failed.map((j) => j.jobId)).toEqual(['j2', 'j3']);
     expect(remaining.map((j) => j.jobId)).toEqual(['j4']);
   });
 
-  it('drops entries older than 24h', () => {
+  it('preserves long-running jobs older than 24h', () => {
     const stale = job({ createdAt: Date.now() - 25 * 60 * 60 * 1000 });
-    const { resolved, failed, remaining } = matchFinishedJobs([stale], []);
+    const { resolved, failed, remaining } = matchFinishedJobs([stale], [], 'http://lab:7863');
     expect(resolved).toEqual([]);
     expect(failed).toEqual([]);
-    expect(remaining).toEqual([]);
+    expect(remaining).toEqual([stale]);
   });
 
   it('bounds download retries', () => {

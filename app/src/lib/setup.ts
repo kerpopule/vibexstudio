@@ -57,7 +57,7 @@ export function setupSteps(input: SetupInputs): SetupStep[] {
       status: input.mediaLab
         ? `Paired · ${hostLabel(input.mediaLab.url)}`
         : media.length
-          ? `On this device · ${media[0].label}`
+          ? `Configured · ${media[0].label}`
           : 'Not set up',
       required: false,
     },
@@ -91,5 +91,17 @@ export function hostLabel(url: string): string {
     return new URL(url).hostname;
   } catch {
     return url;
+  }
+}
+
+/** Opens only the paired HTTP origin; never forward pairing secrets. */
+export function modelSetupUrl(server: string | undefined): string | null {
+  if (!server) return null;
+  try {
+    const url = new URL(server);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+    return `${url.origin}/setup/background`;
+  } catch {
+    return null;
   }
 }

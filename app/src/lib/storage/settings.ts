@@ -138,6 +138,23 @@ export async function setProviders(providers: ProviderConnection[]): Promise<voi
   await AsyncStorage.setItem(KEYS.providers, JSON.stringify(providers));
 }
 
+/** Serialize read-modify-write across imports and ordinary provider changes. */
+let providerWrites:Promise<unknown>=Promise.resolve();
+export function updateProviders(change:(current:ProviderConnection[])=>ProviderConnection[]|Promise<ProviderConnection[]>):Promise<ProviderConnection[]>{
+ const run=async()=>{
+  const raw=await AsyncStorage.getItem(KEYS.providers);
+  let current:ProviderConnection[];
+  try{current=raw===null?[]:JSON.parse(raw);if(!Array.isArray(current)||current.some(p=>!p||typeof p.id!=='string'))throw new Error();}
+  catch{throw new Error('Saved AI connections could not be read. Existing settings were preserved.');}
+  const next=await change(current);
+  await AsyncStorage.setItem(KEYS.providers,JSON.stringify(next));
+  return next;
+ };
+ const operation=providerWrites.then(()=>typeof navigator!=='undefined'&&navigator.locks?navigator.locks.request('vibex-provider-settings',run):run());
+ providerWrites=operation.catch(()=>{});
+ return operation;
+}
+
 /**
  * Optional override for the GitHub OAuth App client id used by device flow.
  * Lets users bring their own OAuth app instead of the bundled one.

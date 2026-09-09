@@ -1,8 +1,9 @@
 /**
- * First run — a real setup, not a slideshow. Four short steps, each one a
+ * First run — a real setup, not a slideshow. Five short steps, each one a
  * question about what the person already HAS, each one skippable, each one
  * revisitable from the Setup tab later:
  *
+ *   0. Where do your files live?
  *   1. Which AI do you already have?      (the one required step)
  *   2. Where should media get made?
  *   3. Is there a computer to pair?
@@ -19,7 +20,9 @@ import { Image, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } f
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Button } from '@/components/ui/button';
 import { ThemedText } from '@/components/themed-text';
+import { StorageChoices } from '@/components/storage-choices';
 import { Glass } from '@/components/ui/glass';
 import { ScalePress } from '@/components/ui/scale-press';
 import { Fonts, gradientColors, Radii, Shadows, Spacing } from '@/constants/theme';
@@ -36,8 +39,8 @@ import type { ProviderKind } from '@/lib/types';
 const APP_ICON = require('../../assets/images/icon.png');
 
 
-type StepId = 'welcome' | 'ai' | 'media' | 'computer' | 'done';
-const ORDER: StepId[] = ['welcome', 'ai', 'media', 'computer', 'done'];
+type StepId = 'welcome' | 'storage' | 'ai' | 'media' | 'computer' | 'done';
+const ORDER: StepId[] = ['welcome', 'storage', 'ai', 'media', 'computer', 'done'];
 
 const SUB_GLYPH: Record<SubscriptionProviderId, string> = {
   'chatgpt-oauth': '🟢',
@@ -118,6 +121,7 @@ export default function OnboardingScreen() {
           showsVerticalScrollIndicator={false}>
           <Animated.View entering={enter(FadeInDown.duration(380))} style={styles.copy}>
             {step === 'welcome' ? <Welcome /> : null}
+            {step === 'storage' ? <><StepHeader eyebrow="YOUR FILES" title="Your files stay yours" body="No VibeX storage account. Start on this device, save your own backups, or connect a folder or server for sync." /><StorageChoices /></> : null}
             {step === 'ai' ? <AiStep /> : null}
             {step === 'media' ? <MediaStep /> : null}
             {step === 'computer' ? <ComputerStep /> : null}
@@ -171,7 +175,7 @@ function Welcome() {
       <ThemedText type="title" style={styles.title}>Create anything.{'\n'}Keep it yours.</ThemedText>
       <ThemedText themeColor="textSecondary" style={styles.lede}>
         Describe an app and watch it become real. Make images, video, and music. Use the AI you already pay
-        for. Everything stays on {thisDevice} — no account, no servers, no tracking.
+        for. Projects are saved on {thisDevice}. Your prompts and selected files go to the AI providers or Media Lab server you connect.
       </ThemedText>
       <ThemedText type="small" themeColor="textSecondary" style={styles.lede}>
         Setup takes about a minute. Every step can be skipped and finished later.
@@ -200,8 +204,9 @@ function AiStep() {
       <StepHeader
         eyebrow="STEP 1 · YOUR AI"
         title="Which AI do you already have?"
-        body="Pick any you use. A subscription signs in with the vendor’s own app id — no key. Keys go in the secure keychain and are only ever sent to that provider."
+        body="Pick an AI connection. Installed apps keep keys in the OS credential vault; plain browsers use this site’s local storage. Your AI requests go to the provider or endpoint you choose."
       />
+      <Button title="Bring AI connections from another device" variant="secondary" onPress={()=>router.push('/transfer-ai')}/>
       <GroupLabel text="SIGN IN WITH A SUBSCRIPTION" />
       <View style={styles.grid}>
         {SUBSCRIPTION_ORDER.map((id) => (
@@ -266,8 +271,8 @@ function MediaStep() {
           title="My computer or a GPU box"
           body={
             mediaLab
-              ? `Paired with ${hostLabel(mediaLab.url)} — the full studio lives in the Media Lab tab.`
-              : 'The desktop app includes Media Lab; a DGX Spark runs the full studio. Scan its QR — done.'
+              ? `Paired with ${hostLabel(mediaLab.url)} — open Create and Library to use its available tools.`
+              : 'Connect a Media Lab server you already run. Available tools depend on its installed models and hardware.'
           }
           done={mediaLab != null}
           onPress={() => router.push('/pair-scan' as never)}
@@ -315,7 +320,7 @@ function ComputerStep() {
         />
       </View>
       <ThemedText type="small" themeColor="textSecondary" style={styles.foot}>
-        Don’t have the desktop app? It’s free for macOS, Windows, and Linux at github.com/kerpopule/vibexstudio.
+        Pairing connects processing power. It does not automatically sync projects or copy your AI connections between devices.
       </ThemedText>
     </>
   );

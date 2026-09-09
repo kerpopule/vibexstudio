@@ -1,3 +1,4 @@
+import {audioExtension} from '@/lib/audio-file';
 /**
  * Web/desktop implementation of the on-device Media Lab gallery (Metro
  * resolves `.web.ts` over `.ts` on web). Items persist to IndexedDB:
@@ -56,8 +57,7 @@ export async function listGallery(): Promise<GalleryItem[]> {
 }
 
 async function putItem(stored: StoredItem): Promise<GalleryItem> {
-  const store = await tx('readwrite');
-  await request(store.put(stored, `item:${stored.meta.id}`));
+  await commitGalleryWrite(store => {store.put(stored, `item:${stored.meta.id}`);});
   return toItem(stored);
 }
 
@@ -69,10 +69,11 @@ export async function saveGalleryImage(
   prompt: string,
   providerLabel: string,
   base64: string,
-  mimeType: string
+  mimeType: string,
+  recoveryId?: string
 ): Promise<GalleryItem> {
   return putItem({
-    meta: { id: newId(), kind: 'image', prompt, providerLabel, createdAt: Date.now(), mimeType },
+    meta: { id: recoveryId ? recoveredGalleryId(recoveryId) : newId(), kind: 'image', prompt, providerLabel, createdAt: Date.now(), mimeType },
     base64,
   });
 }
@@ -81,7 +82,8 @@ export async function saveGalleryVideo(
   prompt: string,
   providerLabel: string,
   url: string,
-  mimeType: string
+  mimeType: string,
+  recoveryId?: string
 ): Promise<GalleryItem> {
   // No filesystem on web — fetch the video and store it as base64. Some
   // vendors' download hosts lack CORS headers; that surfaces as a clear error.
@@ -94,12 +96,61 @@ export async function saveGalleryVideo(
     binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
   }
   return putItem({
-    meta: { id: newId(), kind: 'video', prompt, providerLabel, createdAt: Date.now(), mimeType },
+    meta: { id: recoveryId ? recoveredGalleryId(recoveryId) : newId(), kind: 'video', prompt, providerLabel, createdAt: Date.now(), mimeType },
     base64: globalThis.btoa(binary),
   });
 }
 
+async function commitGalleryWrite(write:(store:IDBObjectStore)=>void):Promise<void> {
+  const database = await db();
+  await new Promise<void>((resolve,reject) => {
+    const transaction = database.transaction(STORE,'readwrite');
+    transaction.oncomplete = () => resolve();
+    transaction.onabort = () => reject(transaction.error ?? new Error('Gallery storage change was aborted.'));
+    transaction.onerror = () => reject(transaction.error ?? new Error('Gallery storage change failed.'));
+    write(transaction.objectStore(STORE));
+  });
+}
+
 export async function deleteGalleryItem(id: string): Promise<void> {
-  const store = await tx('readwrite');
-  await request(store.delete(`item:${id}`));
+  await commitGalleryWrite(store => {store.delete(`item:${id}`);});
+}
+
+/** Iterate metadata without keeping every gallery video's base64 in memory. */
+export async function listGalleryMetadata(): Promise<Omit<GalleryItem, 'uri'>[]> {
+  const store = await tx('readonly');
+  return new Promise((resolve, reject) => {
+    const items: Omit<GalleryItem, 'uri'>[] = [];
+    const cursor = store.openCursor();
+    cursor.onerror = () => reject(cursor.error);
+    cursor.onsuccess = () => {
+      const row = cursor.result;
+      if (!row) { resolve(items.sort((a,b)=>b.createdAt-a.createdAt)); return; }
+      const stored = row.value as StoredItem;
+      if (stored?.meta?.id) items.push(stored.meta);
+      row.continue();
+    };
+  });
+}
+export async function readGalleryItem(id: string): Promise<GalleryItem | null> {
+  const store = await tx('readonly');
+  const row = await request(store.get(`item:${id}`)) as StoredItem | undefined;
+  return row?.meta?.id === id ? toItem(row) : null;
+}
+
+function recoveredGalleryId(id:string):string {
+ if(!/^[A-Za-z0-9_-]{1,128}$/.test(id))throw new Error('Invalid recovered gallery identity.');
+ return `fal-${id}`;
+}
+
+export async function saveGalleryAudio(prompt:string,providerLabel:string,base64:string,mimeType:string,recoveryId:string):Promise<GalleryItem>{
+ audioExtension(mimeType);
+ return putItem({meta:{id:recoveredGalleryId(recoveryId),kind:'audio',prompt,providerLabel,createdAt:Date.now(),mimeType},base64});
+}
+
+export async function saveEditedVideo(prompt:string,bytes:Uint8Array,id:string):Promise<GalleryItem>{
+ if(!/^edit-[a-f0-9]{64}$/.test(id)||!bytes.length||bytes.length>64*1024**2)throw new Error('Invalid edited preview.');
+ const existing=await readGalleryItem(id);if(existing)return existing;
+ let binary='';for(let offset=0;offset<bytes.length;offset+=8192)binary+=String.fromCharCode(...bytes.subarray(offset,offset+8192));
+ return putItem({meta:{id,kind:'video',prompt,providerLabel:'Edited preview',createdAt:Date.now(),mimeType:'video/mp4'},base64:globalThis.btoa(binary)});
 }

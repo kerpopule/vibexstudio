@@ -95,3 +95,12 @@ describe('parsePairDeepLinkV2', () => {
     expect(parsePairDeepLinkV2('vibex://pair')).toBeNull();
   });
 });
+
+
+describe('pairing address mistakes', () => {
+  it('rejects unsupported schemes and embedded credentials instead of silently changing the destination', () => {
+    for (const value of ['ftp://spark:7863', 'file:///tmp/media', 'ws://spark:7863', 'http://user:password@spark:7863', 'http;//127.0.0.1;62916']) {
+      expect(normalizeServerUrl(value)).toBeNull();
+    }
+  });
+});

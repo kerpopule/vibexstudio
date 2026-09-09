@@ -30,7 +30,9 @@ export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
 CONF_VERSION="$(node -p 'require("./src-tauri/tauri.conf.json").version')"
 [ "v$CONF_VERSION" = "$TAG" ] || echo "warning: tag $TAG != tauri.conf.json version $CONF_VERSION" >&2
 
-npx tauri build
+(cd ../app && npm ci && CI=1 npx expo export --platform web --output-dir ../desktop/dist)
+BUILD_STAGE="$(mktemp -d "${TMPDIR:-/tmp}/vibex-release.XXXXXX")"
+python3 scripts/build-independent-desktop.py --frontend dist --output "$BUILD_STAGE/package"
 
 DMG=$(ls src-tauri/target/release/bundle/dmg/VibeXStudio_*_aarch64.dmg)
 TARBALL=src-tauri/target/release/bundle/macos/VibeXStudio.app.tar.gz

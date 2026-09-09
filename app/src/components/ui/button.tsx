@@ -1,3 +1,4 @@
+import {Glass} from '@/components/ui/glass';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, View, type PressableProps } from 'react-native';
@@ -52,7 +53,7 @@ export function Button({ title, variant = 'primary', loading, disabled, leading,
         <LinearGradient
           colors={gradientColors(theme)}
           start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
+          end={{ x: 0.2, y: 1 }}
           style={[styles.fill, styles.gradientDim]}>
           {content}
         </LinearGradient>
@@ -67,13 +68,13 @@ export function Button({ title, variant = 'primary', loading, disabled, leading,
       style={[
         styles.shell,
         {
-          backgroundColor: variant === 'danger' ? theme.danger : theme.backgroundSelected,
+          backgroundColor: variant === 'danger' ? theme.danger : 'transparent',
           opacity: isDisabled ? 0.55 : 1,
         },
         style,
       ]}
       {...rest}>
-      {content}
+      {variant==='secondary'?<Glass radius={Radii.lg}>{content}</Glass>:content}
     </ScalePress>
   );
 }
@@ -87,7 +88,7 @@ const styles = StyleSheet.create({
     borderRadius: Radii.lg,
   },
   gradientDim: {
-    opacity: 0.85,
+    opacity: 1,
   },
   content: {
     flexDirection: 'row',

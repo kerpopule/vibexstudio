@@ -8,10 +8,11 @@
 export function normalizeServerUrl(raw: string): string | null {
   let url = raw.trim();
   if (!url) return null;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url) && !/^https?:\/\//i.test(url)) return null;
   if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
   try {
     const parsed = new URL(url);
-    if (!parsed.host) return null;
+    if (!parsed.host || parsed.username || parsed.password || parsed.hostname.includes(';')) return null;
     return `${parsed.protocol}//${parsed.host}`;
   } catch {
     return null;
@@ -41,10 +42,7 @@ function pairQueryParam(link: string, name: string): string | null {
   }
 }
 
-export interface WorkbenchPairing {
-  url: string;
-  token: string;
-}
+export type WorkbenchPairing = {url:string} & ({token:string;invitation?:never}|{invitation:string;token?:never});
 
 /** Everything one scanned QR can pair: either half may be missing. */
 export interface PairPayload {
@@ -57,8 +55,8 @@ export interface PairPayload {
  *   legacy  vibex://pair?url=<enc>                            (Media Lab only)
  *   v2      vibex://pair?medialab=<enc>&workbench=<enc>&wbt=<token>
  * Returns null when the link isn't a pair link or carries nothing usable.
- * A workbench half without a token is dropped (the server rejects everything
- * without it, so pairing would only manufacture a broken state).
+ * A Workbench half needs either a legacy token or a single-use wbi invitation.
+ * Mixing both is rejected so a link cannot silently select broader access.
  */
 export function parsePairDeepLinkV2(link: string): PairPayload | null {
   if (!/^vibex:\/{2,3}pair(\?|$)/i.test(link.trim())) return null;
@@ -67,8 +65,10 @@ export function parsePairDeepLinkV2(link: string): PairPayload | null {
   const workbenchUrlRaw = pairQueryParam(link, 'workbench');
   const workbenchUrl = workbenchUrlRaw ? normalizeServerUrl(workbenchUrlRaw) : null;
   const token = pairQueryParam(link, 'wbt');
-  const workbench =
-    workbenchUrl && token && /^\S+$/.test(token) ? { url: workbenchUrl, token } : null;
+  const invitation=pairQueryParam(link,'wbi');
+  const workbench:WorkbenchPairing|null=workbenchUrl&&invitation&&/^[A-Za-z0-9_-]{43}$/.test(invitation)&&!token
+    ? {url:workbenchUrl,invitation}
+    : workbenchUrl&&token&&/^\S+$/.test(token)&&!invitation ? {url:workbenchUrl,token}:null;
   if (!mediaLab && !workbench) return null;
   return { mediaLab, workbench };
 }
@@ -87,7 +87,8 @@ export function pairParamsFromInput(raw: string): Record<string, string> | null 
     if (payload.mediaLab) params.medialab = payload.mediaLab;
     if (payload.workbench) {
       params.workbench = payload.workbench.url;
-      params.wbt = payload.workbench.token;
+      if(payload.workbench.invitation)params.wbi=payload.workbench.invitation;
+      else if(payload.workbench.token)params.wbt=payload.workbench.token;
     }
     return params;
   }

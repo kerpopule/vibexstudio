@@ -167,3 +167,22 @@ def test_no_private_addresses_in_owned_files():
         text = p.read_text()
         for pat in (tailnet_ip, home_path, hostname):
             assert not pat.search(text), f"{rel} matches {pat.pattern}: {pat.search(text).group(0)}"
+
+
+def test_setup_json_forwards_options_without_legacy_config_or_network_probe(monkeypatch,capsys):
+    monkeypatch.setattr(cli,"app_root",lambda: pytest.fail("planner read legacy root"))
+    monkeypatch.setattr(pairing,"list_ipv4_addresses",lambda: pytest.fail("planner probed network"))
+    assert cli.main(["setup","--list","--json"])==0
+    result=json.loads(capsys.readouterr().out)
+    assert result["models"]
+    assert cli.main(["setup","--json","--select","missing-model"])==2
+    result=capsys.readouterr()
+    assert not result.out
+    assert "error" in json.loads(result.err)
+
+
+def test_setup_json_accepts_optional_separator_and_other_commands_reject_unknown_flags(capsys):
+    assert cli.main(["setup","--","--json"])==0
+    assert json.loads(capsys.readouterr().out)["selected"]==[]
+    with pytest.raises(SystemExit) as exc:cli.main(["status","--not-a-real-option"])
+    assert exc.value.code==2

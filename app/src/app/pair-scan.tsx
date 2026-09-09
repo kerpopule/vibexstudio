@@ -23,10 +23,12 @@ import { Button } from '@/components/ui/button';
 import { TextField } from '@/components/ui/text-field';
 import { Radii, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useHostingMediaServer } from '@/hooks/use-hosting-media-server';
 import { pairParamsFromInput } from '@/lib/media-pairing';
 
 export default function PairScanScreen() {
   const theme = useTheme();
+  const hostingServer = useHostingMediaServer();
   const [permission, requestPermission] = useCameraPermissions();
   const [typed, setTyped] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -63,6 +65,20 @@ export default function PairScanScreen() {
   return (
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        {hostingServer ? (
+          <View style={{ gap: Spacing.two }}>
+            <ThemedText type="heading">Use this Media Lab server</ThemedText>
+            <ThemedText themeColor="textSecondary">
+              This website is already running on a Media Lab server. Connect to access its library and tools.
+              You will review access and enter its pairing code next.
+            </ThemedText>
+            <ThemedText type="small">{hostingServer}</ThemedText>
+            <Button title="Connect to this server" onPress={() => router.replace({
+              pathname: '/connect-media-lab', params: { url: hostingServer },
+            })} />
+            <ThemedText type="smallBold">Or connect another computer</ThemedText>
+          </View>
+        ) : null}
         <ThemedText themeColor="textSecondary">
           On the computer: open VibeX Studio → <ThemedText type="smallBold">Media Lab → Pair your device</ThemedText>. On a
           Spark, run <ThemedText type="code">media-lab pair</ThemedText>. Then point the camera at the QR.

@@ -6,20 +6,22 @@
  */
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { PairedServerStorage } from '@/components/paired-server-storage';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radii, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { parsePairDeepLinkV2 } from '@/lib/media-pairing';
+import { useApp } from '@/lib/store';
 import { performPair, type PairOutcome } from '@/lib/pair-actions';
 
 /** Rebuild the deep link from route params so parsing stays in one place. */
 function linkFromParams(params: Record<string, string | string[] | undefined>): string {
   const search = new URLSearchParams();
-  for (const key of ['medialab', 'url', 'workbench', 'wbt']) {
+  for (const key of ['medialab', 'url', 'workbench', 'wbt', 'wbi']) {
     const value = params[key];
     if (typeof value === 'string' && value) search.set(key, value);
   }
@@ -45,28 +47,43 @@ function OutcomeRow({ emoji, title, detail, ok }: { emoji: string; title: string
 
 export default function PairScreen() {
   const theme = useTheme();
-  const params = useLocalSearchParams<{ medialab?: string; url?: string; workbench?: string; wbt?: string }>();
+  const hydrated = useApp(state=>state.hydrated);
+  const onboardingComplete = useApp(state=>state.onboardingComplete);
+  const params = useLocalSearchParams<{ medialab?: string; url?: string; workbench?: string; wbt?: string; wbi?: string }>();
+  const [showSync, setShowSync] = useState(false);
   const [outcome, setOutcome] = useState<PairOutcome | null>(null);
-  // Parsed once at mount — the QR is scanned once; params never change here.
-  const [payload] = useState(() => parsePairDeepLinkV2(linkFromParams(params)));
-  const unusable = !payload;
+  // Static web routes hydrate their search parameters after the first render.
+  const payload = useMemo(() => parsePairDeepLinkV2(linkFromParams(params)),
+    [params.medialab, params.url, params.workbench, params.wbt, params.wbi]);
+  const unusable = hydrated && !payload;
 
   useEffect(() => {
-    if (!payload) return;
+    if (!hydrated || !payload) return;
+    let active = true;
+    setOutcome(null);
+    setShowSync(false);
     performPair(payload).then((result) => {
+      if (!active) return;
       setOutcome(result);
       const anyOk = result.workbench?.ok || result.mediaLab?.ok;
       Haptics.notificationAsync(
         anyOk ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error
       ).catch(() => {});
     });
-  }, [payload]);
+    return () => { active = false; };
+  }, [payload, hydrated]);
 
   const done = () => {
+    // In-app pairing has the unfinished wizard underneath it. Replacing it
+    // would create a new Welcome screen and discard the current setup step.
     if (router.canGoBack()) router.back();
+    else if (!onboardingComplete) router.replace('/onboarding');
     else router.replace('/');
   };
 
+  const results = [outcome?.workbench, outcome?.mediaLab].filter(Boolean);
+  const allPaired = results.length > 0 && results.every(result => result?.ok);
+  const anyPaired = results.some(result => result?.ok);
   const mediaLabFailed = outcome?.mediaLab && !outcome.mediaLab.ok;
 
   return (
@@ -82,9 +99,9 @@ export default function PairScreen() {
           </ThemedText>
         </View>
       ) : (
-        <View style={styles.results}>
+        <ScrollView contentContainerStyle={styles.results}>
           <ThemedText type="title" style={styles.title}>
-            {unusable ? 'Nothing to pair' : 'Pairing complete'}
+            {unusable ? 'Nothing to pair' : allPaired ? 'Pairing complete' : anyPaired ? 'Partly connected' : 'Could not pair'}
           </ThemedText>
           {unusable ? (
             <ThemedText style={[styles.hint, { color: theme.textSecondary }]}>
@@ -111,10 +128,40 @@ export default function PairScreen() {
               ok={outcome.mediaLab.ok}
               detail={
                 outcome.mediaLab.ok
-                  ? `${outcome.mediaLab.url} — its full web UI joined the Media Lab tab`
-                  : 'No Media Lab answered there.'
+                  ? `${outcome.mediaLab.url} — connected — find its available tools in Create and Library`
+                  : outcome.mediaLab.reason ?? 'No Media Lab answered there.'
               }
             />
+          ) : null}
+          {outcome?.workbench?.ok ? (
+            <View style={{gap:Spacing.two}}>
+              <ThemedText type="smallBold">Bring your projects together</ThemedText>
+              <ThemedText themeColor="textSecondary">
+                Pairing connects this device to your computer. To exchange projects, choose project sync next.
+                Move your AI connections next to bring API keys and model choices. Subscription accounts still need a fresh sign-in.
+              </ThemedText>
+              <Pressable accessibilityRole="button" accessibilityState={{expanded:showSync}}
+                onPress={() => setShowSync(value => !value)}
+                style={[styles.secondary, {borderColor:theme.border}]}>
+                <ThemedText type="smallBold">{showSync ? 'Hide project sync' : 'Set up project sync'}</ThemedText>
+              </Pressable>
+              {showSync ? <PairedServerStorage pairedHere /> : null}
+              <Pressable accessibilityRole="button" onPress={()=>router.push('/transfer-ai')} style={[styles.secondary,{borderColor:theme.border}]}>
+                <ThemedText type="smallBold">Move AI connections</ThemedText>
+              </Pressable>
+            </View>
+          ) : null}
+          {outcome?.mediaLab?.ok ? (
+            <View style={{gap:Spacing.two}}>
+              <ThemedText themeColor="textSecondary">
+                To use saved creations in your projects, enter this server’s access code next.
+              </ThemedText>
+              <Pressable accessibilityRole="button"
+                onPress={() => router.replace({pathname:'/connect-media-lab', params:{url:outcome.mediaLab!.url}})}
+                style={[styles.secondary, {borderColor:theme.border}]}>
+                <ThemedText type="smallBold">Connect saved creations</ThemedText>
+              </Pressable>
+            </View>
           ) : null}
           {mediaLabFailed ? (
             <Pressable
@@ -130,7 +177,7 @@ export default function PairScreen() {
               Done
             </ThemedText>
           </Pressable>
-        </View>
+        </ScrollView>
       )}
     </ThemedView>
   );

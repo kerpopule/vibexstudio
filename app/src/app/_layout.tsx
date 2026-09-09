@@ -1,9 +1,11 @@
+import { AgentApprovalHost } from '@/components/agent-approval-host';
+import { AppDialogHost } from '@/components/app-dialog-host';
 import { useFonts } from 'expo-font';
 import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, router, useSegments } from 'expo-router';
 import { useEffect } from 'react';
-import { Linking } from 'react-native';
+import { AppState, Linking } from 'react-native';
 
 import { FONT_ASSETS } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -12,6 +14,9 @@ import { mediaLabJobFromResponse, projectIdFromResponse } from '@/lib/notificati
 import { agentConnectRuntime } from '@/lib/agent-connect/runtime';
 import { parsePrivateInviteLink } from '@/lib/private-provider/links';
 import { useApp } from '@/lib/store';
+import { needsOnboardingRedirect } from '@/lib/onboarding-navigation';
+import { initPairedServerSync } from '@/lib/sync/auto-server';
+import { initDesktopFolderSync } from '@/lib/sync/auto-folder';
 import { initAndroidFolderSync } from '@/lib/sync/android-folder-sync';
 
 
@@ -48,13 +53,19 @@ export default function RootLayout() {
   // write files (debounced) and once shortly after launch. No-op elsewhere.
   useEffect(() => {
     initAndroidFolderSync();
+    return initDesktopFolderSync();
   }, []);
 
   useEffect(() => {
-    if (hydrated && !onboardingComplete && (segments[0] as string) !== 'onboarding') {
+    if (needsOnboardingRedirect(hydrated, onboardingComplete, segments[0])) {
       router.replace('/onboarding' as never);
     }
   }, [hydrated, onboardingComplete, segments]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    return initPairedServerSync(() => AppState.currentState === 'active');
+  }, [hydrated]);
 
   useEffect(() => {
     if (hydrated) void agentConnectRuntime.initialize();
@@ -106,27 +117,35 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
+      <Stack screenOptions={{ headerBackTitle: 'Back' }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="studio-tour" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
         {/* gestureEnabled false: games use edge swipes — don't let a right
             swipe in the preview pop the user out of the project. */}
         <Stack.Screen name="project/[id]" options={{ headerShown: false, gestureEnabled: false }} />
+        <Stack.Screen name="library" options={{ title: 'Library' }} />
         <Stack.Screen name="new-project" options={{ presentation: 'modal', title: 'New Project' }} />
         <Stack.Screen name="connect-github" options={{ presentation: 'modal', title: 'Connect GitHub' }} />
+        <Stack.Screen name="song" options={{ title: 'Make a song' }} />
+        <Stack.Screen name="replace-provider-key" options={{ presentation: 'modal', title: 'Replace API key' }} />
+        <Stack.Screen name="third-party-notices" options={{ title: 'Third-party notices' }} />
+        <Stack.Screen name="transfer-ai" options={{ title: 'Move AI connections' }} />
         <Stack.Screen name="connect-provider" options={{ presentation: 'modal', title: 'Connect AI' }} />
         <Stack.Screen name="connect-subscription" options={{ presentation: 'modal', title: 'Connect subscription' }} />
-        <Stack.Screen name="connect-private" options={{ presentation: 'modal', title: 'Private VibeX Models' }} />
+        <Stack.Screen name="connect-private" options={{ presentation: 'modal', title: 'Your AI connection' }} />
         <Stack.Screen name="edit-model" options={{ presentation: 'modal', title: 'Choose model' }} />
         <Stack.Screen name="connect-media-lab" options={{ presentation: 'modal', title: 'Media Lab' }} />
         <Stack.Screen name="pair" options={{ presentation: 'modal', title: 'Pair' }} />
         <Stack.Screen name="pair-scan" options={{ presentation: 'modal', title: 'Pair a computer' }} />
         <Stack.Screen name="media-lab-setup" options={{ presentation: 'modal', title: 'Set up Media Lab' }} />
         <Stack.Screen name="fal-setup" options={{ presentation: 'modal', title: 'Cloud rendering' }} />
+        <Stack.Screen name="storage" options={{ presentation: 'modal', title: 'Your storage' }} />
         <Stack.Screen name="agent-connect" options={{ presentation: 'modal', title: 'Connect an agent' }} />
         <Stack.Screen name="import" options={{ title: 'Open Shared App' }} />
       </Stack>
+      <AppDialogHost />
+      <AgentApprovalHost />
     </ThemeProvider>
   );
 }

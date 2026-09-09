@@ -6,7 +6,7 @@ import { PROVIDERS, type WireProtocol } from '@/lib/ai/registry';
 import { MODEL_STREAM_TIMEOUT_MS, openAiRequestPolicy } from '@/lib/ai/request-policy';
 import { ssePost } from '@/lib/ai/sse';
 import { chatGptAccountIdFromToken, SUBSCRIPTION_PROVIDERS } from '@/lib/ai/subscriptionOauth';
-import { assertPrivateProviderOrigin, privateBackendNotice, PRIVATE_ALLOWED_MODELS } from '@/lib/private-provider/profile';
+import { assertHostedPrivateAccessEnabled, assertPrivateProviderOrigin, privateBackendNotice, PRIVATE_ALLOWED_MODELS } from '@/lib/private-provider/profile';
 import { getPrivateDeviceProof } from '@/lib/storage/secrets';
 import type { ChatRole, ProviderConnection } from '@/lib/types';
 
@@ -21,7 +21,10 @@ interface Routing {
 }
 
 export function resolveRouting(connection: ProviderConnection): Routing {
-  if (connection.privateProvider) assertPrivateProviderOrigin(connection.baseUrl);
+  if (connection.privateProvider) {
+    assertHostedPrivateAccessEnabled();
+    assertPrivateProviderOrigin(connection.baseUrl);
+  }
   if (connection.subscription) {
     const spec = SUBSCRIPTION_PROVIDERS[connection.subscription];
     return {

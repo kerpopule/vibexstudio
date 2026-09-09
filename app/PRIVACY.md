@@ -26,7 +26,14 @@ that provider's endpoint. The provider processes that data under its own terms
 and privacy policy. VibeXStudio does not receive those direct-provider
 requests on a VibeXStudio server.
 
-## Optional Private VibeX access
+## Legacy Private VibeX access
+
+This development build disables hosted Private VibeX invite redemption,
+credential refresh, and AI requests. Users connect their own provider APIs or
+servers instead. Existing local connection records are retained for removal.
+A user-requested removal may contact the legacy broker to revoke access; this
+does not delete historical broker records. The following describes the older
+service for users who previously connected it.
 
 Private VibeX is an optional, invite-only connection. Before it is saved, the
 app displays a review screen explaining that prompts and generated output pass

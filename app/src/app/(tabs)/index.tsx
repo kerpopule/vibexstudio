@@ -1,8 +1,9 @@
+import { Alert } from '@/lib/app-alert';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useRef } from 'react';
-import { ActivityIndicator, Alert, FlatList, Image, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, StyleSheet, useWindowDimensions, View } from 'react-native';
 import Animated, {
   Easing,
   FadeInDown,
@@ -248,15 +249,15 @@ export default function ProjectsScreen() {
               Build, remix, preview, and publish real web apps from your device.
             </ThemedText>
             <ScalePress onPress={() => router.push('/new-project')} style={[styles.quickStart, { shadowColor: theme.glow }, Shadows.float]}>
-              <LinearGradient colors={gradientColors(theme)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.quickStartFill}>
+              <Glass radius={Radii.xl} style={styles.quickStartFill}>
                 <View style={styles.quickStartCopy}>
-                  <ThemedText type="heading" style={{ color: theme.onGradient }}>Start a new build</ThemedText>
-                  <ThemedText type="small" style={{ color: theme.onGradient, opacity: 0.82 }}>Describe it. Watch it become real.</ThemedText>
+                  <ThemedText type="heading" style={{ color: theme.text }}>Start a new build</ThemedText>
+                  <ThemedText type="small" style={{ color: theme.text, opacity: 0.82 }}>Describe it. Watch it become real.</ThemedText>
                 </View>
                 <View style={[styles.quickStartIcon, { backgroundColor: theme.glass }]}>
-                  <Ionicons name="arrow-forward" size={20} color={theme.onGradient} />
+                  <Ionicons name="arrow-forward" size={20} color={theme.text} />
                 </View>
-              </LinearGradient>
+              </Glass>
             </ScalePress>
             {projects.length ? <ThemedText type="smallBold" themeColor="textSecondary" style={styles.sectionLabel}>RECENT PROJECTS</ThemedText> : null}
           </Animated.View>
@@ -264,15 +265,15 @@ export default function ProjectsScreen() {
         ListEmptyComponent={
           hydrated ? (
             <Animated.View entering={enter(FadeInDown.duration(500))} style={styles.empty}>
-              <LinearGradient colors={gradientColors(theme)} style={styles.emptyOrb}>
+              <Glass style={styles.emptyOrb}>
                 <ThemedText style={styles.emptyEmoji}>✨</ThemedText>
-              </LinearGradient>
+              </Glass>
               <ThemedText type="subtitle" style={styles.center}>
                 Vibe your first app
               </ThemedText>
               <ThemedText themeColor="textSecondary" style={[styles.center, styles.emptyBody]}>
-                Describe an app in chat and watch it come to life — right on your device. Everything stays on your
-                device unless you sync it to your own GitHub.
+                Describe an app in chat and watch it come to life. Projects are saved on your device.
+                Your prompts and selected files go to the services you connect. You choose what to share on GitHub.
               </ThemedText>
             </Animated.View>
           ) : null

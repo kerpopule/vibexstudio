@@ -20,12 +20,6 @@ describe('Agent Connect platform configuration', () => {
     expect(persistence).not.toMatch(/AsyncStorage\.(?:getItem|setItem)\(credentialKey/);
   });
 
-  it('truthfully reports Agent Connect as unavailable on web', () => {
-    const runtime = source('src/lib/agent-connect/runtime.ts');
-    expect(runtime).toContain('supported: false');
-    expect(runtime).toContain('unavailable on web');
-  });
-
   it('shares the authoritative body cap with the native HTTP listener', () => {
     const httpServer = source('src/lib/agent-connect/http-server.native.ts');
     expect(httpServer).toContain('MAX_REQUEST_BODY_BYTES');

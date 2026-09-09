@@ -5,6 +5,7 @@ import { getPrivateInstallationProof, setPrivateInstallationProof } from '@/lib/
 import type { ProviderConnection } from '@/lib/types';
 import {
   PRIVATE_BROKER_API_BASE_URL,
+  assertHostedPrivateAccessEnabled,
   PRIVATE_PROFILE_SCHEMA,
   verifyProviderProfile,
   type SignedProviderProfileWire,
@@ -48,6 +49,7 @@ export interface PendingPrivateProvider {
 }
 
 export async function redeemPrivateInvite(inviteToken: string): Promise<PendingPrivateProvider> {
+  assertHostedPrivateAccessEnabled();
   const deviceProof = await installationProof();
   const response = await fetch(`${PRIVATE_BROKER_API_BASE_URL}/private-model-invites/redeem`, {
     method: 'POST',
@@ -82,6 +84,7 @@ export async function redeemPrivateInvite(inviteToken: string): Promise<PendingP
 }
 
 export async function refreshPrivateCredential(connection: ProviderConnection, refreshHandle: string, deviceProof: string) {
+  assertHostedPrivateAccessEnabled();
   if (!connection.privateProvider || connection.baseUrl !== PRIVATE_BROKER_API_BASE_URL) throw new Error('Not a private provider.');
   const response = await fetch(`${PRIVATE_BROKER_API_BASE_URL}/private-model-devices/refresh`, {
     method: 'POST',

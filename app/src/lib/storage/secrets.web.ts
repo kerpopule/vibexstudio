@@ -1,3 +1,5 @@
+import { invalidateVaultRead, readVaultSecret } from '@/lib/vault-read';
+import { librarySecretKey } from '@/lib/library-secret-key';
 /**
  * Web/desktop secret storage. expo-secure-store has no web implementation,
  * so this module is the platform seam:
@@ -26,31 +28,40 @@ export function secretsInVault(): boolean {
   return tauriInvoke() != null;
 }
 
+function browserStorage(): Storage {
+  const storage = globalThis.localStorage;
+  if (!storage) {
+    throw new Error('Browser storage is unavailable. Enable storage for this site or use the installed app.');
+  }
+  return storage;
+}
+
 async function setItem(key: string, value: string): Promise<void> {
   const invoke = tauriInvoke();
   if (invoke) {
     await invoke('secret_set', { key, value });
+    invalidateVaultRead(key);
     return;
   }
-  globalThis.localStorage?.setItem(key, value);
+  browserStorage().setItem(key, value);
 }
 
 async function getItem(key: string): Promise<string | null> {
   const invoke = tauriInvoke();
   if (invoke) {
-    const value = await invoke('secret_get', { key });
-    return typeof value === 'string' ? value : null;
+    return readVaultSecret(invoke, key);
   }
-  return globalThis.localStorage?.getItem(key) ?? null;
+  return browserStorage().getItem(key);
 }
 
 async function deleteItem(key: string): Promise<void> {
   const invoke = tauriInvoke();
   if (invoke) {
     await invoke('secret_delete', { key });
+    invalidateVaultRead(key);
     return;
   }
-  globalThis.localStorage?.removeItem(key);
+  browserStorage().removeItem(key);
 }
 
 const slug = (id: string) => id.replace(/[^A-Za-z0-9._-]/g, '_');
@@ -80,3 +91,11 @@ export const clearPrivateDeviceProof = (id: string) => deleteItem(privateDeviceP
 export const setProviderRefreshToken = (id: string, token: string) => setItem(refreshKeyFor(id), token);
 export const getProviderRefreshToken = (id: string) => getItem(refreshKeyFor(id));
 export const clearProviderRefreshToken = (id: string) => deleteItem(refreshKeyFor(id));
+
+export const setLibraryToken = async (origin: string, token: string) => setItem(await librarySecretKey(origin), token);
+export const getLibraryToken = async (origin: string) => getItem(await librarySecretKey(origin));
+export const clearLibraryToken = async (origin: string) => deleteItem(await librarySecretKey(origin));
+export const getGenerationConnection = async (origin: string) => getItem((await librarySecretKey(origin)) + '.generation');
+export const setGenerationConnection = async (origin: string, value: string) => setItem((await librarySecretKey(origin)) + '.generation', value);
+export const getEditingConnection = async (origin: string) => getItem((await librarySecretKey(origin)) + '.editing');
+export const setEditingConnection = async (origin: string, value: string) => setItem((await librarySecretKey(origin)) + '.editing', value);

@@ -3,11 +3,16 @@
 Single-flight worker queue, persisted jobs, ETA stats, PIN admin, remix."""
 import asyncio, base64, fcntl, hashlib, hmac, json, math, os, posixpath, random, re, shutil, subprocess, tempfile, threading, time, urllib.error, urllib.request, uuid
 from pathlib import Path
+from functools import lru_cache
+from contextlib import asynccontextmanager
 from typing import Optional, Union
-from fastapi import FastAPI, File, Form, Header, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi.responses import Response, FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
+from media_lab_core import studio_library, studio_jobs, studio_inputs, background_host, background_setup
+from media_lab_core.job_store import JobStore
+from media_lab_core.director_context import project_context_message
 from media_lab_core import installer as engine_installer
 from media_lab_core import cut as cut_core
 from runner.audio_signal_gate import audio_signal_metrics
@@ -801,7 +806,16 @@ def _fal_first_media(result: dict, kinds=("images", "image", "video")) -> str:
             return v
     return ""
 
-app = FastAPI()
+@asynccontextmanager
+async def _studio_lifespan(application):
+    _start_studio_background_host()
+    try:
+        yield
+    finally:
+        await _stop_studio_background_host()
+
+
+app = FastAPI(lifespan=_studio_lifespan)
 cv = threading.Condition()
 _state = _load(JOBS_FILE, {})
 jobs: dict = _state.get("jobs", {})
@@ -1237,7 +1251,15 @@ async def gate_middleware(request: Request, call_next):
     request.state.role = request_role(request)
     fresh = not did
 
-    if gate_exempt(p):
+    scoped = studio_library.is_library_path(p) or studio_jobs.is_jobs_path(p)
+    bridge = p == '/api/gate' or scoped
+    if bridge and request.method == 'OPTIONS':
+        resp = Response(status_code=204)
+    elif scoped:
+        # Each bridge performs its own scoped bearer validation; cookie/host
+        # trust cannot substitute for that ticket.
+        resp = await call_next(request)
+    elif gate_exempt(p):
         resp = await call_next(request)
     elif request.state.role:
         resp = await call_next(request)
@@ -1268,6 +1290,15 @@ async def gate_middleware(request: Request, call_next):
         cacheable = p.startswith("/media/") and resp.status_code in (200, 206, 304)
         resp.headers["Cache-Control"] = "private, max-age=3600" if cacheable else "private, no-store"
         resp.headers["Vary"] = (resp.headers["Vary"] + ", Cookie") if resp.headers.get("Vary") else "Cookie"
+    if bridge:
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        resp.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'
+        if p == '/api/studio/inputs/library':
+            resp.headers['Access-Control-Allow-Headers'] += ', X-Library-Authorization'
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        resp.headers['Access-Control-Expose-Headers'] = 'X-Content-SHA256, X-Studio-Portable'
+        resp.headers['Cache-Control'] = 'private, no-store'
+        resp.headers['Vary'] = 'Authorization, Origin'
     return resp
 
 # ---------- admin authority ----------
@@ -8767,7 +8798,9 @@ def _setup_status() -> dict:
     for name, spec in cfg.items():
         state, detail = "absent", ""
         rec = engine_installer.engine_install_state(ROOT, name)
-        if _setup_engine_health(name, spec):
+        if spec.get("blocked"):
+            state, detail = "blocked", spec.get("blocked_reason") or "No verified installer is available."
+        elif _setup_engine_health(name, spec):
             state, detail = "ready", "running"
         elif rec and rec.get("state") == "installing":
             state = "installing"
@@ -8796,13 +8829,15 @@ def _setup_status() -> dict:
             "default": bool(spec.get("default")),
             "requires_gpu": bool(spec.get("requires_gpu")),
             "requires_manual": bool(spec.get("requires_manual")),
+            "blocked": bool(spec.get("blocked")),
             "terms_acceptance_required": bool(spec.get("terms_acceptance_required")),
             "license_name": spec.get("license_name") or "",
             "license_note": spec.get("license_note") or "",
         }
     fal_configured = bool(fal_config()["api_key"])
     return {"engines": engines, "gpu": _gpu_present(), "fal_configured": fal_configured,
-            "first_run": not any_ready and not fal_configured}
+            "first_run": not any_ready and not fal_configured,
+            "independent_background_setup": os.getenv("MEDIA_LAB_BACKGROUND_SETUP") == "1"}
 
 @app.get("/api/setup/status")
 def setup_status():
@@ -8842,6 +8877,11 @@ def setup_install(request: Request, r: SetupInstallReq,
     unknown = [e for e in wanted if e not in cfg]
     if unknown:
         return JSONResponse({"error": f"unknown engines: {', '.join(unknown)}"}, status_code=400)
+    blocked = [e for e in wanted if cfg[e].get("blocked")]
+    if blocked:
+        return JSONResponse({"error": "Independent engine setup is not available yet.",
+                             "refused": [{"engine": e, "reason": cfg[e].get("blocked_reason") or "No verified installer is available."}
+                                         for e in blocked]}, status_code=409)
     # licenses are accepted by the HUMAN, per model_catalog's
     # terms_acceptance_required contract — refuse to install past a missing one
     missing_terms = [e for e in wanted
@@ -9443,6 +9483,7 @@ CHAT_CORS = {"Access-Control-Allow-Origin": "*",
 class ChatReq(BaseModel):
     messages: list
     selected_image_template: Optional[dict] = None
+    selected_project: Optional[dict] = None
 
 
 def _operator_create_job(kind, request):
@@ -9573,9 +9614,15 @@ def chat(r: ChatReq, request: Request):
         template_message = selected_image_template_message(r.selected_image_template)
     except ImageTemplateContextError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400, headers=CHAT_CORS)
-    if template_message:
+    try:
+        project_message = project_context_message(r.selected_project)
+    except ValueError:
+        return JSONResponse({"error": "The selected project metadata is invalid or too large."},
+                            status_code=400, headers=CHAT_CORS)
+    references = [message for message in (template_message, project_message) if message]
+    if references:
         latest_user_index = max(i for i, m in enumerate(clean) if m["role"] == "user")
-        clean.insert(latest_user_index, template_message)
+        clean[latest_user_index:latest_user_index] = references
     msgs.extend(clean)
     action_ok = action_authorized(latest_user)
 
@@ -9964,6 +10011,9 @@ def cut_render_status(render_id: str, request: Request):
 
 class GateReq(BaseModel):
     code: str
+    studio_library: bool = False
+    studio_render: bool = False
+    studio_device: Optional[str] = Field(default=None, pattern=r'^[a-f0-9]{32}$')
 
 @app.post("/api/gate")
 async def gate(r: GateReq, request: Request):
@@ -9992,11 +10042,96 @@ async def gate(r: GateReq, request: Request):
         return JSONResponse({"ok": False, "retry_after": nxt, "scope": "device"},
                             status_code=403)
     record_ok("gate", key)
+    if r.studio_library or r.studio_render:
+        if r.studio_render and not r.studio_device:
+            return JSONResponse({'error': 'A device identity is required for generation permission.'}, status_code=422)
+        response = {'ok': True}
+        if r.studio_library:
+            response.update(scope='library:read',
+                            token=studio_library.ticket(ACCESS_SECRET, role, _role_code(role)),
+                            expiresIn=studio_library.TOKEN_AGE)
+        if r.studio_render:
+            render_token = studio_jobs.ticket(ACCESS_SECRET, role, _role_code(role), r.studio_device)
+            if r.studio_library:
+                response.update(renderScope='jobs:own', renderToken=render_token, renderExpiresIn=studio_jobs.TOKEN_AGE)
+            else:
+                response.update(scope='jobs:own', token=render_token, expiresIn=studio_jobs.TOKEN_AGE)
+        return JSONResponse(response)
     resp = JSONResponse({"ok": True, "role": role})
     resp.set_cookie(SESSION_COOKIE, session_token(role), max_age=SESSION_MAX_AGE,
                     httponly=True, samesite="lax", path="/",
                     secure=_secure_cookie(request))
     return resp
+
+app.include_router(studio_library.router(
+    lambda: _load(ROOT / 'gallery.json', []), MEDIA,
+    lambda raw: studio_library.valid_ticket(raw, ACCESS_SECRET, _role_code)))
+
+
+@lru_cache(maxsize=1)
+def _studio_job_store():
+    # A separate database; never adopt or dispatch the legacy JSON queue.
+    return JobStore(ROOT / 'studio-jobs.sqlite')
+
+
+@lru_cache(maxsize=1)
+def _studio_background_host():
+    return background_host.BackgroundHost(_studio_job_store, ROOT / 'studio-artifacts',
+                                         os.getenv('MEDIA_LAB_BACKGROUND_QUALIFICATION') or
+                                         (background_setup.managed_receipt(ROOT) if os.getenv('MEDIA_LAB_BACKGROUND_SETUP') == '1' else None))
+
+
+def _studio_admit(payload):
+    _studio_background_host().admit(payload)
+
+
+def _start_studio_background_host():
+    if os.getenv('MEDIA_LAB_DISABLE_BACKGROUND_WORKERS') != '1':
+        _studio_background_host().start()
+
+
+async def _stop_studio_background_host():
+    import asyncio
+    await asyncio.to_thread(_studio_background_host().stop)
+
+
+@lru_cache(maxsize=1)
+def _studio_background_setup():
+    return background_setup.Setup(ROOT, python=os.getenv('MEDIA_LAB_BACKGROUND_PYTHON'),
+                                  uv=os.getenv('MEDIA_LAB_BACKGROUND_UV'),get_host=_studio_background_host,
+                                  externally_controlled=lambda:bool(os.getenv('MEDIA_LAB_BACKGROUND_QUALIFICATION')) or
+                                  os.getenv('MEDIA_LAB_DISABLE_BACKGROUND_WORKERS') == '1')
+
+
+app.include_router(background_setup.router(
+    _studio_background_setup,
+    lambda request: session_role(request.cookies.get(SESSION_COOKIE, '')) == 'admin',
+    lambda: os.getenv('MEDIA_LAB_BACKGROUND_SETUP') == '1'))
+
+
+app.include_router(studio_jobs.router(
+    _studio_job_store,
+    lambda raw: studio_jobs.identity(raw, ACCESS_SECRET, _role_code),
+    lambda: _studio_background_host().engines(), _studio_admit, ROOT / 'studio-artifacts'))
+
+
+def _studio_read_library_input(asset_id):
+    item = next((entry for entry in studio_library.catalog(_load(ROOT / 'gallery.json', []), MEDIA)
+                 if entry[0]['id'] == asset_id and entry[0]['kind'] == 'image'), None)
+    if item is None:
+        raise HTTPException(404, 'This Library image is unavailable.')
+    try:
+        with item[1].open('rb') as source:
+            return source.read(20 * 1024**2 + 1)
+    except OSError:
+        raise HTTPException(404, 'This Library image is unavailable.') from None
+
+
+app.include_router(studio_inputs.router(
+    _studio_job_store,
+    lambda raw: studio_jobs.identity(raw, ACCESS_SECRET, _role_code),
+    lambda raw: studio_library.valid_ticket(raw, ACCESS_SECRET, _role_code),
+    _studio_read_library_input))
 
 @app.get("/api/me")
 def me(request: Request):
@@ -10145,3 +10280,8 @@ def index():
 @app.get("/cut")
 def cut_page():
     return FileResponse(str(ROOT / "static/cut.html"))
+
+
+@app.get('/setup/background')
+def background_setup_page():
+    return FileResponse(str(ROOT/'static/background-setup.html'))

@@ -1,0 +1,51 @@
+name: Editor store portability
+
+on:
+  pull_request:
+    paths:
+      - 'media-lab/media_lab_core/cut.py'
+      - 'media-lab/tests/test_cut_platform_lock.py'
+      - 'media-lab/tests/test_cut_commands.py'
+      - 'media-lab/tests/test_cut_storyboard.py'
+      - '.github/workflows/editor-store.yml'
+  push:
+    paths:
+      - 'media-lab/media_lab_core/cut.py'
+      - 'media-lab/tests/test_cut_platform_lock.py'
+      - 'media-lab/tests/test_cut_commands.py'
+      - 'media-lab/tests/test_cut_storyboard.py'
+      - '.github/workflows/editor-store.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  store:
+    name: Store on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test runner
+        run: python -m pip install pytest==9.1.1
+      - name: Test real OS locking and project journal recovery
+        run: >-
+          python -m pytest
+          media-lab/tests/test_cut_platform_lock.py
+          media-lab/tests/test_cut_commands.py
+          media-lab/tests/test_cut_storyboard.py
+          --junitxml=editor-store-results.xml -q
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: editor-store-${{ matrix.os }}
+          path: editor-store-results.xml
+          if-no-files-found: error

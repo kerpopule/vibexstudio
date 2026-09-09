@@ -23,7 +23,7 @@ vi.mock('expo-crypto', () => ({
 
 const { chatGptAccountIdFromToken, SUBSCRIPTION_ORDER, SUBSCRIPTION_PROVIDERS } = await import('../src/lib/ai/subscriptionOauth');
 const { pairParamsFromInput } = await import('../src/lib/media-pairing');
-const { readyToBuild, setupSteps } = await import('../src/lib/setup');
+const { readyToBuild, setupSteps, modelSetupUrl } = await import('../src/lib/setup');
 
 import type { ProviderConnection } from '../src/lib/types';
 
@@ -117,5 +117,21 @@ describe('update check', () => {
     expect(newerRelease({ tag_name: 'v1.2.0' }, '1.2.0')).toBeNull();
     expect(newerRelease({ tag_name: 'v9.0.0', prerelease: true }, '1.2.0')).toBeNull();
     expect(newerRelease({ tag_name: 'v9.0.0', draft: true }, '1.2.0')).toBeNull();
+  });
+});
+
+
+describe('server model setup navigation', () => {
+  it('uses only the paired origin and never includes URL tokens', () => {
+    expect(modelSetupUrl('https://spark.example:9443/pair?token=secret#private')).toBe('https://spark.example:9443/setup/background');
+    expect(modelSetupUrl('http://YOUR_TAILNET_IP:7863')).toBe('http://YOUR_TAILNET_IP:7863/setup/background');
+    for (const url of [undefined, 'invalid', 'file:///private/data', 'https://user:secret@example.com']) {
+      expect(modelSetupUrl(url)).toBeNull();
+    }
+  });
+
+  it('does not imply a configured provider runs on the current device', () => {
+    const step = setupSteps({ providers: [chat('Remote provider')], mediaLab: null, workbench: null, github: null }).find(s => s.id === 'media');
+    expect(step?.status).toBe('Configured · Remote provider');
   });
 });

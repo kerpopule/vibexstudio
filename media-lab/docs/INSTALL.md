@@ -173,3 +173,16 @@ have no user session bus — log in once over SSH as that user, or run
 without it.
 
 **Python too old** — needs 3.11+. Install `uv` and re-run: it fetches its own.
+# Independent video setup status
+
+The public first-run catalog does not currently provide a verified independent
+video installer. Its former LTX and H3 recipes depended on private Maestro
+container images; those recipes are now blocked and contain no executable steps.
+They cannot be selected in setup or started through `/api/setup/install`, even
+when a legacy container is running. This does not stop existing jobs or remove
+an operator's existing engines.
+
+A replacement must supply pinned sources, model/runtime terms, hardware checks
+and successful qualification before becoming installable. This setup change does
+not remove the legacy rendering routes or establish that the entire runtime is
+independent of Maestro/WanGP; that migration remains in progress.

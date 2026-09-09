@@ -11,16 +11,11 @@
 import { Directory, File, Paths } from 'expo-file-system';
 import { Share } from 'react-native';
 
-import { GET_APP_URL } from '@/lib/github/sharePage';
+import {shareMessageFor} from '@/lib/share/share-message';
 import { bundleFileName, encodeBundle } from '@/lib/share/bundle';
 import { listFiles, readProject } from '@/lib/storage/projects';
 
-export function shareMessageFor(name: string): string {
-  return (
-    `I made “${name}” in VibeXStudio ⚡ Open the attached .vibex file on your iPhone, iPad, or Mac to play it and remix it. ` +
-    `Don’t have the app (or not sure what to do with the file)? ${GET_APP_URL}`
-  );
-}
+export {shareMessageFor} from '@/lib/share/share-message';
 
 export async function exportProjectBundle(projectId: string): Promise<void> {
   const meta = await readProject(projectId);

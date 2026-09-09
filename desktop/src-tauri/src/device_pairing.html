@@ -1,0 +1,23 @@
+<!doctype html><html><head><meta charset="utf-8"><style>__PAGE_CSS__
+body{display:block;overflow:auto;padding:24px;box-sizing:border-box}main{max-width:480px;margin:auto}button{margin:4px}#devices{padding:0;list-style:none}.device{border:1px solid #ffffff30;border-radius:12px;padding:12px;margin:8px 0}.device small{display:block;color:#aaa}.qr svg{max-width:100%;height:auto}#error{color:#ffb5b5}button:disabled{opacity:.5}select{display:block;width:100%;margin:10px 0;padding:12px;border:1px solid #ffffff40;border-radius:10px;color:#eee;background:#171719}</style></head><body><main>
+<h2>Connect a phone or tablet</h2>
+<p>Scan this code with VibeX Studio on your other device. It gets its own connection; this code never contains your server’s permanent credential.</p>
+<label for="network">How will your devices connect?</label><select id="network"><option value="local">Same Wi-Fi or local network</option><option value="tailscale">My Tailscale network</option></select><p id="networkHint" class="dim">Keep both devices on the same network.</p>
+<div id="qr" class="qr"></div><p id="expiry" class="dim"></p>
+<p><button id="new">New QR code</button><button id="copy" disabled>Copy invitation</button></p>
+<p class="dim">Use the same network or a reachable tailnet address. The connected device can build apps and access this server’s shared projects. Turn project sync on separately in Storage.</p>
+<p id="error" role="alert"></p>
+<section id="management"><h3>Connected devices</h3><p>Disconnecting a device stops its next requests. Files stay on your server; work already running can finish.</p>
+<button id="refresh">Refresh devices</button><ul id="devices"></ul></section>
+</main><script>
+const $=id=>document.getElementById(id),invoke=(operation,deviceId)=>window.__TAURI__.core.invoke('device_pairing_manage',{operation,deviceId:deviceId??null,network:$('network').value});
+let link='',expiresAt=0,busy=false;
+function clock(){if(!expiresAt)return;const seconds=Math.max(0,Math.ceil((expiresAt-Date.now())/1000));$('expiry').textContent=seconds?`Single use · expires in ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`:'This invitation expired. Get a new QR code.';if(!seconds){link='';$('copy').disabled=true;$('qr').replaceChildren();}}
+async function list(){const result=await invoke('list');$('devices').replaceChildren();if(!result.devices.length){const li=document.createElement('li');li.textContent='No devices connected yet.';$('devices').append(li);}for(const device of result.devices){const li=document.createElement('li');li.className='device';const title=document.createElement('strong');title.textContent=device.name;const date=document.createElement('small');date.textContent=`Connected ${new Date(device.createdAt).toLocaleString()}`;const button=document.createElement('button');button.textContent='Disconnect';button.setAttribute('aria-label',`Disconnect ${device.name}`);button.onclick=()=>run(async()=>{await invoke('revoke',device.id);await list();});li.append(title,date,button);$('devices').append(li);}}
+async function run(action){if(busy)return;busy=true;$('network').disabled=true;$('new').disabled=true;$('refresh').disabled=true;$('error').textContent='';try{await action();}catch(error){$('error').textContent=String(error);}finally{busy=false;$('network').disabled=false;$('new').disabled=false;$('refresh').disabled=false;}}
+async function issue(){link='';expiresAt=0;$('expiry').textContent='';$('copy').disabled=true;$('qr').replaceChildren();const value=await invoke('issue');link=value.link;expiresAt=value.expiresAt;$('qr').innerHTML=value.svg;$('copy').disabled=false;clock();$('management').hidden=!value.deviceManagement;if(value.deviceManagement)await list();else $('expiry').textContent='Media Lab address only. Enter its access code in Studio.';}
+$('network').onchange=()=>{ $('networkHint').textContent=$('network').value==='tailscale'?'Sign both devices into your Tailscale network. Your other device can be somewhere else.':'Keep both devices on the same network.';run(issue);};
+$('new').onclick=()=>run(issue);$('refresh').onclick=()=>run(list);
+$('copy').onclick=async()=>{if(!link)return;try{await navigator.clipboard.writeText(link);$('copy').textContent='Copied';}catch{const field=document.createElement('textarea');field.value=link;document.body.append(field);field.select();const ok=document.execCommand('copy');field.remove();$('copy').textContent=ok?'Copied':'Could not copy';}setTimeout(()=>$('copy').textContent='Copy invitation',1500);};
+setInterval(clock,1000);run(issue);
+</script></body></html>

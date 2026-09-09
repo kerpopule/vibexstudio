@@ -120,3 +120,26 @@ def test_cut_routes_refuse_an_unsigned_stranger(media_app):
     assert bad.status_code == 404
     assert _client(media_app).get("/api/cut/projects/does-not-exist").status_code == 404
     assert _client(media_app).get("/api/cut/renders/render-0123456789").status_code == 404
+
+
+def test_studio_library_ticket_cors_and_admin_boundary(media_app):
+    client = TestClient(media_app.app, base_url='https://studio.example')
+    origin = {'Origin': 'https://builder.example'}
+    preflight = client.options('/api/gate', headers=origin | {'Access-Control-Request-Method': 'POST'})
+    assert preflight.status_code == 204
+    response = client.post('/api/gate', json={'code': media_app.ACCESS_CODE, 'studio_library': True}, headers=origin)
+    assert response.status_code == 200
+    assert response.json()['scope'] == 'library:read'
+    assert media_app.SESSION_COOKIE not in response.cookies
+    token = response.json()['token']
+    assert media_app.session_role(token) == ''
+    headers = origin | {'Authorization': f'Bearer {token}'}
+    result = client.get('/api/studio/library', headers=headers)
+    assert result.status_code == 200
+    assert result.json()['version'] == 1
+    assert result.headers['Access-Control-Allow-Origin'] == '*'
+    assert 'Access-Control-Allow-Credentials' not in result.headers
+    assert result.headers['Cache-Control'] == 'private, no-store'
+    assert client.get('/api/queue', headers=headers).status_code == 401
+    assert client.get('/api/gallery', headers=headers).status_code == 401
+    assert client.get('/api/studio/library?token=' + token).status_code == 401

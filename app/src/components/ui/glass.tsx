@@ -1,7 +1,7 @@
 import { BlurView } from 'expo-blur';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import type { ReactNode } from 'react';
-import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Platform, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { Radii } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -33,7 +33,7 @@ export function Glass({ children, style, radius = Radii.lg, variant = 'regular',
   const theme = useTheme();
   const scheme = useColorScheme();
   const border = bordered
-    ? { borderWidth: StyleSheet.hairlineWidth, borderColor: theme.glassBorder }
+    ? { borderWidth: 1, borderColor: theme.glassBorder }
     : null;
 
   if (LIQUID_GLASS) {
@@ -60,7 +60,7 @@ export function Glass({ children, style, radius = Radii.lg, variant = 'regular',
   }
 
   return (
-    <View style={[{ borderRadius: radius, backgroundColor: theme.glass, overflow: 'hidden' }, border, style]}>
+    <View style={[{ borderRadius: radius, backgroundColor: theme.glass, overflow: 'hidden', ...(Platform.OS==='web'?{backdropFilter:'blur(20px) saturate(118%)',WebkitBackdropFilter:'blur(20px) saturate(118%)',backgroundImage:'linear-gradient(180deg,rgba(255,255,255,.085),rgba(255,255,255,.012))',boxShadow:'inset 0 1px 0 rgba(255,255,255,.28),inset 0 0 0 1px rgba(255,255,255,.08),0 18px 36px -18px rgba(0,0,0,.48)'} as object:{}) }, border, style]}>
       {children}
     </View>
   );

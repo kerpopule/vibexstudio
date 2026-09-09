@@ -1,197 +1,190 @@
 # VibeX Studio Desktop
 
-A Tauri shell around the [VibeXStudio](https://github.com/kerpopule/vibexstudio)
-web build — the free, open-source studio on macOS, Windows, and Linux, and
-the place [Media Lab](https://github.com/kerpopule/media-lab-studio) plugs in.
+The Tauri shell packages the Studio web frontend for macOS, Windows and Linux.
+It includes Workbench for project operations, device pairing and agent transport.
+The supported build recipe also packages the independent Media Lab controller;
+installing and starting that controller are separate, explicit setup actions.
 
-<p align="center">
-  <img src="docs/screenshots/desktop-dark.png" width="420" alt="VibeX Studio Desktop — NOIR dark">
-  &nbsp;
-  <img src="docs/screenshots/desktop-light.png" width="420" alt="VibeX Studio Desktop — NOIR light">
-</p>
+This branch is a development review. See [capability status](../docs/CAPABILITY-STATUS.md)
+for test evidence and remaining work. A successful build is not proof that every
+platform, model or workflow is ready for release.
 
-## Download
+## First launch and storage
 
-Grab the [latest release](https://github.com/kerpopule/vibexstudio/releases/latest)
-— after that the app updates itself (see **Releases + auto-update** below):
+Start with Studio's setup flow. Use your own AI API credentials, connect to an
+existing server, or install the independent controller on a supported computer.
+Cloud-provider requests go to the provider you choose; files do not require a
+VibeX-hosted storage account.
 
-| OS | File | Notes |
-|---|---|---|
-| macOS (Apple Silicon) | `VibeXStudio_*_aarch64.dmg` | Signed + notarized |
-| Windows x64 | `VibeXStudio_*_x64-setup.exe` / `.msi` | Unsigned for now — SmartScreen asks once |
-| Linux x64 | `VibeXStudio_*_amd64.deb` / `.AppImage` | |
-| Linux arm64 | `VibeXStudio_*_arm64.deb` / `aarch64.AppImage` | Tested on an NVIDIA DGX Spark |
+Projects currently persist in the frontend's local storage. Storage setup offers
+full project backups, a user-selected sync folder or a paired Workbench server.
+A folder already managed by iCloud Drive or Google Drive can be used where the
+platform supports folder access. Direct iCloud/Google account integration and
+seamless automatic sync on every platform are not finished. GitHub/code-only
+exports and full project backups have different contents; use the in-app labels
+to choose the appropriate transfer.
 
-No accounts, no telemetry: projects live on your machine, AI keys are yours,
-and device sync rides your own iCloud/Drive — see the app repo's
-[docs/SYNC.md](https://github.com/kerpopule/vibexstudio/blob/main/docs/SYNC.md).
+API keys and agent credentials use native `secret_set`, `secret_get` and
+`secret_delete` commands backed by macOS Keychain, Windows Credential Manager or
+Linux Secret Service. Only `vibex.*` keys are accepted. Review app identifiers
+have separate credential namespaces. The OS may require the user to approve
+vault access; the application does not bypass that approval.
 
-## How it fits together
+Desktop sidecar settings live in the application data directory, for example
+`~/Library/Application Support/studio.vibex.desktop/` on macOS. Keep this directory
+private: `workbench.json` contains a Workbench token as well as its port and
+project-root settings. `medialab.json` records the selected controller installation.
+Do not share configuration files or pairing links as public diagnostics.
 
-- `dist/` — the exported VibeXStudio web app (`npx expo export --platform web
-  --output-dir dist-web` in `../vibex-studio`, copied here). Projects, chat,
-  and generated files persist in IndexedDB (`src/lib/storage/projects.web.ts`
-  in the app repo).
-- `src-tauri/` — the native shell (`src/lib.rs`). It spawns two sidecars
-  that ship **inside the bundle** and stops them on quit:
-  - **Workbench** — `workbench/server.mjs` (zero-dependency Node; the phone's
-    remote build/dev/preview engine, contract in `workbench/API.md`). Needs a
-    system Node ≥ 18: the shell probes the `node` hint in `workbench.json`,
-    then `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`, `~/.local/bin`,
-    then `PATH`. No Node → it logs why and `sidecar_status` reports it.
-  - **Media Lab** — the FastAPI studio, staged from the
-    [media-lab-studio](https://github.com/kerpopule/media-lab-studio) repo
-    into `src-tauri/resources/media-lab/` by `scripts/stage-medialab.sh`
-    (gitignored; 163 files / ~80 MB — no `.git`, `docs/`, `__pycache__`,
-    template-library `.jpg` previews, local secrets, or Linux engine wheels).
-    It runs only after the user opts in (below). Its Python venv lives in the
-    app data dir; its data root stays `~/media-lab-simple` (or
-    `$MEDIA_LAB_HOME`, passed through).
-- Config lives in `app_data_dir` — macOS
-  `~/Library/Application Support/studio.vibex.desktop/`:
-  `medialab.json` `{enabled, dir, python, port}`, `workbench.json`
-  `{enabled, port, token, projectsRoot}` (mode 600), `desktop.json`
-  `{mediaLabAsked, mediaLabChoice}`.
-- **Secrets never sit in those files.** The frontend stores API keys and
-  tokens through the `secret_set` / `secret_get` / `secret_delete` commands,
-  which wrap the OS keychain (`keyring` crate — macOS Keychain, Windows
-  Credential Manager, Secret Service on Linux) under the service
-  `studio.vibex.desktop`. Keys must be in the `vibex.*` namespace
-  (`vibex.github.token`, `vibex.workbench.token`,
-  `vibex.private.installation-proof`, `vibex.provider.<id>`,
-  `vibex.refresh.<id>`, `vibex.private-proof.<id>`); anything else is refused.
+## Independent Media Lab setup
 
-## First launch
+A packaged build offers **Install**, **Retry**, and a separate **Start** action.
+Installation validates the controller resource package against the SHA-256 pinned
+into that build, creates an isolated Python environment, installs hash-locked
+dependencies and initializes a private host. It does not download model weights
+or start a service. Failed dependency/initialization stages can be resumed without
+replacing an existing host's credentials or media.
 
-When there is no `medialab.json` and the question was never answered, the
-shell opens a small window: **"Make media on this computer?"**
+Current dependency locks cover macOS ARM64/Python 3.14, macOS x86_64/Python 3.14
+and Linux ARM64/Python 3.12. Intel Mac installation is a development preview: the
+packaged installer and actual loopback pairing passed with Intel Python under
+Rosetta, but physical Intel hardware and model execution remain unverified.
+The installer needs a matching installed Python and `uv`; it does not download
+Python automatically. It checks versioned executables in common installation
+locations and PATH, skips incompatible interpreters and bounds discovery time.
+Python discovery and installation run off the desktop UI thread. Other desktop platforms can use an external server or
+supported API workflows, but their local controller installation is not qualified.
 
-- **Yes, set it up** → the shell (Rust, no scripts) creates
-  `app_data_dir/medialab-venv` with `python3 -m venv` (falls back to
-  `uv venv`), installs `requirements.txt` from the staged source — or
-  `fastapi uvicorn pydantic python-multipart` when there is none — seeds
-  `~/media-lab-simple` (links `static/` to the bundle), writes
-  `medialab.json`, mints a `workbench.json` if Node is present and none
-  exists, starts both sidecars, and then swaps to the **Pair your phone** QR.
-  Progress shows in the window; failures name the fix (no Python 3, no
-  network…).
-- **Not now** → remembered in `desktop.json`; the app never nags again.
+Alternatively, choose **Use an existing independent installation…** and select
+its root containing `installation.json`, `source`, `venv` and `host`. Selection
+validates the installation and leaves it stopped. Start/Stop manages that selected
+controller and its desktop startup setting. Existing configurations are not
+silently replaced.
 
-Either choice can be revisited from the **Media Lab** menu:
-*Pair your phone…* (QR + **Copy link**), *Make media on this computer…*
-(re-opens the question / repairs the env), *Rotate Workbench token*
-(new token in `workbench.json`, sidecar restarted, fresh QR — old phones are
-unpaired).
+After Start, the Studio connection screen's **Use this computer** fills the local
+address and masked access code. Review generation permission and press Pair.
+This handoff requires an installation with desktop-origin support. It does not
+put the access code in a URL or log. The independent controller defaults to
+loopback port 7864; it does not automatically expose a LAN or public endpoint.
 
-The pairing payload is unchanged:
-`vibex://pair?medialab=http://<lan-ip>:7863&workbench=http://<lan-ip>:8794&wbt=<token>`
-(legacy `?url=` when no Workbench is configured).
+The desktop-owned controller stops when the app exits. To keep Media Lab running
+without a Mac, install and supervise it on the user's server. A server service
+and its HTTPS routing must be configured and verified separately. A link hosted
+on the Mac remains dependent on that Mac.
 
-### Tauri commands (frontend ↔ shell)
+Legacy configurations retain compatibility code for existing installations.
+Fresh setup does not enter the legacy installer. The standard package excludes
+legacy Media Lab source, model weights and private runtime configuration.
 
-| Command | Returns |
-|---|---|
-| `sidecar_status` | `{workbench:{running,port,reason}, medialab:{running,port,reason}}` |
-| `medialab_status` | `{enabled, running, port, phase, message, error, pairUrl}` — `phase` ∈ idle/venv/installing/starting/ready/error |
-| `medialab_enable` / `medialab_disable` / `medialab_not_now` / `show_pair_window` | setup on a background thread / stop + `enabled:false` / remember "not now" / swap the first-launch page for the QR window |
-| `workbench_rotate_token` | new token, sidecar restarted |
-| `secret_set(key,value)` / `secret_get(key)` / `secret_delete(key)` | OS keychain, `vibex.*` keys only |
-| `check_for_updates` | `{current, available, version, notes, error}` — also shows the native update / up-to-date / error dialog |
+## Build from this repository
 
-`app.withGlobalTauri` is on, so `window.__TAURI__.core.invoke(...)` works
-from the web build and from the shell's own pages.
-
-## Build
+Install the normal Tauri system dependencies for your platform, Python 3 and
+Node.js. From the repository root:
 
 ```sh
-npm install
-bash scripts/stage-medialab.sh   # copies ../media-lab-studio (or ../media-lab) into src-tauri/resources/media-lab
-npx tauri build                  # .app + .dmg in src-tauri/target/release/bundle
-npx tauri dev                    # against `npx expo start --web` in ../vibex-studio
+cd app
+npm ci
+npx expo export --platform web --output-dir ../desktop/dist
+cd ../desktop
+npm ci
+python3 scripts/build-independent-desktop.py --frontend dist --output /new/build/staging
 ```
 
-`stage-medialab.sh` looks for `app.py` in `$MEDIALAB_SRC`,
-`../media-lab-studio`, `../media-lab`, the same two one level up (git
-worktrees), then `~/Projects/media-lab-studio`; it writes `STAGED.txt` with
-the source commit. CI clones the repo and stages it before building. A build
-without the staged directory still works — the first-launch page then says
-this build doesn't include Media Lab.
+Choose a new staging directory for each build; existing output is refused. On
+Windows, use `python` if that is the installed Python command. Build output goes
+to `desktop/src-tauri/target/release/bundle`. Signing/updater prerequisites still
+apply; this command does not publish a release, install the app or start services.
 
-Checks: `cd src-tauri && cargo build && cargo test` (add `-- --ignored` for
-the live keychain round-trip) and `bash workbench/test.sh` (the Workbench
-contract, sandboxed config).
+Use `--prepare-only` to produce resources, `tauri.independent.json` and a
+`build-receipt.json` without compiling. The receipt records the exact package
+hash and build environment. Omit that option to compile, or add `--no-bundle`
+to compile without distribution packaging.
 
-Refresh the frontend after app changes:
+The generated Tauri merge patch removes inherited resources and includes only
+Workbench and the pinned independent controller package. Do not use
+`stage-medialab.sh` for this build: it stages the legacy runtime. A direct
+`npx tauri build` uses the base Workbench-only resource list and does not provide
+a pinned controller installer. Use the recipe above for the complete package.
+
+For frontend development, run Expo web on port 8098 in `app`, then
+`npx tauri dev` in `desktop`. This does not stage the controller package.
+
+## Checks and verified scope
+
+From the repository root (with the corresponding Python/Node/Rust test tools
+installed):
 
 ```sh
-cd ../vibex-studio && npx expo export --platform web --output-dir dist-web
-rm -rf dist && cp -R ../vibex-studio/dist-web dist
+python3 -m pytest desktop/tests/test_independent_build.py
+python3 -m pytest desktop/tests/test_sidecar_supervisor.py
+node --test desktop/tests/independent-status.test.mjs desktop/tests/independent-welcome.test.mjs
+cd desktop/src-tauri
+cargo test
 ```
 
-## Releases + auto-update
+The ignored live keychain test requires actual OS credential access. Do not use
+it as an unattended check. Workbench's contract suite is
+`bash desktop/workbench/test.sh` from the repository root.
 
-Public releases live on the monorepo
-[kerpopule/vibexstudio](https://github.com/kerpopule/vibexstudio/releases),
-whose `desktop/` directory is a snapshot of this repo. One release = one tag
-`vX.Y.Z` that matches `version` in `src-tauri/tauri.conf.json` (CI refuses
-a mismatch). Three parts:
+Isolated unsigned macOS review builds have exercised controller Install → Start →
+Use this computer → Pair, stopped the owned controller on Quit, and verified
+project/media portability with test assets. Generic HTTP MCP pairing, permission
+scoping and revocation have also passed native checks. An installed Hermes client
+has passed pairing and media search against the fresh packaged Mac review app,
+including permission scoping and rejection after unlink. An older review binary
+had a discovery timeout whose cause is still unresolved; the fresh test does not
+prove credential migration across rebuilt app identities.
+These results do not qualify signed distribution, all media-generation workflows,
+Windows/Linux native behavior or remote agent access across networks.
 
-1. **Tag → CI** (`.github/workflows/build-desktop.yml` on the monorepo,
-   `release` job): `tauri-apps/tauri-action` builds Windows x64, Linux x64
-   and Linux arm64, signs each updater bundle with the minisign key in the
-   `TAURI_SIGNING_PRIVATE_KEY` secret, and publishes the release
-   "VibeXStudio vX.Y.Z" with the installers, their `.sig` files and
-   `latest.json` (the updater manifest; NSIS preferred on Windows). The
-   macOS runner only proves the build compiles — its artifact is unsigned
-   and never published. Pushes to `main` still run the artifacts-only
-   `build` job.
-2. **Mac → `scripts/release-mac.sh vX.Y.Z`** on the Mac with the Developer
-   ID cert. It exports the same signing key from
-   `~/.vibex-secrets/tauri-updater.key`, so `tauri build` also emits
-   `VibeXStudio.app.tar.gz` + `.sig`; notarizes; uploads the DMG, tarball
-   and signature to the tag's release (`gh release upload --clobber`); then
-   `scripts/merge-latest-json.mjs` downloads the release's `latest.json`,
-   adds/replaces the `darwin-aarch64` entry (url + signature), refreshes
-   `version`/`notes`/`pub_date`, and re-uploads it. The script creates the
-   release if CI hasn't yet. Dry-run the merge against a fixture with
-   `node scripts/merge-latest-json.mjs v1.2.0 --input latest.json --tarball x.tar.gz --dry-run`.
-3. **The app** (`tauri-plugin-updater`, `plugins.updater` in
-   tauri.conf.json): 3 s after launch it fetches
-   `https://github.com/kerpopule/vibexstudio/releases/latest/download/latest.json`,
-   compares `version` with its own, and — only if newer — shows
-   "VibeX Studio X.Y.Z is ready — Update now / Later" with the release
-   notes. *Update now* downloads (progress in the log), verifies the `.sig`
-   against the embedded pubkey, installs (Windows: passive installer) and
-   relaunches. Failures on launch (no release yet, offline) are logged, never
-   shown. **VibeX Studio → Check for updates…** (Help menu on
-   Windows/Linux) runs the same check and reports "You're up to date" or the
-   error. `VIBEX_NO_UPDATE_CHECK=1` skips the launch check.
+The supervisor owns the direct server child through a private stdin pipe and
+waits up to seven seconds during shutdown before fallback termination. Its tests
+cover port release and child exit codes, not independently spawned model processes.
 
-Bumping a version: edit `version` in `src-tauri/tauri.conf.json`,
-`src-tauri/Cargo.toml` and `package.json`, commit, refresh the monorepo
-(`oss-publish/refresh-monorepo.sh`), tag it there, run the mac script.
-The public key is in tauri.conf.json; the private key exists only in
-`~/.vibex-secrets/` (README there) and the GitHub secret — lose it and no
-installed copy can ever update again.
+## Headless controller tools
 
-## Roadmap
+The scripts below can be used independently of the desktop GUI:
 
-1. ~~Media Lab sidecar~~ — bundled, opt-in on first launch (above). Still
-   open: a self-contained Python (today it needs a system `python3`), and
-   the engine shelf for GPU machines.
-2. **Native file storage** — swap IndexedDB for Tauri fs behind the same
-   storage interface, so projects live as real folders.
-3. ~~Pairing QR~~ — shipped (`vibex://pair?...`, Copy link).
-4. ~~Auto-update~~ — shipped (Releases + auto-update above). Still open:
-   Windows code signing so SmartScreen stops asking.
+- `scripts/stage-independent-controller.py --output /new/source` stages controller
+  source, license and dependency locks with a SHA-256 manifest.
+- `scripts/install-independent-controller.py --source /staged/source
+  --manifest-sha256 REVIEWED_MANIFEST_SHA256 --destination /new/private/install
+  --python /path/to/tested/python` verifies and installs that source. `--uv` can
+  select uv; `--resume` resumes supported failed stages with the same source and
+  platform. Completed installations and concurrent installers are refused.
+- `scripts/run-independent-controller.py --installation /private/install inspect`
+  validates an installation. Replace `inspect` with `pair` to display its private
+  access code or `serve --port 7864` to run in the foreground. Keep the installer
+  and launcher scripts together. Serving verifies the completed installation and
+  defaults to loopback.
 
-## License
+These commands prepare or run the controller; they do not qualify models or
+configure a service manager, domain, Tailscale, upgrades or uninstall.
 
-Apache-2.0 (see LICENSE). The Media Lab open-source build must never bundle
-the H3 engine — its license covers private single-machine use only.
+## Releases and updates
 
-## Credits
+`.github/workflows/build-desktop.yml` exports the current frontend and stages the
+independent package for every build. The artifact matrix covers macOS, Windows
+x64, Linux x64 and Linux ARM64. The release job publishes Windows/Linux installers
+and signed updater artifacts; its macOS build remains an unsigned CI artifact.
+The separately authorized `scripts/release-mac.sh` performs Mac signing,
+notarization and publication using the same independent packaging recipe.
+Do not run that script for local verification: it publishes externally.
 
-Built on [Tauri 2](https://tauri.app) (shell), the VibeXStudio Expo web
-build (frontend), and Media Lab's FastAPI server (sidecar). See CREDITS.md
-in those repos — we credit what we build on, required or not.
+The app checks the GitHub updater manifest on launch and offers installation
+when a newer version is available. `VIBEX_NO_UPDATE_CHECK=1` disables the startup
+check for isolated review runs. Manual checking is in the native application
+menu (Help on Windows/Linux). Releases need matching version metadata, protected
+signing credentials and actual platform verification. These recipes have not
+been dispatched or published as part of this review.
+
+## License and credits
+
+The Studio/controller source is Apache-2.0; see the repository license. Third-party
+dependencies and optional model runtimes retain their own terms. A source hash or
+successful package build does not establish redistribution permission for every
+optional engine. The independent package contains no model weights or legacy H3
+runtime. See the capability status and controller documentation for qualification
+limits before adding engines to a distribution.
+
+Built with Tauri, the Studio Expo frontend and the independent Media Lab controller.

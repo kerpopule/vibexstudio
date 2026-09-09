@@ -1,0 +1,52 @@
+// These fixtures have no Sparky state; portable history has separate integration coverage.
+vi.mock('../src/lib/director-project-history',()=>({checkpointDirectorProject:async()=>{}}));
+import {afterEach,expect,it,vi} from 'vitest';
+const f=vi.hoisted(()=>({stream:vi.fn(),generated:vi.fn()}));
+vi.mock('@/lib/ai/chat',()=>({streamChat:f.stream}));
+vi.mock('@/lib/ai/web-tools',()=>({executeWebRequests:vi.fn()}));
+vi.mock('@/lib/medialab-tool',()=>({getMediaLabPromptContext:async()=>null,handleMediaRequests:f.generated}));
+vi.mock('@/lib/storage/projects',()=>import('@/lib/storage/projects.web'));
+vi.mock('@/lib/storage/media-gallery',()=>import('@/lib/storage/media-gallery.web'));
+vi.mock('@/lib/store',()=>({useApp:{getState:()=>({mediaLab:null})}}));
+vi.mock('@/lib/remote-library',()=>({listRemoteLibrary:async()=>[],readRemoteAsset:vi.fn()}));
+vi.mock('expo-file-system',()=>({File:vi.fn()}));
+const modulePath=process.env.VIBEX_TEST_INDEXEDDB_MODULE;
+afterEach(()=>{vi.restoreAllMocks();vi.resetModules();vi.unstubAllGlobals();});
+it.skipIf(!modulePath)('imports a named older song and restores exact project bytes after its gallery source is deleted',async()=>{
+ const database=await import(/* @vite-ignore */ modulePath!);
+ vi.stubGlobal('indexedDB',new database.IDBFactory());vi.stubGlobal('IDBKeyRange',database.IDBKeyRange);vi.resetModules();
+ const storage=await import('@/lib/storage/projects.web');
+ const gallery=await import('@/lib/storage/media-gallery.web');
+ const {runVibeTurn}=await import('@/lib/vibe');
+ const {prepareProjectBackup,restoreProjectBackup}=await import('@/lib/share/project-backup');
+ const {decodeProjectSnapshot}=await import('@/lib/sync/project-snapshot');
+ const clock=vi.spyOn(Date,'now').mockReturnValue(100);
+ const bytes=new Uint8Array(48);const view=new DataView(bytes.buffer);
+ for(const [offset,text] of [[0,'RIFF'],[8,'WAVEfmt '],[36,'data']] as const)bytes.set(new TextEncoder().encode(text),offset);
+ view.setUint32(4,40,true);view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,1,true);
+ view.setUint32(24,8000,true);view.setUint32(28,16000,true);view.setUint16(32,2,true);view.setUint16(34,16,true);view.setUint32(40,4,true);view.setInt16(44,100,true);view.setInt16(46,-100,true);
+ const base64=btoa(String.fromCharCode(...bytes));
+ const original=await gallery.saveGalleryAudio('Forest waterfall soundtrack','Test creator',base64,'audio/wav','older-song');
+ for(let i=0;i<8;i++){clock.mockReturnValue(200+i);await gallery.saveGalleryAudio(`Other soundtrack ${i}`,'Test creator',base64,'audio/wav',`newer-${i}`);}
+ const project={id:'portable-audio-game',name:'Forest game',description:'',emoji:'🎮',createdAt:1,updatedAt:1};
+ await storage.writeProject(project);await storage.writeChat(project.id,[]);
+ f.stream.mockImplementation(async({system})=>{
+  const offers=JSON.parse(system.match(/\n(\[.*\])\nTo copy/)[1]);
+  const offered=offers.find((row:any)=>row.title==='Forest waterfall soundtrack');
+  expect(offered).toMatchObject({kind:'audio',extension:'wav'});
+  expect(offers).toHaveLength(5);
+  return '```asset id='+offered.ref+' file=assets/forest.wav\n```\n```html file=index.html\n<audio controls src="assets/forest.wav"></audio>\n```';
+ });
+ await runVibeTurn({project,userText:'Use my forest waterfall soundtrack in the game',connection:{} as never,secret:'unused-test-secret',model:'test',callbacks:{onStream:vi.fn(),onMessages:vi.fn(),onFilesChanged:vi.fn()}});
+ expect(f.generated).not.toHaveBeenCalled();expect(f.stream).toHaveBeenCalledTimes(1);
+ await gallery.deleteGalleryItem(original.id);
+ const backup=await prepareProjectBackup(project.id);
+ const restored=await restoreProjectBackup(backup);
+ expect(restored).not.toBe(project.id);
+ const snapshot=decodeProjectSnapshot((await storage.readSyncSnapshot(restored))!);
+ expect(snapshot.files.find(file=>file.path==='assets/forest.wav')).toMatchObject({content:base64,encoding:'base64'});
+ expect(snapshot.files.find(file=>file.path==='index.html')?.content).toContain('src="assets/forest.wav"');
+ expect(snapshot.chat.some(message=>message.role==='user'&&message.text.includes('forest waterfall'))).toBe(true);
+ expect(backup).not.toContain('unused-test-secret');
+ expect(await gallery.readGalleryItem(original.id)).toBeNull();
+});

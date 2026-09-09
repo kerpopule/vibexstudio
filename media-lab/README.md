@@ -5,7 +5,9 @@
 Type an idea; get films, songs, images, characters, and talking-head video.
 Sparky — the built-in director — plans shows, queues renders, and reports
 back. Phone-first PWA, works on anything with a browser. Free, open source,
-Apache-2.0. **No accounts, no telemetry, no per-render bills.**
+The controller’s own code is Apache-2.0. Connected providers can require accounts
+and charge for generation. Engine support and licenses vary; see the
+[capability status](../docs/CAPABILITY-STATUS.md).
 
 <p align="center">
   <img src="docs/screenshots/media-lab-desktop.png" width="640" alt="Media Lab — a real studio: Sparky, the maker panel, and a gallery of generated talking-head films">
@@ -87,7 +89,11 @@ over your LAN or tailnet — a Media Lab tab appears in the app.
 
 ## License & credits
 
-Apache-2.0. Media Lab stands on Maestro/WanGP, LTX-Video, ComfyUI, Qwen,
+The controller’s own code is Apache-2.0; third-party runtimes and weights keep
+their respective licenses. Legacy execution paths still depend on Maestro/WanGP.
+The independent background-removal and experimental 3D adapters do not use those
+runtimes, but do not replace all existing generation features. Other integrations
+include LTX-Video, ComfyUI, Qwen,
 FLUX, and a generous community of prompt-craft — see
 [CREDITS.md](CREDITS.md). We credit everything we build on, required or
 not; if your work appears uncredited, open an issue.

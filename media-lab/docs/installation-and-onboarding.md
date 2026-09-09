@@ -1,5 +1,38 @@
 # Installation and onboarding product specification
 
+## Current read-only capability planning
+
+The example flow below is a product target, not a list of installed or qualified
+engines. To inspect the checked-in catalog today, run from the Media Lab checkout:
+
+```sh
+python -m media_lab_core.setup_wizard --list
+```
+
+To choose available qualified entries interactively and collect resource facts:
+
+```sh
+python -m media_lab_core.setup_wizard --inspect-host --storage-root /path/to/model-storage --output-plan /path/to/install-plan.json
+```
+
+Replace the paths with your intended model directory and plan output. The model
+directory need not exist; inspection measures its nearest existing parent and
+does not create it. Writing `--output-plan` creates only the requested plan file
+and its parent directory. No models are downloaded, installed, or enabled.
+
+Run this command **on the execution host**. For a Spark reached over SSH, open
+an SSH session to that Spark, change to its Media Lab checkout, and run it there.
+Running it on a laptop measures the laptop even if `--hardware-profile` names a
+Spark; that option is a label, not remote discovery or hardware verification.
+
+`host_resources` reports available RAM and free disk in bytes. Catalog GB values
+use decimal GB. `catalog_resources_fit` checks those catalog estimates only;
+`hardware_verified` remains false. Unknown estimates, no selection, or inadequate
+resources produce `blocked_reasons`. GPU/driver support, installation scratch
+space, concurrent workloads, model loading and tracer qualification are separate
+checks. Recheck immediately before installation because resource availability
+changes. Required third-party terms still need direct acceptance.
+
 ## Experience target
 
 ### Human terminal path
@@ -119,3 +152,85 @@ The UI says **Installed** separately from **Loaded now**.
 - The app works without the optional setup LLM.
 - Every selected engine completes its tracer and reports its actual manifest.
 - Uninstall removes application/runtime state selected by the user without deleting shared models or user media unexpectedly.
+
+
+### Agent-readable planning
+
+`tools/media-lab setup --list --json` (or installed `media-lab setup`) emits the complete catalog,
+including blocked entries and their refusal reasons. Use `--json --select MODEL_ID`
+to produce a plan without interactive questions. With no selection, JSON mode
+returns an empty plan whose `next_stage` is `choose-capabilities`; it never
+chooses a model on the user's behalf. `--inspect-host` and `--storage-root PATH`
+can be combined with JSON mode to inspect this execution host.
+
+Successful JSON output contains no explanatory text, including when
+`--output-plan PATH` also saves the same plan. Catalog/selection/resource failures
+caught by the planner return exit code 2 and an `error` JSON object on stderr.
+Argument-parser usage errors retain standard argparse behavior. This command
+only plans: it does not download, accept terms, or register an engine.
+
+
+### Inspect an existing independent host
+
+`tools/media-lab studio inspect /absolute/host/root` validates the private
+credential file, required data directories, and bounded Library catalog without
+starting a process, installing an engine, or printing credentials. It emits
+JSON with `configuration_valid: true` on success. `running` and
+`engines_qualified` remain null because file inspection cannot establish either.
+Invalid configuration returns exit 2 and a JSON error category. This uses the
+independent host's existing POSIX credential-storage requirements; it does not
+qualify Windows credential storage or migrate a legacy Media Lab directory.
+
+
+### Independent controller source package
+
+`python -m media_lab_core.studio_source_bundle --output /new/path/controller.zip`
+creates a deterministic ZIP containing the explicit independent controller
+module list, required catalog metadata, and Apache license. It refuses to
+replace an existing output and records per-file SHA-256 hashes in `manifest.json`.
+It excludes the legacy `app.py`, `runner`, static website, and deployment config.
+
+This is a source-only development artifact, not an installer: Python and the
+controller's dependencies must already be installed. It includes no models,
+engine runtime wheels, credential files, or dependency-license approval. The
+packaging test starts the extracted host in a fresh isolated Python process,
+pairs a synthetic device, and verifies that no engines are silently enabled.
+The desktop staging/launcher has not yet been switched to this package.
+
+
+The development controller dependency snapshot for macOS ARM64 / Python 3.14
+is `media_lab_core/data/controller-macos-arm64.requirements.lock`. Its 15 packages
+were installed with required hashes and binary wheels into a fresh environment;
+the extracted source package then paired over loopback HTTP, returned an empty
+engine list, and had no legacy chat route. This is separate from model runtime
+installation and does not qualify other Python versions/platforms or establish
+complete third-party redistribution notices. Do not use legacy
+`requirements.txt` as an independent controller dependency lock.
+
+### Independent controller: Linux ARM64 development check
+
+`media_lab_core/data/controller-linux-arm64.requirements.lock` pins the 15 base controller dependencies with hashes for Python 3.12. An isolated Spark environment running Python 3.12.3 passed a binary-only, hash-required installation and dependency check. The separately extracted independent source bundle served loopback HTTP, paired a test device, returned an empty engine list, and rejected the legacy chat route with 404. The test server was stopped afterward.
+
+This qualifies that development controller check only. It does not establish model execution, production domain routing, physical Mac-off operation, native installer integration, or third-party dependency redistribution closure.
+
+### Packaged desktop browser origin
+
+The independent controller accepts `--origin tauri://localhost` as an explicit allowed origin for the packaged desktop webview. The default allowed-origin list remains empty. Only this exact custom origin is accepted; arbitrary custom schemes, paths, ports and opaque `null` origins are refused. CORS permission does not replace the access code or scoped token checks. HTTP(S) origins still require their exact explicit entries. Previously staged installations must be rebuilt/reinstalled to include this change; desktop startup and in-app local pairing are not wired to enable it automatically yet.
+
+
+### Import your existing media into an independent host
+
+Run on the machine owning the host:
+
+```sh
+python -m media_lab_core.studio_cli import /absolute/host/root /path/to/scene.mp4 --title "Opening scene"
+```
+
+This copies one supported image, video or audio file (up to256 MiB) into the
+host's private media directory and registers it in Library. FFprobe must be
+installed. The original remains unchanged. Repeating the same file and file
+type returns its existing asset ID without creating another Library entry.
+The JSON receipt includes its ID, byte count and SHA256. Paired clients can
+read it from Library and select it for editing. This does not upload files to
+a central service or grant an external agent access to the host. Browser file
+upload is a separate flow and is not implemented by this command.

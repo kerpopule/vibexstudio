@@ -2,6 +2,7 @@ import type { ConnectTool } from '@/lib/agent-connect/core';
 import type { AgentMessageStatus, AgentFileWrite } from '@/lib/agent-connect/project-adapter';
 
 export interface ProjectToolAdapter {
+  createProject(input: { name: string }): Promise<unknown>;
   listProjects(): Promise<unknown>;
   getProject(input: { projectId: string }): Promise<unknown>;
   readProjectFile(input: { projectId: string; path: string }): Promise<unknown>;
@@ -103,6 +104,15 @@ export function createProjectConnectTools(adapter: ProjectToolAdapter): ConnectT
         status: stringArg(args, 'status') as AgentMessageStatus,
         agentName: agent.name,
       }),
+    },
+    {
+      name: 'create_project',
+      description: 'Create an empty local build project when the user requests a new project. Returns its id for file writes and media imports. Existing names are rejected; after an uncertain response, use list_projects before retrying.',
+      inputSchema: {
+        type: 'object', additionalProperties: false, required: ['name'],
+        properties: { name: { type: 'string', minLength: 1, maxLength: 120 } },
+      },
+      handler: args => adapter.createProject({ name: stringArg(args, 'name') }),
     },
   ];
 }

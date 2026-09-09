@@ -7,3 +7,7 @@ uvicorn[standard]>=0.29
 pydantic>=2.6
 python-multipart>=0.0.9
 qrcode>=7.4
+# Cut's default caption burn-in creates caption cards with Pillow.
+Pillow>=10.0
+# Monitor only the isolated CPU worker and its descendants.
+psutil>=7.2,<8

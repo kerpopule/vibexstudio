@@ -128,3 +128,8 @@ export function verifyProviderProfile(
     revocationEndpoint: profile.revocation_endpoint,
   };
 }
+
+/** This distribution uses user-selected direct APIs or user-owned hosts. */
+export function assertHostedPrivateAccessEnabled(): void {
+  throw new Error('Hosted Private VibeX access is retired in this build. Connect your own AI API or server in Setup.');
+}

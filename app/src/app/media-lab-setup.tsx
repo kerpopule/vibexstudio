@@ -1,25 +1,34 @@
-/**
- * Media Lab setup — the four doors. Each card is worded by what the user HAS,
- * never by how it works. "Just this device" is the pre-selected zero-setup
- * default; the other doors are upgrades, and none of them is one-shot — every
- * door can be revisited later.
- */
+import {probeMediaHost} from '@/lib/media-host-probe';
+/** Choose a generation host. Configured connections are highlighted without
+ * claiming an untested provider is healthy or that inference runs locally. */
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Linking, ScrollView, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Button } from '@/components/ui/button';
 import { ScalePress } from '@/components/ui/scale-press';
 import { Radii, Spacing } from '@/constants/theme';
+import { useApp } from '@/lib/store';
+import { modelSetupUrl } from '@/lib/setup';
 import { useTheme } from '@/hooks/use-theme';
 
 export default function MediaLabSetupScreen() {
   const theme = useTheme();
   const [showDesktopSteps, setShowDesktopSteps] = useState(false);
-  const [showMore, setShowMore] = useState(false);
+  const hasMediaProvider = useApp((s) => s.providers.some((p) => p.capabilities.image || p.capabilities.video));
+  const serverUrl = useApp((s) => s.mediaLab?.url);
+
+  const [modelManager,setModelManager]=useState<{origin:string;available:boolean}|null>(null);
+  useEffect(()=>{
+    let active=true;
+    if(serverUrl)void probeMediaHost(serverUrl).then(host=>{if(active)setModelManager({origin:serverUrl,available:host?.modelSetup===true});});
+    return()=>{active=false;};
+  },[serverUrl]);
+  const setupUrl = modelManager?.origin===serverUrl&&modelManager?.available?modelSetupUrl(serverUrl):null;
+  const [openError, setOpenError] = useState('');
 
   return (
     <ThemedView style={styles.container}>
@@ -28,21 +37,43 @@ export default function MediaLabSetupScreen() {
           How do you want to make images and video? Pick what fits — you can add the others any time.
         </ThemedText>
 
-        {/* Door 1 — the pre-selected zero-setup default. */}
+        {/* Use an existing provider or connect one. */}
         <DoorCard
           icon="phone-portrait"
-          title="Just this device"
-          body="Generate right here with the AI you already connected. Nothing to install."
-          badge="Ready now"
-          selected
-          onPress={() => router.back()}
+          title="Use a connected AI"
+          body="Use your own provider or local model. Generation runs wherever that AI is hosted."
+          badge={hasMediaProvider ? 'Configured' : undefined}
+          selected={hasMediaProvider && !serverUrl}
+          onPress={() => router.push(hasMediaProvider ? '/(tabs)/media-lab' : '/connect-provider')}
         />
+
+        <DoorCard
+          icon="server-outline"
+          title="Use my computer or server"
+          body="Connect a Spark, another computer, or your Media Lab domain. An independent server can keep running while this device is off."
+          badge={serverUrl ? 'Paired' : undefined}
+          selected={Boolean(serverUrl)}
+          onPress={() => router.push('/connect-media-lab')}
+        />
+
+        {setupUrl ? (
+          <DoorCard
+            icon="options-outline"
+            title="Manage server models"
+            body="Install, enable or remove background removal on your paired server. Opens in your browser and requires the server administrator code. Available on servers with independent model setup enabled."
+            onPress={() => {
+              setOpenError('');
+              void Linking.openURL(setupUrl).catch(() => setOpenError('Could not open server setup. Check that your server is reachable and try again.'));
+            }}
+          />
+        ) : null}
+        {openError ? <ThemedText accessibilityRole="alert">{openError}</ThemedText> : null}
 
         {/* Door 2 — desktop app QR pairing. */}
         <DoorCard
           icon="desktop-outline"
           title="I have the desktop app"
-          body="The desktop app includes Media Lab. Scan its QR code and you're paired — no typing."
+          body="Pair your phone with the desktop app using its QR code. Tasks hosted by that computer need it to stay on. Local media generation also needs installed models."
           onPress={() => setShowDesktopSteps((v) => !v)}
         />
         {showDesktopSteps ? (
@@ -64,7 +95,7 @@ export default function MediaLabSetupScreen() {
               </View>
             ))}
             <ThemedText type="small" themeColor="textSecondary">
-              Your device’s regular camera works — the code opens VibeX and pairs automatically.
+              Scan the QR code with VibeX installed, then follow the pairing prompts. To keep working when your computer is off, connect directly to an independent server or your own cloud AI provider.
             </ThemedText>
           </View>
         ) : null}
@@ -73,29 +104,9 @@ export default function MediaLabSetupScreen() {
         <DoorCard
           icon="cloud-outline"
           title="I want cloud rendering (fal.ai)"
-          body="Rent big GPUs by the second. A short walkthrough gets you a key and the best models."
+          body="Use a paid cloud provider when you need more GPU power. Setup explains the key and model choices."
           onPress={() => router.push('/fal-setup')}
         />
-
-        {/* Door 4 — advanced, folded behind "More options". */}
-        <Pressable onPress={() => setShowMore((v) => !v)} style={styles.moreRow} hitSlop={8}>
-          <ThemedText type="smallBold" themeColor="textSecondary">
-            More options
-          </ThemedText>
-          <Ionicons
-            name={showMore ? 'chevron-up' : 'chevron-down'}
-            size={14}
-            color={theme.textSecondary}
-          />
-        </Pressable>
-        {showMore ? (
-          <DoorCard
-            icon="server-outline"
-            title="I run my own server"
-            body="Point VibeX at a Media Lab you host yourself — paste its address."
-            onPress={() => router.push('/connect-media-lab')}
-          />
-        ) : null}
 
         <Button title="Done" variant="secondary" onPress={() => router.back()} style={styles.done} />
       </ScrollView>
@@ -186,6 +197,7 @@ const styles = StyleSheet.create({
   },
   titleRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: Spacing.one,
   },
@@ -213,13 +225,6 @@ const styles = StyleSheet.create({
   },
   stepText: {
     flex: 1,
-  },
-  moreRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: Spacing.one,
-    alignSelf: 'flex-start',
   },
   done: {
     marginTop: Spacing.two,

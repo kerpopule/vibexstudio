@@ -1,3 +1,4 @@
+import {audioExtension} from '@/lib/audio-file';
 /**
  * On-device Media Lab gallery storage (native).
  *
@@ -58,10 +59,11 @@ export async function saveGalleryImage(
   prompt: string,
   providerLabel: string,
   base64: string,
-  mimeType: string
+  mimeType: string,
+  recoveryId?: string
 ): Promise<GalleryItem> {
   const root = mediaLabRoot();
-  const id = newId();
+  const id = recoveryId ? recoveredGalleryId(recoveryId) : newId();
   const ext = mimeType.includes('jpeg') ? 'jpg' : mimeType.includes('webp') ? 'webp' : 'png';
   const meta: StoredMeta = {
     id,
@@ -82,10 +84,11 @@ export async function saveGalleryVideo(
   prompt: string,
   providerLabel: string,
   url: string,
-  mimeType: string
+  mimeType: string,
+  recoveryId?: string
 ): Promise<GalleryItem> {
   const root = mediaLabRoot();
-  const id = newId();
+  const id = recoveryId ? recoveredGalleryId(recoveryId) : newId();
   const meta: StoredMeta = {
     id,
     kind: 'video',
@@ -105,13 +108,9 @@ export async function deleteGalleryItem(id: string): Promise<void> {
   const root = mediaLabRoot();
   const metaFile = new File(root, `${id}.json`);
   if (metaFile.exists) {
-    try {
-      const meta = JSON.parse(await metaFile.text()) as StoredMeta;
-      const media = new File(root, meta.file);
-      if (media.exists) media.delete();
-    } catch {
-      // Metadata unreadable — still remove it below.
-    }
+    const meta = JSON.parse(await metaFile.text()) as StoredMeta;
+    const media = new File(root, meta.file);
+    if (media.exists) media.delete();
     metaFile.delete();
   }
 }
@@ -121,4 +120,34 @@ function base64ToBytes(base64: string): Uint8Array {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
+}
+
+export async function listGalleryMetadata(): Promise<Omit<GalleryItem, 'uri'>[]> {
+  return (await listGallery()).map(({uri: _uri, ...meta}) => meta);
+}
+export async function readGalleryItem(id: string): Promise<GalleryItem | null> {
+  return (await listGallery()).find((item) => item.id === id) ?? null;
+}
+
+function recoveredGalleryId(id:string):string {
+ if(!/^[A-Za-z0-9_-]{1,128}$/.test(id))throw new Error('Invalid recovered gallery identity.');
+ return `fal-${id}`;
+}
+
+export async function saveGalleryAudio(prompt:string,providerLabel:string,base64:string,mimeType:string,recoveryId:string):Promise<GalleryItem>{
+ const root=mediaLabRoot(),id=recoveredGalleryId(recoveryId),ext=audioExtension(mimeType);
+ const meta:StoredMeta={id,kind:'audio',prompt,providerLabel,createdAt:Date.now(),file:`${id}.${ext}`,mimeType};
+ new File(root,meta.file).write(base64ToBytes(base64));
+ new File(root,`${id}.json`).write(JSON.stringify(meta));
+ return toItem(meta,root);
+}
+
+/** Persist already-verified edited video bytes without a second unauthenticated URL fetch. */
+export async function saveEditedVideo(prompt:string,bytes:Uint8Array,id:string):Promise<GalleryItem>{
+ if(!/^edit-[a-f0-9]{64}$/.test(id)||!bytes.length||bytes.length>64*1024**2)throw new Error('Invalid edited preview.');
+ const existing=await readGalleryItem(id);if(existing)return existing;
+ const root=mediaLabRoot(),target=new File(root,`${id}.mp4`),temporary=new File(root,`${id}.pending.mp4`);
+ const meta:StoredMeta={id,kind:'video',prompt,providerLabel:'Edited preview',createdAt:Date.now(),file:`${id}.mp4`,mimeType:'video/mp4'};
+ try{temporary.write(bytes);if(target.exists)target.delete();temporary.moveSync(target);new File(root,`${id}.json`).write(JSON.stringify(meta));return toItem(meta,root);}
+ finally{const leftover=new File(root,`${id}.pending.mp4`);if(leftover.exists)leftover.delete();}
 }

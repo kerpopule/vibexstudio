@@ -7,15 +7,15 @@
  * project immediately (1-px PNG for images, a .pending.txt marker for
  * video). The queue watcher (src/lib/media-server-watch.ts) settles them
  * into real files when they finish. Without a server: images generate
- * on-device via the user's providers, bounded so a turn can't hang forever;
+ * via the user's connected provider, bounded so a turn can't hang forever;
  * video gets an honest "can't do that here" line.
  *
  * Requests ride the iOS shared cookie store like every other Media Lab
  * fetch, and every failure degrades to a status line in chat — the server
  * being asleep is normal, not an error.
  */
+import { createPendingJobStore } from '@/lib/pending-job-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { File } from 'expo-file-system';
 
 import { canGenerateImages, generateImage } from '@/lib/ai/media';
 import {
@@ -33,15 +33,16 @@ import {
   type PendingMediaJob,
 } from '@/lib/medialab-core';
 import type { MediaLabPromptContext } from '@/lib/ai/prompts';
-import { filesRootUri, writeBinaryFile, writeFile } from '@/lib/storage/projects';
+import { importProjectAsset } from '@/lib/storage/import-asset';
+import { deleteFile, writeBinaryFile, writeFile } from '@/lib/storage/projects';
 import * as secrets from '@/lib/storage/secrets';
 import { useApp } from '@/lib/store';
 import type { ProjectMeta, ProviderConnection } from '@/lib/types';
 
-const PENDING_KEY = 'vibex.mediaLab.pendingProjectJobs';
+const pendingStore = createPendingJobStore(AsyncStorage, 'vibex.mediaLab.pendingProjectJobs');
 const CHARACTER_TTL_MS = 5 * 60 * 1000;
 const SUBMIT_TIMEOUT_MS = 20_000;
-const ON_DEVICE_IMAGE_TIMEOUT_MS = 90_000;
+const PROVIDER_IMAGE_TIMEOUT_MS = 90_000;
 
 // ---------------------------------------------------------------------------
 // Character list → system prompt context (cached, 5-minute TTL)
@@ -112,7 +113,7 @@ async function handleOne(
 ): Promise<void> {
   const { mediaLab } = useApp.getState();
   if (mediaLab) {
-    const submitted = await submitToServer(mediaLab.url, project.id, request).catch(() => false);
+    const submitted = await submitToServer(mediaLab.url, project.id, request);
     if (submitted) {
       // Placeholder NOW, so the app the model just wrote never 404s: images
       // get a real (1-px) file at the exact path; video can't be faked with
@@ -131,20 +132,17 @@ async function handleOne(
       );
       return;
     }
-    if (request.kind === 'video') {
-      outcome.statusLines.push(
-        `⚠️ Couldn't reach your Media Lab, so ${request.file} wasn't queued — wake the server and ask me again.`
-      );
-      return;
-    }
-    // Image with an unreachable server → fall through to on-device.
+    outcome.statusLines.push(
+      `⚠️ Your Media Lab did not accept ${request.file}. Check its connection and queue before retrying. No other provider was used.`
+    );
+    return;
   } else if (request.kind === 'video') {
     outcome.statusLines.push(
       `⚠️ Video needs a paired Media Lab server — pair one from the Media Lab tab, then ask again for ${request.file}.`
     );
     return;
   }
-  await generateImageOnDevice(project, request, outcome);
+  await generateImageWithProvider(project, request, outcome);
 }
 
 /** POSTs a job to the paired server and records it as pending. */
@@ -168,22 +166,23 @@ async function submitToServer(
   if (!res.ok) return false;
   const data = (await res.json()) as { id?: string };
   if (!data.id) return false;
-  const pending = await loadPendingJobs();
-  await savePendingJobs(
-    addPendingJob(pending, {
-      jobId: data.id,
-      projectId,
-      targetPath: request.file,
-      kind: request.kind,
-      prompt: request.prompt,
-      createdAt: Date.now(),
-    })
-  );
+  try {
+    await pendingStore.update((pending) => ({
+      jobs: addPendingJob(pending, {
+        jobId: data.id!, serverUrl: new URL(base).origin,
+        projectId, targetPath: request.file, kind: request.kind,
+        prompt: request.prompt, createdAt: Date.now(),
+      }),
+      result: undefined,
+    }));
+  } catch {
+    throw new Error('Media Lab accepted the job, but this device could not save its tracking record. Check the server queue before retrying.');
+  }
   return true;
 }
 
-/** On-device image path (no server): synchronous during the turn, bounded. */
-async function generateImageOnDevice(
+/** Provider image path (no Media Lab): completed during the turn, bounded. */
+async function generateImageWithProvider(
   project: ProjectMeta,
   request: MediaRequest,
   outcome: MediaTurnOutcome
@@ -201,14 +200,14 @@ async function generateImageOnDevice(
   const secret = await secrets.getProviderSecret(provider.id);
   if (!secret) {
     outcome.statusLines.push(
-      `⚠️ The key for ${provider.label} is missing from the keychain, so ${request.file} wasn't generated.`
+      `⚠️ The key for ${provider.label} is missing from this device’s saved connection, so ${request.file} wasn't generated.`
     );
     return;
   }
   try {
     const image = await withTimeout(
       generateImage(provider, secret, request.prompt),
-      ON_DEVICE_IMAGE_TIMEOUT_MS,
+      PROVIDER_IMAGE_TIMEOUT_MS,
       'Image generation took too long.'
     );
     await writeBinaryFile(project.id, request.file, image.base64);
@@ -246,38 +245,30 @@ export async function settleFinishedMediaJobs(
   serverUrl: string,
   history: HistoryJob[]
 ): Promise<SettledMediaJob[]> {
-  const pending = await loadPendingJobs();
-  if (pending.length === 0) return [];
-  const { resolved, failed, remaining } = matchFinishedJobs(pending, history);
-  const settled: SettledMediaJob[] = [];
-  const keep = [...remaining];
-
-  for (const { job, url } of resolved) {
-    try {
-      const target = new File(`${filesRootUri(job.projectId).replace(/\/+$/, '')}/${job.targetPath}`);
-      const parent = target.parentDirectory;
-      if (!parent.exists) parent.create({ intermediates: true });
-      await File.downloadFileAsync(absoluteMediaUrl(serverUrl, url), target, { idempotent: true });
-      removeMarker(job);
-      settled.push({ job, ok: true });
-    } catch {
-      const retry = retryPendingJob(job);
-      if (retry) keep.push(retry);
-      else settled.push({ job, ok: false });
+  return pendingStore.update(async (pending) => {
+    const { resolved, failed, remaining } = matchFinishedJobs(pending, history, serverUrl);
+    const settled: SettledMediaJob[] = [];
+    const keep = [...remaining];
+    for (const { job, url } of resolved) {
+      try {
+        await importProjectAsset(job.projectId, job.targetPath, absoluteMediaUrl(serverUrl, url));
+        await removeMarker(job);
+        settled.push({ job, ok: true });
+      } catch {
+        const retry = retryPendingJob(job);
+        if (retry) keep.push(retry);
+        else settled.push({ job, ok: false });
+      }
     }
-  }
-  for (const job of failed) settled.push({ job, ok: false });
-
-  if (settled.length || keep.length !== pending.length) await savePendingJobs(keep);
-  return settled;
+    for (const job of failed) settled.push({ job, ok: false });
+    // Persist attempts even when the number of pending records is unchanged.
+    return { jobs: keep, result: settled };
+  });
 }
 
-function removeMarker(job: PendingMediaJob): void {
+async function removeMarker(job: PendingMediaJob): Promise<void> {
   try {
-    const marker = new File(
-      `${filesRootUri(job.projectId).replace(/\/+$/, '')}/${pendingMarkerPath(job.targetPath)}`
-    );
-    if (marker.exists) marker.delete();
+    await deleteFile(job.projectId, pendingMarkerPath(job.targetPath));
   } catch {
     // A stray marker is cosmetic; never fail the landing over it.
   }
@@ -288,21 +279,7 @@ function removeMarker(job: PendingMediaJob): void {
 // ---------------------------------------------------------------------------
 
 export async function loadPendingJobs(): Promise<PendingMediaJob[]> {
-  try {
-    const raw = await AsyncStorage.getItem(PENDING_KEY);
-    const parsed = raw ? (JSON.parse(raw) as PendingMediaJob[]) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-async function savePendingJobs(list: PendingMediaJob[]): Promise<void> {
-  try {
-    await AsyncStorage.setItem(PENDING_KEY, JSON.stringify(list));
-  } catch {
-    // Best-effort; the 24h age cap in matchFinishedJobs bounds any drift.
-  }
+  return pendingStore.read();
 }
 
 // ---------------------------------------------------------------------------

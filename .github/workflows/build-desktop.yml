@@ -16,7 +16,7 @@ on:
   push:
     branches: [main]
     tags: ['v*']            # paths filters don't apply to tag pushes
-    paths: ['desktop/**', 'media-lab/**', '.github/workflows/build-desktop.yml']
+    paths: ['app/**', 'desktop/**', 'media-lab/**', '.github/workflows/build-desktop.yml']
   workflow_dispatch:
     inputs:
       tag:
@@ -51,6 +51,9 @@ jobs:
         working-directory: desktop
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-node@v4
         with:
@@ -64,15 +67,27 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
             libayatana-appindicator3-dev librsvg2-dev patchelf
       - run: npm ci
-      - name: Check frontend present
+      - name: Build current Studio frontend
+        working-directory: app
         shell: bash
-        run: test -f dist/index.html
-      # Media Lab ships inside the bundle: stage ../media-lab (this repo)
-      # into src-tauri/resources/media-lab (see desktop/scripts/stage-medialab.sh).
-      - name: Stage Media Lab
+        run: |
+          npm ci
+          npx expo export --platform web --output-dir ../desktop/dist
+      - name: Stage independent controller
         shell: bash
-        run: bash scripts/stage-medialab.sh
-      - run: npx tauri build
+        run: |
+          python scripts/build-independent-desktop.py --frontend dist --output "$RUNNER_TEMP/vibex-independent" --prepare-only
+          python - <<'PYENV'
+          import json, os
+          from pathlib import Path
+          receipt = json.loads((Path(os.environ['RUNNER_TEMP']) / 'vibex-independent/build-receipt.json').read_text())
+          with open(os.environ['GITHUB_ENV'], 'a') as target:
+              for key, value in receipt['environment'].items():
+                  target.write(f'{key}={value}\n')
+              target.write(f"VIBEX_DESKTOP_CONFIG={receipt['config_path']}\n")
+          PYENV
+      - run: npx tauri build --config "$VIBEX_DESKTOP_CONFIG"
+        shell: bash
       - uses: actions/upload-artifact@v4
         with:
           name: vibexstudio-${{ matrix.os }}
@@ -111,6 +126,9 @@ jobs:
         with:
           # workflow_dispatch builds the tagged snapshot, not the branch tip.
           ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-node@v4
         with:
@@ -124,17 +142,30 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
             libayatana-appindicator3-dev librsvg2-dev patchelf
       - run: npm ci
-      - name: Check frontend present
+      - name: Build current Studio frontend
+        working-directory: app
         shell: bash
-        run: test -f dist/index.html
+        run: |
+          npm ci
+          npx expo export --platform web --output-dir ../desktop/dist
       - name: Check tag matches app version
         shell: bash
         run: |
           v="$(node -p 'require("./src-tauri/tauri.conf.json").version')"
           [ "v$v" = "$RELEASE_TAG" ] || { echo "tag $RELEASE_TAG != tauri.conf.json version $v"; exit 1; }
-      - name: Stage Media Lab
+      - name: Stage independent controller
         shell: bash
-        run: bash scripts/stage-medialab.sh
+        run: |
+          python scripts/build-independent-desktop.py --frontend dist --output "$RUNNER_TEMP/vibex-independent" --prepare-only
+          python - <<'PYENV'
+          import json, os
+          from pathlib import Path
+          receipt = json.loads((Path(os.environ['RUNNER_TEMP']) / 'vibex-independent/build-receipt.json').read_text())
+          with open(os.environ['GITHUB_ENV'], 'a') as target:
+              for key, value in receipt['environment'].items():
+                  target.write(f'{key}={value}\n')
+              target.write(f"VIBEX_DESKTOP_CONFIG={receipt['config_path']}\n")
+          PYENV
       # Windows/Linux: build, sign the updater bundles, upload installers +
       # latest.json to the release (tauri-action merges latest.json across
       # runners). macOS: tagName is empty, so it only builds.
@@ -143,6 +174,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: desktop
+          args: --config "${{ env.VIBEX_DESKTOP_CONFIG }}"
           tagName: ${{ matrix.publish && env.RELEASE_TAG || '' }}
           releaseName: VibeXStudio ${{ env.RELEASE_TAG }}
           releaseBody: See the assets below. Installed copies update themselves (VibeX Studio → Check for updates…).

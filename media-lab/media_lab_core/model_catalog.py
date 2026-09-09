@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import tomllib
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 VALID_STATUS = {"qualified", "experimental", "planned", "blocked"}
-VALID_CATEGORIES = {"video", "image", "audio", "llm", "enhancement"}
+VALID_CATEGORIES = {"video", "image", "audio", "llm", "enhancement", "model"}
 
 
 @dataclass(frozen=True)
@@ -37,7 +38,7 @@ class ModelOption:
             and bool(self.source_url)
             and bool(self.immutable_revision)
             and bool(self.sha256)
-            and len(self.sha256) == 64
+            and re.fullmatch(r'[0-9a-fA-F]{64}', self.sha256) is not None
             and self.license_name not in {"", "unresolved", "unknown"}
         )
 
@@ -49,7 +50,7 @@ class ModelOption:
             reasons.append("source URL missing")
         if not self.immutable_revision:
             reasons.append("immutable revision missing")
-        if len(self.sha256) != 64:
+        if re.fullmatch(r'[0-9a-fA-F]{64}', self.sha256) is None:
             reasons.append("SHA-256 missing or invalid")
         if self.license_name in {"", "unresolved", "unknown"}:
             reasons.append("license unresolved")
@@ -109,15 +110,20 @@ def resolve_selection(catalog: dict[str, ModelOption], selected: list[str]) -> l
     if unknown:
         raise ValueError(f"unknown model ids: {', '.join(unknown)}")
     resolved: set[str] = set()
+    visiting: list[str] = []
 
     def add(model_id: str) -> None:
         if model_id in resolved:
             return
+        if model_id in visiting:
+            raise ValueError("model dependency cycle: " + " -> ".join([*visiting, model_id]))
         model = catalog[model_id]
         if not model.selectable:
             raise ValueError(f"{model_id} is not selectable: {model.refusal_reason()}")
+        visiting.append(model_id)
         for dependency in model.requires:
             add(dependency)
+        visiting.pop()
         resolved.add(model_id)
 
     for model_id in selected:

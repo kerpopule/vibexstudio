@@ -68,18 +68,20 @@ describe('iOS release disclosure contract', () => {
     expect(appConfig.expo.ios.privacyManifests.NSPrivacyTracking).toBe(false);
   });
 
-  it('keeps first-release Apple sync claims out of shipping configuration and copy', () => {
+  it('keeps automatic Apple sync disabled while explaining user-owned file copies', () => {
     const releaseSurfaces = [
       JSON.stringify(appConfig),
       readFileSync(resolve(repoRoot, 'README.md'), 'utf8'),
       readFileSync(resolve(repoRoot, 'PRIVACY.md'), 'utf8'),
       readFileSync(resolve(repoRoot, 'docs/store-listing.md'), 'utf8'),
-      readFileSync(resolve(repoRoot, 'src/app/onboarding.tsx'), 'utf8'),
-      readFileSync(resolve(repoRoot, 'src/app/(tabs)/settings.tsx'), 'utf8'),
       readFileSync(resolve(repoRoot, 'src/app/new-project.tsx'), 'utf8'),
     ].join('\n');
 
     expect(releaseSurfaces).not.toMatch(/icloud|CloudDocuments|ubiquity/i);
+    const storageCopy = readFileSync(resolve(repoRoot, 'src/components/storage-choices.tsx'), 'utf8');
+    expect(storageCopy).toContain('automatic iCloud app sync is not connected');
+    expect(storageCopy).toContain('Direct Google account sync is not connected');
+    expect(readFileSync(resolve(repoRoot, 'src/components/project-backups.tsx'), 'utf8')).toContain('This is a manual backup, not automatic sync');
   });
 
   it('uses a build number newer than the rejected TestFlight build 25', () => {
@@ -155,7 +157,9 @@ describe('iOS release disclosure contract', () => {
     ].map((path) => readFileSync(resolve(repoRoot, path), 'utf8')).join('\n');
 
     expect(projectsScreen).toContain('Build, remix, preview, and publish real web apps from your device.');
-    expect(projectsScreen).toContain('come to life — right on your device. Everything stays on your');
+    expect(projectsScreen).toContain('Projects are saved on your device.');
+    expect(projectsScreen).toContain('Your prompts and selected files go to the services you connect.');
+    expect(sharedScreens).not.toContain('no account, no servers, no tracking');
     expect(projectsScreen).not.toContain('from {yourDevice}');
     expect(projectsScreen).not.toContain('on {yourDevice}');
     expect(deviceCopy).toContain("ios: 'your device'");

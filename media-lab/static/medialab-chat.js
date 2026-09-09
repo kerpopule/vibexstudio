@@ -13,6 +13,7 @@
   var msgs = [];
   var busy = false;
   var selectedImageTemplate = null;
+  var selectedProject = null;
   try { msgs = JSON.parse(localStorage.getItem("mlchat") || "[]").slice(-20); } catch (e) {}
 
   var css = [
@@ -79,6 +80,7 @@
     '    <div class="mlc-title">Media Lab</div></div>' +
     '    <button class="mlc-x" aria-label="Close">&times;</button></div>' +
     '  <div class="mlc-context"><span aria-hidden="true">🖼</span><strong></strong><button type="button" aria-label="Remove selected image template">Clear</button></div>' +
+    '  <div class="mlc-context mlc-project"><span aria-hidden="true">📁</span><strong></strong><button type="button" aria-label="Remove selected project">Clear</button></div>' +
     '  <div class="mlc-log" role="log" aria-live="polite"></div>' +
     '  <div class="mlc-hint">Tap any reply to copy it</div>' +
     '  <form class="mlc-form"><input class="mlc-in" type="text" autocomplete="off"' +
@@ -96,6 +98,7 @@
   var sendBtn = root.querySelector(".mlc-send");
   var toastEl = root.querySelector(".mlc-toast");
   var contextEl = root.querySelector(".mlc-context");
+  var projectEl = root.querySelector(".mlc-project");
   var toastT = null;
 
   function boundedText(value, cap) { return String(value == null ? "" : value).slice(0, cap); }
@@ -120,6 +123,31 @@
     contextEl.querySelector("strong").textContent = selectedImageTemplate ? "Template #" + selectedImageTemplate.id + " · " + selectedImageTemplate.title : "";
   }
   contextEl.querySelector("button").addEventListener("click", function () { setSelectedTemplate(null); });
+
+  function projectContext(raw) {
+    if (!raw || raw.version !== 1 || typeof raw.projectId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(raw.projectId) ||
+        typeof raw.title !== "string" || !raw.title.length || raw.title.length > 160 || !Array.isArray(raw.assets) || raw.assets.length > 32) return null;
+    var paths = new Set();
+    var assets = [];
+    for (var asset of raw.assets) {
+      if (!asset || typeof asset.path !== "string" || !asset.path.length || asset.path.length > 512 ||
+          /[\\:\x00-\x1f\x7f]/.test(asset.path) || asset.path.split("/").some(function (part) {return !part || part === "." || part === "..";}) ||
+          ["image", "video", "audio", "model", "sprites"].indexOf(asset.kind) < 0 || paths.has(asset.path)) return null;
+      paths.add(asset.path);
+      assets.push({path:asset.path, kind:asset.kind});
+    }
+    var value = {version:1, projectId:raw.projectId, title:raw.title, assets:assets};
+    // Match the server's ASCII-escaped payload bound. File contents are never copied.
+    if (JSON.stringify(value).replace(/[\u007f-\uffff]/g, function (ch) {return "\\u" + ch.charCodeAt(0).toString(16).padStart(4,"0");}).length > 32768) return null;
+    return value;
+  }
+  function setSelectedProject(raw) {
+    selectedProject = projectContext(raw);
+    projectEl.classList.toggle("on", !!selectedProject);
+    projectEl.querySelector("strong").textContent = selectedProject ? selectedProject.title + " · " + selectedProject.assets.length + (selectedProject.assets.length === 1 ? " asset" : " assets") : "";
+    return !!selectedProject;
+  }
+  projectEl.querySelector("button").addEventListener("click", function () {setSelectedProject(null);});
 
   function toast(t) {
     toastEl.textContent = t || "Copied ✓";
@@ -257,6 +285,7 @@
     var acc = "";
     var payload = { messages: msgs.slice(-20) };
     if (selectedImageTemplate) payload.selected_image_template = selectedImageTemplate;
+    if (selectedProject) payload.selected_project = selectedProject;
     fetch(API + "/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -335,6 +364,9 @@
   }
   window.MediaLabChat = {
     open: open,
+    setSelectedProject: setSelectedProject,
+    clearSelectedProject: function () {setSelectedProject(null);},
+    getSelectedProject: function () {return selectedProject ? JSON.parse(JSON.stringify(selectedProject)) : null;},
     close: close,
     openWithTemplate: openWithTemplate,
     clearSelectedTemplate: function () { setSelectedTemplate(null); },

@@ -7,6 +7,8 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 
+import { ChatAudioAttachment } from '@/components/chat-audio-attachment';
+import { ChatVideoAttachment } from '@/components/chat-video-attachment';
 import { Markdown } from '@/components/markdown';
 import { ThemedText } from '@/components/themed-text';
 import { ScalePress } from '@/components/ui/scale-press';
@@ -48,10 +50,10 @@ export function ChatBubble({ message }: { message: ChatMessage }) {
       {message.attachments?.map((attachment) =>
         attachment.kind === 'image' ? (
           <Image key={attachment.uri} source={{ uri: attachment.uri }} style={styles.image} contentFit="cover" />
+        ) : attachment.kind === 'audio' ? (
+          <ChatAudioAttachment key={attachment.uri} uri={attachment.uri} />
         ) : (
-          <ThemedText key={attachment.uri} type="small" themeColor="textSecondary">
-            🎬 Video saved to project media
-          </ThemedText>
+          <ChatVideoAttachment key={attachment.uri} uri={attachment.uri} />
         )
       )}
     </>
@@ -62,7 +64,7 @@ export function ChatBubble({ message }: { message: ChatMessage }) {
       entering={enter(FadeInUp.duration(280))}
       style={[styles.row, isUser ? styles.rowUser : styles.rowAssistant]}>
       {/* Long-press anywhere on a bubble copies its text. */}
-      <Pressable onLongPress={copyText} delayLongPress={300}>
+      <Pressable style={styles.bubbleContainer} onLongPress={copyText} delayLongPress={300}>
         {isUser ? (
           <LinearGradient
             colors={gradientColors(theme)}
@@ -103,8 +105,12 @@ const styles = StyleSheet.create({
   rowAssistant: {
     justifyContent: 'flex-start',
   },
-  bubble: {
+  bubbleContainer: {
     maxWidth: '85%',
+    minWidth: 0,
+    flexShrink: 1,
+  },
+  bubble: {
     borderRadius: Radii.lg,
     paddingHorizontal: Spacing.three,
     paddingVertical: 11,
@@ -119,7 +125,8 @@ const styles = StyleSheet.create({
   },
   image: {
     width: 220,
-    height: 220,
+    maxWidth: '100%',
+    aspectRatio: 1,
     borderRadius: Radii.md,
   },
   cta: {

@@ -1,3 +1,5 @@
+import { Alert } from '@/lib/app-alert';
+import { retryRequest } from '@/lib/retry-request';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
@@ -10,7 +12,6 @@ import { useEffect, useRef, useState } from 'react';
 import { router } from 'expo-router';
 import {
   ActionSheetIOS,
-  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -23,6 +24,7 @@ import {
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import {useProjectComposer, restoreProjectComposers, EMPTY_COMPOSER, type ComposeMode} from '@/lib/project-composer';
 import { ChatBubble } from '@/components/chat-bubble';
 import { StreamWheel } from '@/components/stream-wheel';
 import { ThemedText } from '@/components/themed-text';
@@ -35,8 +37,10 @@ import { EMPTY_SESSION, useChat } from '@/lib/chat-engine';
 import { useApp } from '@/lib/store';
 import type { ChatMessage, ProjectMeta, ProviderConnection } from '@/lib/types';
 import { enter } from '@/lib/motion';
+import {listProjectFilePaths} from '@/lib/storage/projects';
+import {projectMediaIdeas} from '@/lib/project-media-ideas';
 
-type ComposeMode = 'chat' | 'image' | 'video';
+
 
 const STARTER_IDEAS = [
   { emoji: '🍅', prompt: 'A pomodoro timer with a dark synthwave look' },
@@ -54,9 +58,24 @@ export function ChatView({ project }: { project: ProjectMeta }) {
   const refreshPrivateProviderIfNeeded = useApp((s) => s.refreshPrivateProviderIfNeeded);
   const session = useChat((s) => s.sessions[project.id]) ?? EMPTY_SESSION;
   const { load, sendChat, sendMedia, attachFile, abort } = useChat();
-  const [input, setInput] = useState('');
-  const [mode, setMode] = useState<ComposeMode>('chat');
+  const draftStorageError = useProjectComposer(state=>state.storageError);
+  const composer = useProjectComposer(state=>state.drafts[project.id]) ?? EMPTY_COMPOSER;
+  const {text:input,mode,pending:submitting,error:sendError}=composer;
+  const setInput=(text:string)=>useProjectComposer.getState().patch(project.id,{text});
+  const setMode=(mode:ComposeMode)=>useProjectComposer.getState().patch(project.id,{mode});
+  const setSendError=(error:string)=>useProjectComposer.getState().patch(project.id,{error});
+  const setSubmitting=(pending:boolean)=>useProjectComposer.getState().patch(project.id,{pending});
+
+  const [mediaSnapshot, setMediaSnapshot] = useState<{id:string; version:number; ideas:ReturnType<typeof projectMediaIdeas>} | null>(null);
+  const mediaIdeas = mediaSnapshot?.id === project.id && mediaSnapshot.version === session.filesVersion ? mediaSnapshot.ideas : [];
+  useEffect(() => {
+    let active = true;
+    listProjectFilePaths(project.id).then(paths => {if (active) setMediaSnapshot({id:project.id,version:session.filesVersion,ideas:projectMediaIdeas(paths)});})
+      .catch(() => {});
+    return () => {active = false;};
+  }, [project.id, session.filesVersion]);
   const [listening, setListening] = useState(false);
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [connectionId, setConnectionId] = useState<string | null>(project.ai?.connectionId ?? null);
   const listRef = useRef<FlatList<ChatMessage>>(null);
 
@@ -67,6 +86,7 @@ export function ChatView({ project }: { project: ProjectMeta }) {
   const videoProvider = providers.find((p) => p.capabilities.video) ?? null;
 
   useEffect(() => {
+    void restoreProjectComposers();
     load(project.id);
   }, [project.id, load]);
 
@@ -94,33 +114,47 @@ export function ChatView({ project }: { project: ProjectMeta }) {
 
   const send = async () => {
     const text = input.trim();
-    if (!text || session.busy) return;
-    setInput('');
+    if (!text || session.busy || !useProjectComposer.getState().begin(project.id)) return;
     const activeMode = mode;
+    setInput('');
     setMode('chat');
-    // Top up a subscription token before ANY turn if it's about to expire —
-    // media generation can run on a subscription provider too, not just chat.
-    const turnProvider =
-      activeMode === 'image' ? imageProvider : activeMode === 'video' ? videoProvider : connection;
-    if (turnProvider?.subscription) await refreshSubscriptionIfNeeded(turnProvider.id).catch(() => {});
-    if (turnProvider?.privateProvider) await refreshPrivateProviderIfNeeded(turnProvider.id);
-
-    if (activeMode === 'image') await sendMedia(project, text, 'image', imageProvider);
-    else if (activeMode === 'video') await sendMedia(project, text, 'video', videoProvider);
-    else await sendChat(project, text, connection);
+    try {
+      const turnProvider =
+        activeMode === 'image' ? imageProvider : activeMode === 'video' ? videoProvider : connection;
+      if (turnProvider?.subscription) await refreshSubscriptionIfNeeded(turnProvider.id).catch(() => {});
+      if (turnProvider?.privateProvider) await refreshPrivateProviderIfNeeded(turnProvider.id);
+      if (activeMode === 'image') await sendMedia(project, text, 'image', imageProvider);
+      else if (activeMode === 'video') await sendMedia(project, text, 'video', videoProvider);
+      else await sendChat(project, text, connection);
+    } catch {
+      setInput(text);
+      setMode(activeMode);
+      setSendError('Could not finish this request. Your message is back below. Check your connection and try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   // Re-run the last user prompt with the currently-selected provider/model —
   // handy after swiping the bar to a different model.
   const hasUserMessage = session.messages.some((m) => m.role === 'user');
   const retryLast = async () => {
-    if (session.busy) return;
+    if (session.busy || submitting) return;
     const lastUser = [...session.messages].reverse().find((m) => m.role === 'user');
     if (!lastUser) return;
-    const text = lastUser.text.replace(/^Generate (image|video): /, '');
-    if (connection?.subscription) await refreshSubscriptionIfNeeded(connection.id).catch(() => {});
-    if (connection?.privateProvider) await refreshPrivateProviderIfNeeded(connection.id);
-    await sendChat(project, text, connection);
+    const request = retryRequest(lastUser);
+    const provider = request.mode === 'image' ? imageProvider : request.mode === 'video' ? videoProvider : connection;
+    if (!useProjectComposer.getState().begin(project.id)) return;
+    try {
+      if (provider?.subscription) await refreshSubscriptionIfNeeded(provider.id).catch(() => {});
+      if (provider?.privateProvider) await refreshPrivateProviderIfNeeded(provider.id);
+      if (request.mode === 'chat') await sendChat(project, request.prompt, provider);
+      else await sendMedia(project, request.prompt, request.mode, provider, lastUser.id);
+    } catch {
+      setSendError('Could not retry this request. Your last message is still in the conversation. Check your connection and try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   // Background-interrupted turns are resumed app-wide by the chat engine's
@@ -153,15 +187,20 @@ export function ChatView({ project }: { project: ProjectMeta }) {
     await attachFile(project, asset.uri, asset.name);
   };
 
-  const openAttachSheet = () => {
-    const options: { label: string; action: () => void }[] = [
+  const attachmentOptions: { label: string; action: () => void | Promise<void> }[] = [
       { label: 'Photo library', action: pickFromLibrary },
-      { label: 'Take photo', action: takePhoto },
+      ...(Platform.OS === 'web' ? [] : [{ label: 'Take photo', action: takePhoto }]),
       { label: 'Choose file', action: pickDocument },
     ];
-    if (imageProvider) options.push({ label: '✨ Generate image…', action: () => setMode('image') });
-    if (videoProvider) options.push({ label: '✨ Generate video…', action: () => setMode('video') });
+    if (imageProvider) attachmentOptions.push({ label: '✨ Generate image…', action: () => setMode('image') });
+    if (videoProvider) attachmentOptions.push({ label: '✨ Generate video…', action: () => setMode('video') });
 
+  const openAttachSheet = () => {
+    if (Platform.OS === 'web') {
+      setAttachmentsOpen(value => !value);
+      return;
+    }
+    const options = attachmentOptions;
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         { options: [...options.map((o) => o.label), 'Cancel'], cancelButtonIndex: options.length },
@@ -237,6 +276,8 @@ export function ChatView({ project }: { project: ProjectMeta }) {
           </ScrollView>
           {hasUserMessage && !session.busy ? (
             <Pressable
+              accessibilityRole="button" accessibilityLabel="Retry last message"
+              disabled={submitting}
               onPress={retryLast}
               hitSlop={8}
               style={[styles.retryBtn, { backgroundColor: theme.backgroundElement }]}>
@@ -257,13 +298,13 @@ export function ChatView({ project }: { project: ProjectMeta }) {
           session.loaded ? (
             <View style={styles.hint}>
               <ThemedText type="subtitle" style={styles.hintTitle}>
-                What should we build?
+                {mediaIdeas.length ? 'What should we make with your media?' : 'What should we build?'}
               </ThemedText>
               <ThemedText type="small" themeColor="textSecondary" style={styles.hintText}>
-                Describe it in your own words, or riff on one of these:
+                {mediaIdeas.length ? 'Your project already has media. Describe how to use it, or start with an idea below.' : 'Describe it in your own words, or riff on one of these:'}
               </ThemedText>
               <View style={styles.ideas}>
-                {STARTER_IDEAS.map((idea, i) => (
+                {(mediaIdeas.length ? mediaIdeas : STARTER_IDEAS).map((idea, i) => (
                   <Animated.View key={idea.prompt} entering={enter(FadeInDown.delay(120 + i * 70).duration(350))}>
                     <ScalePress
                       onPress={() => setInput(idea.prompt)}
@@ -283,6 +324,29 @@ export function ChatView({ project }: { project: ProjectMeta }) {
 
       {session.busy ? <StreamWheel text={session.streamText ?? ''} onStop={() => abort(project.id)} /> : null}
 
+      {draftStorageError ? <ThemedText accessibilityRole="alert" style={{paddingHorizontal:Spacing.three,color:theme.danger}}>Drafts could not be saved on this device. Keep this screen open or copy your prompt before leaving.</ThemedText> : null}
+      {sendError ? <ThemedText accessibilityRole="alert" style={{paddingHorizontal:Spacing.three,color:theme.danger}}>{sendError}</ThemedText> : null}
+      {submitting && !session.busy ? <ThemedText accessibilityLiveRegion="polite" style={{paddingHorizontal:Spacing.three}}>Preparing your request…</ThemedText> : null}
+      {Platform.OS === 'web' && attachmentsOpen ? (
+        <View style={{padding:Spacing.three,gap:Spacing.two}}>
+          <ThemedText>Add to project</ThemedText>
+          <View style={{flexDirection:'row',flexWrap:'wrap',gap:Spacing.two}}>
+            {attachmentOptions.map(option => (
+              <Pressable key={option.label} accessibilityRole="button" disabled={session.busy || submitting}
+                onPress={() => {
+                  setAttachmentsOpen(false);
+                  Promise.resolve().then(option.action).catch(() => setSendError('Could not add this file. Please try again.'));
+                }}
+                style={{padding:Spacing.three,borderRadius:Radii.md,backgroundColor:theme.tintSoft}}>
+                <ThemedText>{option.label}</ThemedText>
+              </Pressable>
+            ))}
+            <Pressable accessibilityRole="button" onPress={() => setAttachmentsOpen(false)} style={{padding:Spacing.three}}>
+              <ThemedText>Cancel</ThemedText>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
       <Glass
         radius={Radii.xl}
         style={[
@@ -290,11 +354,15 @@ export function ChatView({ project }: { project: ProjectMeta }) {
           { marginBottom: Math.max(insets.bottom, Spacing.two) + Spacing.one },
           Shadows.card,
         ]}>
-        <Pressable onPress={openAttachSheet} style={styles.modeButton} hitSlop={6}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Use a Media Lab creation" onPress={() => router.push({ pathname: '/library', params: { projectId: project.id } })} style={styles.modeButton} hitSlop={6}>
+          <Ionicons name="images-outline" size={22} color={theme.textSecondary} />
+        </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Attach a file" accessibilityState={{expanded:attachmentsOpen,disabled:session.busy || submitting}} disabled={session.busy || submitting} onPress={openAttachSheet} style={styles.modeButton} hitSlop={6}>
           <Ionicons name="attach" size={22} color={theme.textSecondary} />
         </Pressable>
         {mode !== 'chat' ? (
           <Pressable
+            accessibilityRole="button" accessibilityLabel="Return to chat mode"
             onPress={() => setMode('chat')}
             style={[styles.modePill, { backgroundColor: theme.tintSoft }]}>
             <Ionicons name={mode === 'image' ? 'image' : 'videocam'} size={14} color={theme.tint} />
@@ -303,21 +371,23 @@ export function ChatView({ project }: { project: ProjectMeta }) {
         ) : null}
         <TextInput
           style={[styles.input, { color: theme.text }]}
+          accessibilityLabel="Message to builder"
           placeholder={placeholder}
           placeholderTextColor={theme.textSecondary}
           value={input}
           onChangeText={setInput}
           multiline
-          editable={!session.busy}
+          editable={!session.busy && !submitting}
         />
-        <Pressable onPress={toggleDictation} style={styles.modeButton} hitSlop={6}>
+        <Pressable accessibilityRole="button" accessibilityLabel={listening ? 'Stop dictation' : 'Dictate a message'} onPress={toggleDictation} style={styles.modeButton} hitSlop={6}>
           <Ionicons name={listening ? 'mic' : 'mic-outline'} size={22} color={listening ? theme.accent : theme.textSecondary} />
         </Pressable>
         <ScalePress
+          accessibilityRole="button" accessibilityLabel="Send message"
           onPress={send}
-          disabled={session.busy || !input.trim()}
+          disabled={session.busy || submitting || !input.trim()}
           pressedScale={0.9}
-          style={[styles.sendShell, { opacity: session.busy || !input.trim() ? 0.45 : 1 }]}>
+          style={[styles.sendShell, { opacity: session.busy || submitting || !input.trim() ? 0.45 : 1 }]}>
           <LinearGradient
             colors={gradientColors(theme)}
             start={{ x: 0, y: 0 }}

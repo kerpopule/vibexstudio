@@ -622,6 +622,8 @@ def cmd_logs(args, cfg, root) -> int:
 def cmd_setup(args, cfg, root) -> int:
     from . import setup_wizard
     rc = setup_wizard.main(args.wizard_args)
+    if rc or "--json" in args.wizard_args:
+        return rc
     port, bind = int(cfg.get("port", DEFAULT_PORT)), cfg.get("bind", "0.0.0.0")
     best = pairing.pairing_summary(port, pairing.list_ipv4_addresses(), None, None, bind)["best"]["url"]
     print(f"\nThe web wizard (first-run engine shelf, fal.ai key) lives in the app itself:\n"
@@ -708,6 +710,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--home", help="data root (default: $MEDIA_LAB_HOME or ~/media-lab-simple)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    s = sub.add_parser("studio", help="independent development host: init, pair, serve")
+    s.add_argument("studio_args", nargs=argparse.REMAINDER)
+
     s = sub.add_parser("status", help="health, GPU, engines, service state")
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_status)
@@ -741,8 +746,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("-n", "--lines", type=int, default=100)
     s.set_defaults(fn=cmd_logs)
 
-    s = sub.add_parser("setup", help="catalog planner (media_lab_core.setup_wizard) + web wizard URL")
-    s.add_argument("wizard_args", nargs=argparse.REMAINDER)
+    s = sub.add_parser("setup", add_help=False, help="catalog planner; supports --list, --json and --select")
     s.set_defaults(fn=cmd_setup)
 
     s = sub.add_parser("uninstall", help="remove service + venv; keep models and media")
@@ -773,7 +777,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args, forwarded = parser.parse_known_args(argv)
+    if args.cmd == "setup":
+        args.wizard_args = forwarded[1:] if forwarded[:1] == ["--"] else forwarded
+        if "--json" in args.wizard_args:
+            return cmd_setup(args, {}, None)
+    elif forwarded:
+        parser.error("unrecognized arguments: " + " ".join(forwarded))
+    if args.cmd == "studio":
+        from .studio_cli import main as studio_main
+        return studio_main(args.studio_args)
     if args.home:
         os.environ["MEDIA_LAB_HOME"] = args.home
     root = app_root()

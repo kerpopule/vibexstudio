@@ -4,6 +4,7 @@ import type Socket from 'react-native-tcp-socket/lib/types/Socket';
 
 import {
   MAX_REQUEST_BODY_BYTES,
+  PAIRING_APPROVAL_TIMEOUT_MS,
   type ConnectHttpRequest,
   type ConnectHttpResponse,
 } from '@/lib/agent-connect/core';
@@ -139,6 +140,9 @@ export async function startLocalHttpServer(
           body: buffer.slice(bodyStart, bodyEnd),
           remoteAddress: socket.remoteAddress ?? 'unknown',
         };
+        // A fully received pairing request waits for the human approval deadline.
+        // Keep the shorter timeout while reading potentially incomplete requests.
+        if(request.method==='POST' && request.path==='/pair')socket.setTimeout(PAIRING_APPROVAL_TIMEOUT_MS+10_000,()=>socket.destroy());
         void handler(request)
           .then((response) => send(socket, response))
           .catch(() => send(socket, { status: 500, body: JSON.stringify({ error: 'internal error' }) }));

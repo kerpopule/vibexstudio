@@ -67,7 +67,7 @@ export function StreamWheel({ text, onStop }: { text: string; onStop: () => void
           Vibing…
         </ThemedText>
         <View style={styles.headerSpace} />
-        <ScalePress onPress={onStop} style={[styles.stop, { backgroundColor: theme.backgroundSelected }]}>
+        <ScalePress accessibilityRole="button" accessibilityLabel="Stop build" onPress={onStop} style={[styles.stop, { backgroundColor: theme.backgroundSelected }]}>
           <ThemedText type="smallBold" themeColor="danger">
             Stop
           </ThemedText>

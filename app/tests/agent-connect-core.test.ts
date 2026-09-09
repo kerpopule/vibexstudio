@@ -153,3 +153,13 @@ describe('authenticated MCP streamable HTTP subset', () => {
     expect((await core.route(request('/mcp', { jsonrpc: '2.0', id: 1, method: 'ping' }))).status).toBe(401);
   });
 });
+it('persists explicit rendering consent without granting editing or import',async()=>{
+ const {core,metadata,credentials}=harness();
+ const invite=core.issueTicket();
+ const waiting=core.route(request('/pair',{code:invite.code,agentName:'Render agent'}));
+ await core.resolveApproval(true,false,false,false,false,true);
+ expect((await waiting).status).toBe(200);
+ expect(JSON.parse(metadata.value)[0]).toMatchObject({mediaRead:true,mediaRender:true,mediaEdit:false,mediaImport:false});
+ const restored=new AgentConnectCore({metadata,credentials,tools:[]});await restored.load();
+ expect(restored.agents[0]).toMatchObject({mediaRead:true,mediaRender:true,mediaEdit:false});
+});

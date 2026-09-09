@@ -40,7 +40,12 @@ WAITING_METRICS = frozenset({
     "requests_deferred",
     "num_waiting",
 })
-_SAMPLE_RE = re.compile(r"^(\S+)\s+([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)")
+_NAME_RE = re.compile(r"^([a-zA-Z_:][a-zA-Z0-9_:]*)")
+_SAMPLE_RE = re.compile(
+    r'^([a-zA-Z_:][a-zA-Z0-9_:]*)'
+    r'(?:\{(?:[^"{}]|"(?:\\.|[^"\\])*")*\})?'
+    r'\s+(\S+)(?:\s+[+-]?\d+)?\s*$'
+)
 
 
 def prometheus_gauge_text(url: str, timeout: int = 3) -> str:
@@ -68,24 +73,27 @@ def _metric_kind(name: str) -> str | None:
 
 
 def parse_activity_gauges(raw: str) -> tuple[float, float, bool]:
-    """Return ``(running, waiting, saw_gauge)`` from Prometheus text.
+    """Return ``(running, waiting, complete_valid_gauges)`` from Prometheus text.
 
     Values are summed across label dimensions.  A recognized negative,
     non-finite, or malformed sample invalidates the activity result instead of
-    allowing a broken exporter to look idle.
+    allowing a broken exporter to look idle. Both running and waiting gauges
+    must be present; a missing family is not evidence of an empty scheduler.
     """
     running = waiting = 0.0
-    saw = False
+    seen: set[str] = set()
     invalid = False
     for line in raw.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        match = _SAMPLE_RE.match(line)
-        if not match:
-            continue
-        kind = _metric_kind(match.group(1))
+        name = _NAME_RE.match(line)
+        kind = _metric_kind(name.group(1)) if name else None
         if kind is None:
+            continue
+        match = _SAMPLE_RE.fullmatch(line)
+        if not match:
+            invalid = True
             continue
         try:
             value = float(match.group(2))
@@ -95,14 +103,14 @@ def parse_activity_gauges(raw: str) -> tuple[float, float, bool]:
         if value < 0 or not math.isfinite(value):
             invalid = True
             continue
-        saw = True
+        seen.add(kind)
         if kind == "running":
             running += value
         else:
             waiting += value
     if invalid:
         return 0.0, 0.0, False
-    return running, waiting, saw
+    return running, waiting, seen == {"running", "waiting"}
 
 
 def _canonical_endpoints(endpoints: Iterable[str]) -> tuple[tuple[str, ...], dict[str, str]]:

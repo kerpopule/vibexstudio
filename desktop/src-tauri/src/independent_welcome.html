@@ -1,0 +1,25 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>__PAGE_CSS__</style></head><body>
+<main><h2>Your Studio, your media</h2>
+<p>Build projects and reuse your creations in one place.</p>
+<p>Already have Media Lab on a server or another computer? Open Studio, then choose <strong>Connect a server library</strong> in Library.</p>
+<p><button id="studio" class="primary">Open Studio</button></p>
+<p>Have an independent Media Lab installation on this computer?</p>
+<p><button id="existing">Choose installation folder…</button></p>
+<p class="dim">Local installation from this screen is not available yet. Choosing a folder checks an existing installation; generating media also needs a verified engine.</p>
+<p id="error" class="err" role="alert"></p>
+</main><script>
+const inv=(name)=>window.__TAURI__.core.invoke(name);
+const studio=document.getElementById('studio'),existing=document.getElementById('existing'),error=document.getElementById('error');
+let pending=false;
+async function choose(command){
+ if(pending)return;
+ pending=true;studio.disabled=true;existing.disabled=true;error.textContent='';
+ try {
+  const selected=await inv(command);
+  if(command==='medialab_select_installation'&&selected)location.reload();
+ } catch(e){error.textContent=String(e);}
+ finally{pending=false;studio.disabled=false;existing.disabled=false;}
+}
+studio.onclick=()=>choose('medialab_not_now');
+existing.onclick=()=>choose('medialab_select_installation');
+</script></body></html>

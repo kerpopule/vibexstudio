@@ -50,7 +50,7 @@ export interface ProjectFile {
 export type ChatRole = 'user' | 'assistant';
 
 export interface ChatAttachment {
-  kind: 'image' | 'video';
+  kind: 'image' | 'video' | 'audio';
   /** Local file URI inside the project's media dir. */
   uri: string;
   prompt?: string;
@@ -64,6 +64,8 @@ export interface ChatMessage {
   createdAt: number;
   /** Paths written by this assistant turn, if any. */
   filesWritten?: string[];
+  /** Original user request, separate from its display label. */
+  request?: { mode: 'chat' | 'image' | 'video'; prompt: string };
   attachments?: ChatAttachment[];
   error?: string;
 }
@@ -147,10 +149,10 @@ export interface ProviderConnection {
 // On-device Media Lab gallery
 // ---------------------------------------------------------------------------
 
-/** One generated image/video in the on-device Media Lab gallery. */
+/** One generated media item in the on-device Media Lab gallery. */
 export interface GalleryItem {
   id: string;
-  kind: 'image' | 'video';
+  kind: 'image' | 'video' | 'audio';
   prompt: string;
   /** Human label of the provider that generated it (e.g. "xAI (Grok)"). */
   providerLabel: string;

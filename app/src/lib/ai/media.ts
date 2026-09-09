@@ -8,6 +8,8 @@
  * Results are returned as base64 (images) or a downloadable URL (video) and
  * saved into the project's local media folder by the caller.
  */
+import { acceptFalRequest,validateFalSongOptions,type FalSongOptions } from '@/lib/ai/fal-recovery';
+import { falModelUrl, falQueueUrl, fetchFalQueue } from '@/lib/ai/fal-queue';
 import { recommendedFalModel } from '@/lib/ai/fal-catalog';
 import { PROVIDERS } from '@/lib/ai/registry';
 import { extractApiError } from '@/lib/ai/sse';
@@ -39,7 +41,9 @@ export function canGenerateVideo(connection: ProviderConnection): boolean {
 export async function generateImage(
   connection: ProviderConnection,
   secret: string,
-  prompt: string
+  prompt: string,
+  recoveryId?: string,
+  recoveryProjectId?: string
 ): Promise<GeneratedImage> {
   if (connection.subscription === 'xai-oauth') {
     const baseUrl = connection.baseUrl || SUBSCRIPTION_PROVIDERS['xai-oauth'].inferenceBaseUrl;
@@ -54,7 +58,7 @@ export async function generateImage(
     case 'openai':
       return openAiStyleImage(baseUrl, secret, prompt, OPENAI_IMAGE_MODEL);
     case 'fal':
-      return falImage(connection, secret, prompt);
+      return falImage(connection, secret, prompt, recoveryId, recoveryProjectId);
     default:
       throw new Error(`${PROVIDERS[connection.kind].name} can't generate images. Connect Gemini, OpenAI, or Grok.`);
   }
@@ -115,9 +119,11 @@ export async function generateVideo(
   connection: ProviderConnection,
   secret: string,
   prompt: string,
-  onProgress?: (detail: string) => void
+  onProgress?: (detail: string) => void,
+  recoveryId?: string,
+  recoveryProjectId?: string
 ): Promise<GeneratedVideo> {
-  if (connection.kind === 'fal') return falVideo(connection, secret, prompt, onProgress);
+  if (connection.kind === 'fal') return falVideo(connection, secret, prompt, onProgress, recoveryId, recoveryProjectId);
   if (connection.kind !== 'gemini') {
     throw new Error('Video generation needs Google Gemini (Veo) or a fal.ai connection.');
   }
@@ -166,10 +172,12 @@ export async function generateVideo(
 async function falImage(
   connection: ProviderConnection,
   secret: string,
-  prompt: string
+  prompt: string,
+  recoveryId?: string,
+  recoveryProjectId?: string
 ): Promise<GeneratedImage> {
   const model = connection.mediaModels?.image || recommendedFalModel('image');
-  const result = await falQueueRun(model, secret, prompt, undefined, 4 * 60 * 1000);
+  const result = await falQueueRun(model, secret, prompt, undefined, 4 * 60 * 1000, recoveryId ? {id:recoveryId,providerId:connection.id,providerLabel:connection.label,kind:'image',projectId:recoveryProjectId} : undefined);
   const image = result?.images?.[0];
   if (!image?.url) throw new Error('fal.ai returned no image. Try rephrasing the prompt.');
   return { base64: await fetchAsBase64(image.url), mimeType: image.content_type ?? 'image/png' };
@@ -179,7 +187,9 @@ async function falVideo(
   connection: ProviderConnection,
   secret: string,
   prompt: string,
-  onProgress?: (detail: string) => void
+  onProgress?: (detail: string) => void,
+  recoveryId?: string,
+  recoveryProjectId?: string
 ): Promise<GeneratedVideo> {
   const model = connection.mediaModels?.video || recommendedFalModel('video');
   onProgress?.('Starting video generation…');
@@ -188,11 +198,34 @@ async function falVideo(
     secret,
     prompt,
     () => onProgress?.('Rendering video… this can take a couple of minutes.'),
-    8 * 60 * 1000
+    8 * 60 * 1000,
+    recoveryId ? {id:recoveryId,providerId:connection.id,providerLabel:connection.label,kind:'video',projectId:recoveryProjectId} : undefined
   );
   const url: string | undefined = result?.video?.url;
   if (!url) throw new Error('fal.ai finished but returned no video.');
   return { url, mimeType: result?.video?.content_type ?? 'video/mp4' };
+}
+
+export const FAL_SONG_MODEL = 'fal-ai/ace-step/prompt-to-audio';
+
+/** Direct BYO-key audio uses the same durable queue boundary as image/video.
+ * The caller must retain the request ID until the local output is saved. */
+export async function generateFalSong(connection:ProviderConnection,secret:string,prompt:string,requestId:string,songOptions?:FalSongOptions):Promise<{url:string;mimeType:string}>{
+  if(connection.kind!=='fal'||connection.auth!=='apiKey')throw new Error('Choose a fal.ai API-key connection to make a song.');
+  const text=prompt.trim();
+  if(!text||text.length>8000)throw new Error('Describe your song in 1–8,000 characters.');
+  if(!requestId)throw new Error('A saved request identity is required before making a song.');
+  if(songOptions!==undefined)songOptions=validateFalSongOptions(songOptions);
+  const result=await falQueueRun(FAL_SONG_MODEL,secret,text,undefined,8*60*1000,
+    {id:requestId,providerId:connection.id,providerLabel:connection.label,kind:'audio',songOptions});
+  const raw=result?.audio?.url;
+  let url:URL;
+  try{url=new URL(raw);}catch{throw new Error('fal.ai finished but returned no readable audio URL.');}
+  if(url.protocol!=='https:'||url.username||url.password||url.hash)throw new Error('fal.ai returned an unsupported audio URL.');
+  const type=result.audio.content_type??'audio/wav';
+  const mimeType=type==='audio/x-wav'?'audio/wav':type;
+  if(!['audio/wav','audio/mpeg','audio/flac','audio/ogg','audio/mp4'].includes(mimeType))throw new Error('fal.ai returned an unsupported audio format.');
+  return {url:url.href,mimeType};
 }
 
 /** Submits a fal queue job and polls it to completion; returns the payload. */
@@ -201,31 +234,31 @@ async function falQueueRun(
   secret: string,
   prompt: string,
   onPoll: (() => void) | undefined,
-  timeoutMs: number
+  timeoutMs: number,
+  recovery?: {id:string;providerId:string;providerLabel:string;projectId?:string;songOptions?:FalSongOptions;kind:'image'|'video'|'audio'}
 ): Promise<any> {
-  const headers = { 'Content-Type': 'application/json', Authorization: `Key ${secret}` };
-  const submitRes = await fetch(`https://queue.fal.run/${model}`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ prompt }),
-  });
-  const submitText = await submitRes.text();
-  if (!submitRes.ok) throw new Error(extractApiError(submitText, submitRes.status));
-  const submitted = JSON.parse(submitText);
-  const statusUrl: string | undefined = submitted?.status_url;
-  const responseUrl: string | undefined = submitted?.response_url;
-  if (!statusUrl || !responseUrl) throw new Error('fal.ai did not return a job to poll.');
+  let statusUrl:string,responseUrl:string;
+  if(recovery){
+    ({statusUrl,responseUrl}=await acceptFalRequest({...recovery,model,prompt},secret));
+  }else{
+    const submitRes = await fetchFalQueue(falModelUrl(model), secret, {prompt});
+    const submitText = await submitRes.text();
+    if (!submitRes.ok) throw new Error(extractApiError(submitText, submitRes.status));
+    const submitted = JSON.parse(submitText);
+    statusUrl = falQueueUrl(submitted?.status_url);
+    responseUrl = falQueueUrl(submitted?.response_url);
+  }
 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 3000));
     onPoll?.();
-    const pollRes = await fetch(statusUrl, { headers });
+    const pollRes = await fetchFalQueue(statusUrl, secret);
     const pollText = await pollRes.text();
     if (!pollRes.ok) throw new Error(extractApiError(pollText, pollRes.status));
     const status = JSON.parse(pollText)?.status;
     if (status === 'COMPLETED') {
-      const res = await fetch(responseUrl, { headers });
+      const res = await fetchFalQueue(responseUrl, secret);
       const text = await res.text();
       if (!res.ok) throw new Error(extractApiError(text, res.status));
       return JSON.parse(text);
@@ -235,7 +268,7 @@ async function falQueueRun(
       throw new Error(`fal.ai could not finish the job (status: ${status ?? 'unknown'}).`);
     }
   }
-  throw new Error('fal.ai timed out. Try again, or pick a faster model.');
+  throw new Error('This fal.ai job is taking longer than expected and may still be running. Check your fal.ai queue before starting another generation.');
 }
 
 async function fetchAsBase64(url: string): Promise<string> {

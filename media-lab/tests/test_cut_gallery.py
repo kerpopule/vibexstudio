@@ -2,6 +2,7 @@
 
 import copy
 import json
+import subprocess
 
 import pytest
 
@@ -206,3 +207,37 @@ def test_timeline_render_twice_is_byte_identical_and_probes_clean(cut_media, tmp
                                                                                          "range_mode": "selection", "range_start_seconds": 1, "range_end_seconds": 4}),
                                     work_dir=tmp_path / "w3")
     assert "libvpx-vp9" in webm["command"] and "-an" in webm["command"] and webm["expected_seconds"] == 3.0
+
+
+@pytest.mark.parametrize("burn_requested", [False, True])
+@pytest.mark.parametrize("include_audio", [False, True])
+def test_embedded_captions_render_with_or_without_pillow(
+    cut_media, tmp_path, monkeypatch, burn_requested, include_audio
+):
+    # Exercise both an explicit soft-caption export and the fallback used when
+    # Pillow cannot create caption cards. Verify the actual encoded artifact.
+    monkeypatch.setattr(cut, "_caption_image", lambda *args: False)
+    project = _edited(cut_media, tmp_path)
+    output = tmp_path / "subtitled.mp4"
+    receipt = cut.render_timeline(
+        project,
+        media_dir=cut_media["dir"],
+        output=output,
+        export_request=cut.validate_export_request(project, {
+            "quality": "preview", "format": "mp4",
+            "burn_captions": burn_requested, "include_audio": include_audio,
+        }),
+        work_dir=tmp_path / "work",
+    )
+    streams = receipt["ffprobe"]["streams"]
+    assert receipt["captions"] == "embedded"
+    assert {s["codec_type"] for s in streams} == (
+        {"video", "audio", "subtitle"} if include_audio else {"video", "subtitle"}
+    )
+    assert next(s for s in streams if s["codec_type"] == "subtitle")["codec_name"] == "mov_text"
+    subtitles = subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-i", str(output),
+         "-map", "0:s:0", "-f", "srt", "pipe:1"],
+        capture_output=True, text=True, timeout=30, check=True,
+    ).stdout
+    assert "Hello from Cut" in subtitles

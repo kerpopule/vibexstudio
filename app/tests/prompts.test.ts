@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildSystemPrompt } from '@/lib/ai/prompts';
+import { buildProjectAssetSection, buildSystemPrompt } from '@/lib/ai/prompts';
 
 describe('buildSystemPrompt', () => {
   it('handles a brand new project', () => {
@@ -24,6 +24,22 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('MUST output savable file blocks');
     expect(prompt).toContain('Do not answer with a plan, summary, promise, or normal chat first');
     expect(prompt).toContain('If you do not include at least one `file=` block on a build/edit request');
+  });
+
+  it('provides typed reuse context without exposing binary content or inventing media facts', () => {
+    const prompt = buildSystemPrompt('Game', [
+      { path: 'assets/win.mp4', content: 'PRIVATE_VIDEO_BYTES', encoding: 'base64' },
+      { path: 'assets/chair.GLB', content: 'PRIVATE_MODEL_BYTES', encoding: 'base64' },
+      { path: 'assets/music.wav', content: 'PRIVATE_AUDIO_BYTES', encoding: 'base64' },
+    ]);
+    expect(prompt).toContain('"mimeType":"model/gltf-binary"');
+    expect(prompt).toContain('"mimeType":"video/mp4"');
+    expect(prompt).toContain('"mimeType":"audio/wav"');
+    expect(prompt).not.toContain('PRIVATE_');
+    expect(prompt).toContain('have not been inspected');
+    expect(prompt).toContain('handle a rejected play() promise');
+    expect(prompt).toContain('bounding box');
+    expect(buildProjectAssetSection([])).toBe('');
   });
 
   it('makes generated apps portable to GitHub Pages project paths', () => {

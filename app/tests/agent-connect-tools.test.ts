@@ -8,6 +8,7 @@ const agent: PairedAgent = { id: 'a1', name: 'Hermes', pairedAt: '2026-08-29T00:
 function harness() {
   const calls: { method: string; value: unknown }[] = [];
   const adapter = {
+    createProject: async (input: { name: string }) => ({project: {id: 'new-project', name: input.name}}),
     listProjects: async () => ({ projects: [], total: 0, truncated: false }),
     getProject: async (value: unknown) => { calls.push({ method: 'getProject', value }); return {}; },
     readProjectFile: async (value: unknown) => { calls.push({ method: 'readProjectFile', value }); return {}; },
@@ -18,7 +19,7 @@ function harness() {
 }
 
 describe('VibeX MCP project tool contract', () => {
-  it('publishes exactly the required five useful tools in stable order', () => {
+  it('publishes exactly the six project tools in stable order', () => {
     const { tools } = harness();
     expect(tools.map((tool) => tool.name)).toEqual([
       'list_projects',
@@ -26,6 +27,7 @@ describe('VibeX MCP project tool contract', () => {
       'read_project_file',
       'write_project_files',
       'append_project_message',
+      'create_project',
     ]);
     expect(tools.map((tool) => tool.description).join(' ')).not.toMatch(/base64|binary files are returned/i);
   });

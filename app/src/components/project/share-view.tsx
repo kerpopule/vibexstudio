@@ -1,7 +1,8 @@
+import { Alert } from '@/lib/app-alert';
 import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Linking, ScrollView, Share, StyleSheet, Switch, View } from 'react-native';
+import { Linking, Platform, ScrollView, Share, StyleSheet, Switch, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/button';
@@ -70,9 +71,9 @@ export function ShareView({
     try {
       // Some targets (Messages included) keep only the file and drop the
       // accompanying note, so park the note on the clipboard as a backup.
-      await Clipboard.setStringAsync(shareMessageFor(project.name));
+      const noteCopied = Platform.OS !== 'web' && await Clipboard.setStringAsync(shareMessageFor(project.name)).then(() => true, () => false);
       await exportProjectBundle(project.id);
-      setCopied('note');
+      setCopied(Platform.OS === 'web' ? 'download' : noteCopied ? 'note' : null);
       setTimeout(() => setCopied(null), 6000);
     } catch (e) {
       setExportError(e instanceof Error ? e.message : 'Could not share the app file.');
@@ -221,6 +222,7 @@ export function ShareView({
         left={<EmojiTile emoji="📦" size={36} />}
         onPress={exportBundle}
       />
+      {copied === 'download' ? <Row title="Download requested" subtitle="Look in your browser downloads for the .vibex file. It includes your project’s saved media." /> : null}
       {copied === 'note' ? (
         <>
           <RowDivider />

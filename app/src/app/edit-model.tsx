@@ -1,3 +1,5 @@
+import {Button} from '@/components/ui/button';
+import {canReplaceProviderKey} from '@/lib/ai/replace-provider-key';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -65,6 +67,7 @@ export default function EditModelScreen() {
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <ThemedText type="subtitle">{connection.label}</ThemedText>
+        {canReplaceProviderKey(connection)?<Button title="Replace API key" variant="secondary" onPress={()=>router.push({pathname:'/replace-provider-key' as never,params:{connectionId:connection.id}})}/>:null}
         <ThemedText themeColor="textSecondary" type="small">
           Pick the model for this provider. The list is pulled live each time you open this screen, so
           new models show up automatically.

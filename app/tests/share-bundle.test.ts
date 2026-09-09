@@ -64,3 +64,30 @@ describe('vibex bundle codec', () => {
     expect(bundleFileName('///')).toBe('VibeX app.vibex');
   });
 });
+
+it('preserves GLB binary bytes across bundle encoding and decoding',()=>{
+ const bytes=Buffer.from([0x67,0x6c,0x54,0x46,0,255,128,13,10,0,3]);
+ const encoded=encodeBundle({name:'3D project',emoji:'🧊',description:'',files:[{path:'assets/chair.glb',content:bytes.toString('base64'),encoding:'base64'}]},1);
+ const decoded=decodeBundle(encoded);
+ expect(decoded.files[0].encoding).toBe('base64');
+ expect(Buffer.from(decoded.files[0].content,'base64')).toEqual(bytes);
+});
+
+it('does not export bundles the same app cannot import',()=>{
+ const base={name:'Large project',emoji:'📦',description:''};
+ expect(()=>encodeBundle({...base,files:Array.from({length:501},(_,i)=>({path:`f${i}.txt`,content:'x'}))},1)).toThrow('too many');
+ expect(()=>encodeBundle({...base,files:[{path:'big.txt',content:'x'.repeat(25_000_001)}]},1)).toThrow('too large');
+ // JSON escaping can exceed the limit even if raw content fits.
+ expect(()=>encodeBundle({...base,files:[{path:'escaped.txt',content:'"'.repeat(12_500_001)}]},1)).toThrow('too large');
+});
+
+it.each([
+ ['assets/chair.glb','assets/chair.glb'],
+ ['assets/Chair.glb','assets/chair.glb'],
+ ['assets/caf\u00e9.glb','assets/cafe\u0301.glb'],
+ ['assets','assets/chair.glb'],
+])('rejects portable filesystem collisions: %s and %s',(a,b)=>{
+ const files=[{path:a,content:'one'},{path:b,content:'two'}];
+ expect(()=>encodeBundle({name:'Collision',emoji:'',description:'',files},1)).toThrow(/conflicting|file and a folder/);
+ expect(()=>decodeBundle(JSON.stringify({format:BUNDLE_FORMAT,version:1,files}))).toThrow(/conflicting|file and a folder/);
+});

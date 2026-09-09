@@ -16,6 +16,7 @@ import { useChat } from '@/lib/chat-engine';
 import { settleFinishedMediaJobs, type SettledMediaJob } from '@/lib/medialab-tool';
 import { notifyWithData } from '@/lib/notifications';
 import { useApp } from '@/lib/store';
+import { createLegacyQueueSupport } from '@/lib/media-queue-support';
 
 const POLL_MS = 20_000;
 const BG_TASK = 'vibex-media-lab-watch';
@@ -28,43 +29,53 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 let timer: ReturnType<typeof setInterval> | null = null;
-let seenDone: Set<string> | null = null;
+const seenByServer = new Map<string, Set<string>>();
+let checking = false;
+const supportsLegacyQueue = createLegacyQueueSupport();
 
 // The baseline persists so a cold background wake (OS task) can tell new
 // finishes from old ones instead of silently re-baselining.
 const SEEN_KEY = 'vibex.mediaLabWatch.seenDone';
 
-async function loadSeen(): Promise<Set<string>> {
+async function loadSeen(base: string): Promise<Set<string>> {
   try {
     const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
-    const raw = await AsyncStorage.getItem(SEEN_KEY);
+    const raw = await AsyncStorage.getItem(`${SEEN_KEY}:${encodeURIComponent(base)}`);
     return new Set(raw ? (JSON.parse(raw) as string[]) : []);
   } catch {
     return new Set();
   }
 }
 
-async function saveSeen(seen: Set<string>): Promise<void> {
+async function saveSeen(base: string, seen: Set<string>): Promise<void> {
   try {
     const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
-    await AsyncStorage.setItem(SEEN_KEY, JSON.stringify([...seen].slice(-200)));
+    await AsyncStorage.setItem(`${SEEN_KEY}:${encodeURIComponent(base)}`, JSON.stringify([...seen].slice(-200)));
   } catch {
     // Best-effort.
   }
 }
 
 async function check(): Promise<void> {
+  if (checking) return;
+  checking = true;
+  try { await checkOnce(); }
+  finally { checking = false; }
+}
+
+async function checkOnce(): Promise<void> {
   const { mediaLab } = useApp.getState();
   if (!mediaLab) {
-    seenDone = null;
     return;
   }
   try {
-    const base = mediaLab.url.replace(/\/+$/, '');
+    const base = new URL(mediaLab.url).origin;
+    if (!await supportsLegacyQueue(base)) return;
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), 8000);
-    const res = await fetch(`${base}/api/queue`, { signal: controller.signal });
-    clearTimeout(t);
+    let res: Response;
+    try { res = await fetch(`${base}/api/queue`, { signal: controller.signal }); }
+    finally { clearTimeout(t); }
     if (!res.ok) return;
     const data = (await res.json()) as {
       history?: { id?: string; status?: string; kind?: string; prompt?: string; url?: string }[];
@@ -77,11 +88,13 @@ async function check(): Promise<void> {
     const tracked = await settleProjectJobs(base, history);
 
     const done = history.filter((j) => j.status === 'done' && j.id && !tracked.has(j.id));
-    if (seenDone == null) seenDone = await loadSeen();
+    let seenDone = seenByServer.get(base) ?? await loadSeen(base);
+    seenByServer.set(base, seenDone);
     if (seenDone.size === 0 && done.length > 0) {
       // Very first look ever: everything already finished is old news.
       seenDone = new Set(done.map((j) => j.id as string));
-      await saveSeen(seenDone);
+      seenByServer.set(base, seenDone);
+      await saveSeen(base, seenDone);
       return;
     }
     let changed = false;
@@ -98,7 +111,7 @@ async function check(): Promise<void> {
         { mediaLabJob: id }
       );
     }
-    if (changed) await saveSeen(seenDone);
+    if (changed) await saveSeen(base, seenDone);
   } catch {
     // Server asleep/unreachable — quietly try again next round.
   }
@@ -153,7 +166,7 @@ TaskManager.defineTask(BG_TASK, async () => {
 
 /** Call once from the root layout. Idempotent. */
 export function initMediaServerWatch(): void {
-  if (Platform.OS === 'web' || timer) return;
+  if (timer) return;
   timer = setInterval(check, POLL_MS);
   check();
   AppState.addEventListener('change', (state) => {
@@ -161,6 +174,7 @@ export function initMediaServerWatch(): void {
     // moments later still had a fresh baseline; and a refresh on return.
     if (state === 'active' || state === 'background') check();
   });
+  if (Platform.OS === 'web') return;
   BackgroundTask.registerTaskAsync(BG_TASK, { minimumInterval: 15 }).catch(() => {
     // Unavailable (simulator, web, restricted) — foreground polling remains.
   });

@@ -1,3 +1,4 @@
+import { librarySecretKey } from '@/lib/library-secret-key';
 /**
  * Secret storage backed by the platform keychain (iOS Keychain / Android
  * Keystore via expo-secure-store). API keys and OAuth tokens never leave the
@@ -96,3 +97,14 @@ export async function getProviderRefreshToken(connectionId: string): Promise<str
 export async function clearProviderRefreshToken(connectionId: string): Promise<void> {
   await SecureStore.deleteItemAsync(refreshKeyFor(connectionId));
 }
+
+export const setLibraryToken = async (origin: string, token: string) => SecureStore.setItemAsync(await librarySecretKey(origin), token);
+export const getLibraryToken = async (origin: string) => SecureStore.getItemAsync(await librarySecretKey(origin));
+export const clearLibraryToken = async (origin: string) => SecureStore.deleteItemAsync(await librarySecretKey(origin));
+export const getGenerationConnection = async (origin: string) => SecureStore.getItemAsync((await librarySecretKey(origin)) + '.generation');
+export const setGenerationConnection = async (origin: string, value: string) => SecureStore.setItemAsync((await librarySecretKey(origin)) + '.generation', value);
+export const getEditingConnection = async (origin: string) => SecureStore.getItemAsync((await librarySecretKey(origin)) + '.editing');
+export const setEditingConnection = async (origin: string, value: string) => SecureStore.setItemAsync((await librarySecretKey(origin)) + '.editing', value);
+
+/** Native apps use the platform credential store. */
+export function secretsInVault(): boolean { return true; }

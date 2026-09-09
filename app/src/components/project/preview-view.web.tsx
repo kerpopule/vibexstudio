@@ -12,29 +12,8 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { buildPreviewDocument } from '@/lib/preview-document';
 import { isBinaryPath, listFiles } from '@/lib/storage/projects';
-
-const MIME: Record<string, string> = {
-  html: 'text/html', css: 'text/css', js: 'text/javascript', mjs: 'text/javascript',
-  json: 'application/json', svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg',
-  jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', ico: 'image/x-icon',
-  mp3: 'audio/mpeg', wav: 'audio/wav', mp4: 'video/mp4', woff: 'font/woff',
-  woff2: 'font/woff2', ttf: 'font/ttf', txt: 'text/plain', md: 'text/plain',
-};
-
-function mimeFor(path: string): string {
-  return MIME[path.split('.').pop()?.toLowerCase() ?? ''] ?? 'application/octet-stream';
-}
-
-function toBlob(content: string, encoding: string, mime: string): Blob {
-  if (encoding === 'base64') {
-    const binary = atob(content);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    return new Blob([bytes], { type: mime });
-  }
-  return new Blob([content], { type: mime });
-}
 
 export function PreviewView({
   projectId,
@@ -55,29 +34,15 @@ export function PreviewView({
 
   useEffect(() => {
     let cancelled = false;
-    const urls: string[] = [];
     (async () => {
       const files = await listFiles(projectId);
-      const index = files.find((f) => f.path === 'index.html');
-      if (!index) {
-        if (!cancelled) setHtml(null);
-        return;
-      }
-      let page = index.content;
-      // Longest paths first so "assets/app.css" rewrites before "app.css".
-      const others = files.filter((f) => f.path !== 'index.html').sort((a, b) => b.path.length - a.path.length);
-      for (const f of others) {
-        const url = URL.createObjectURL(toBlob(f.content, f.encoding ?? (isBinaryPath(f.path) ? 'base64' : 'utf-8'), mimeFor(f.path)));
-        urls.push(url);
-        // Rewrite src/href references to this path (quoted, optionally ./-prefixed).
-        const escaped = f.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        page = page.replace(new RegExp(`(["'])(?:\\./)?${escaped}\\1`, 'g'), `$1${url}$1`);
-      }
+      if (cancelled) return;
+      const page = buildPreviewDocument(files, isBinaryPath);
       if (!cancelled) setHtml(page);
     })();
     return () => {
       cancelled = true;
-      urls.forEach((u) => URL.revokeObjectURL(u));
+      // The iframe owns its blob URLs; navigation/destruction releases them.
     };
   }, [projectId, revision]);
 

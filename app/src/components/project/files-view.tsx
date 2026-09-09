@@ -1,10 +1,17 @@
+import { Alert } from '@/lib/app-alert';
+import * as Clipboard from 'expo-clipboard';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, FlatList, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import {ProjectMediaPreview} from '@/components/project-media-preview';
+import {SpriteInspector} from '@/components/sprite-inspector';
+import {readProjectSprite, type ProjectSprite} from '@/lib/project-sprite';
+import { ModelInspector } from '@/components/model-inspector';
 import { Button } from '@/components/ui/button';
 import { Fonts, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { createModelPlacement, modelPlacementPath, readModelPlacement, type ModelRotation } from '@/lib/model-placement';
 import { deleteFile, isBinaryPath, listFiles, readFile, writeFile } from '@/lib/storage/projects';
 import type { ProjectFile } from '@/lib/types';
 
@@ -20,6 +27,12 @@ export function FilesView({
   const theme = useTheme();
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [openPath, setOpenPath] = useState<string | null>(null);
+  const [sprite, setSprite] = useState<{value:ProjectSprite;file:ProjectFile}|null>(null);
+  const [asset, setAsset] = useState<ProjectFile | null>(null);
+  const [placement, setPlacement] = useState<ModelRotation | undefined>();
+  const [placementError, setPlacementError] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
   const [draft, setDraft] = useState('');
   const [dirty, setDirty] = useState(false);
 
@@ -29,8 +42,21 @@ export function FilesView({
 
   useEffect(refresh, [refresh, reloadKey]);
 
-  const open = async (path: string) => {
-    if (isBinaryPath(path)) return;
+  const open = async (file: ProjectFile) => {
+    const path = file.path;
+    if (file.encoding === 'base64' || isBinaryPath(path)) {
+      let rotation: ModelRotation | undefined;
+      setPlacementError('');
+      if (path.toLowerCase().endsWith('.glb')) {
+        try {
+          const saved = await readFile(projectId, modelPlacementPath(path));
+          if (saved !== null) rotation = readModelPlacement(saved, path).rotation;
+        } catch {setPlacementError('Saved orientation could not be read. Showing the original model.');}
+      }
+      setPlacement(rotation);setAsset(file);setCopied(false);setCopyError(false);return;
+    }
+    const atlas=readProjectSprite(file,files);
+    if (atlas) {setSprite({value:atlas,file});return;}
     const content = await readFile(projectId, path);
     setDraft(content ?? '');
     setDirty(false);
@@ -58,6 +84,40 @@ export function FilesView({
       },
     ]);
   };
+
+  if (sprite) return <ScrollView contentContainerStyle={styles.list}>
+    <Button title="Back to files" variant="secondary" onPress={()=>setSprite(null)} />
+    <SpriteInspector key={sprite.file.path} sprite={sprite.value} />
+    <Button title="Edit frame data" variant="secondary" onPress={()=>{
+      setOpenPath(sprite.file.path);setDraft(sprite.file.content);setDirty(false);setSprite(null);
+    }} />
+  </ScrollView>;
+
+  if (asset) {
+    return <ScrollView contentContainerStyle={styles.list}>
+      <Button title="Back to files" variant="secondary" onPress={() => setAsset(null)} />
+      <ThemedText type="heading">{asset.path.toLowerCase().endsWith('.glb') ? '3D model' : 'Project asset'}</ThemedText>
+      <ThemedText selectable>{asset.path}</ThemedText>
+      <ProjectMediaPreview key={asset.path} path={asset.path} base64={asset.content} />
+      {placementError ? <ThemedText accessibilityRole="alert">{placementError}</ThemedText> : null}
+      {asset.path.toLowerCase().endsWith('.glb') ? <ModelInspector key={asset.path} base64={asset.content} initialRotation={placement} onSave={async rotation => {
+        const target = modelPlacementPath(asset.path);
+        const existing = await readFile(projectId, target);
+        if (existing !== null) {
+          try {readModelPlacement(existing, asset.path);}
+          catch {throw new Error('The existing orientation file is not recognized and has not been changed. Open it in Files to review its contents.');}
+        }
+        await writeFile(projectId, target, JSON.stringify(createModelPlacement(asset.path, rotation), null, 2));
+        setPlacementError(''); refresh(); onFilesChanged();
+      }} /> : null}
+      <ThemedText themeColor="textSecondary">This file is saved in your project. Tell the builder how to use it, or copy its path into your code. Project exports include the file.</ThemedText>
+      <Button title={copied ? 'Path copied' : 'Copy file path'} onPress={() => {
+        setCopied(false);setCopyError(false);
+        void Clipboard.setStringAsync(asset.path).then(success => {setCopied(success);setCopyError(!success);}).catch(() => setCopyError(true));
+      }} />
+      {copyError ? <ThemedText accessibilityRole="alert">Could not copy the path. Select the path above to copy it manually.</ThemedText> : null}
+    </ScrollView>;
+  }
 
   if (openPath != null) {
     return (
@@ -104,7 +164,9 @@ export function FilesView({
       }
       renderItem={({ item }) => (
         <Pressable
-          onPress={() => open(item.path)}
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${item.path}`}
+          onPress={() => open(item)}
           onLongPress={() => confirmDelete(item.path)}
           style={({ pressed }) => [
             styles.row,
@@ -130,6 +192,8 @@ function iconFor(path: string): string {
   if (ext === 'html') return '🌐';
   if (ext === 'css') return '🎨';
   if (ext === 'js') return '⚙️';
+  if (ext === 'glb') return '🧊';
+  if (['mp3', 'wav', 'flac', 'm4a', 'ogg'].includes(ext)) return '🎵';
   if (ext === 'json') return '🧾';
   if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext)) return '🖼️';
   if (['mp4', 'webm'].includes(ext)) return '🎬';

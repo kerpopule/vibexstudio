@@ -9,6 +9,7 @@
  * Requests ride the shared cookie store, so the gate code the user entered
  * in the Media Lab page covers these calls too.
  */
+import { probeMediaHost } from '@/lib/media-host-probe';
 import type { MediaLabLink } from '@/lib/storage/settings';
 import type { GalleryItem } from '@/lib/types';
 
@@ -74,6 +75,9 @@ export async function createCutProject(link: MediaLabLink, jobIds: string[], nam
 
 /** Upload an on-device item and open it in Cut. Returns the Cut page URL. */
 export async function sendToCut(link: MediaLabLink, item: GalleryItem): Promise<string> {
+  const host = await probeMediaHost(link.url);
+  if (!host) throw new Error('Could not reach Media Lab. Check your connection and try again.');
+  if (!host.webInterface) throw new Error('This server has no Cut editor. Open Library for its available tools, or connect a Media Lab server with Cut.');
   const jobId = await uploadToMediaLab(link, item);
   const projectId = await createCutProject(link, [jobId], item.prompt.slice(0, 40));
   return cutUrl(link, projectId);

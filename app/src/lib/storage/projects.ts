@@ -1,3 +1,7 @@
+import {beginNativeAssetImport,cleanupNativeAssetImports} from './asset-import-recovery.native';
+import {validateBinaryImport,conflictingImportPath,assertIdenticalImportStream} from './binary-import';
+import {iosProjectAttachmentPath} from '@/lib/storage/native-attachment-path';
+import {cleanupNativeArchives} from '../share/archive-recovery.native';
 /**
  * Project storage on the device filesystem.
  *
@@ -9,8 +13,9 @@
  *       files/         — the generated web app (index.html, ...)
  *       media/         — generated images/videos referenced by chat
  */
-import { Directory, File, Paths } from 'expo-file-system';
+import { Directory, File, FileMode, Paths } from 'expo-file-system';
 
+import {decodeProjectSnapshot,encodeFileBackedSnapshot,materializeSnapshotChat} from '@/lib/sync/project-snapshot';
 import type { ChatMessage, ProjectFile, ProjectMeta } from '@/lib/types';
 
 /**
@@ -53,7 +58,61 @@ export function newId(): string {
 // Meta
 // ---------------------------------------------------------------------------
 
+let syncRecoveryChecked = false;
+const recoveryRoot = () => new Directory(Paths.document, 'sync-recovery');
+
+/** Roll back an interrupted replacement before exposing projects to the app. */
+function recoverSyncReplacements(): void {
+  if (syncRecoveryChecked) return;
+  const root = recoveryRoot();
+  if (root.exists) for (const entry of root.list()) {
+    if (!(entry instanceof Directory)) continue;
+    const marker = new File(entry, 'pending');
+    if (!marker.exists) continue;
+    const id = entry.name;
+    if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error('Invalid sync recovery project.');
+    const target = projectDir(id);
+    const backup = new Directory(entry, 'original');
+    if (target.exists) target.delete();
+    if (backup.exists) backup.copySync(target);
+    marker.delete();
+  }
+  syncRecoveryChecked = true;
+}
+
+/** Save the entire local directory, including attachments, before replacing it. */
+export async function withSyncRecovery(id: string, replace: () => Promise<void>): Promise<void> {
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error('Invalid sync project ID.');
+  recoverSyncReplacements();
+  const root = recoveryRoot();
+  if (!root.exists) root.create({ intermediates: true });
+  const journal = new Directory(root, id);
+  if (journal.exists) journal.delete();
+  journal.create();
+  const target = projectDir(id);
+  const backup = new Directory(journal, 'original');
+  if (target.exists) target.copySync(backup);
+  // The marker is written only after the complete original was copied.
+  const marker = new File(journal, 'pending');
+  marker.write('1');
+  try {
+    await replace();
+    // Sync excludes chat-media today; keep this device's attachments available.
+    const originalMedia = new Directory(backup, 'media');
+    const currentMedia = new Directory(projectDir(id), 'media');
+    if (originalMedia.exists && !currentMedia.exists) originalMedia.copySync(currentMedia);
+    marker.delete();
+  } catch (error) {
+    syncRecoveryChecked = false;
+    recoverSyncReplacements();
+    throw error;
+  }
+}
+
 export async function listProjects(): Promise<ProjectMeta[]> {
+  cleanupNativeArchives();
+  recoverSyncReplacements();
+  cleanupNativeAssetImports();
   const root = projectsRoot();
   if (!root.exists) return [];
   const metas: ProjectMeta[] = [];
@@ -137,7 +196,13 @@ export async function readChat(id: string): Promise<ChatMessage[]> {
   const file = new File(projectDir(id), 'chat.json');
   if (!file.exists) return [];
   try {
-    return JSON.parse(await file.text()) as ChatMessage[];
+    const messages=JSON.parse(await file.text()) as ChatMessage[];
+    return messages.map(message=>({...message,...(message.attachments?{attachments:message.attachments.map(attachment=>{
+      const relative=iosProjectAttachmentPath(attachment.uri,id);
+      if(!relative)return attachment;
+      const current=new File(projectDir(id),...relative.split('/'));
+      return current.exists?{...attachment,uri:current.uri}:attachment;
+    })}:{})}));
   } catch {
     return [];
   }
@@ -153,7 +218,7 @@ export async function writeChat(id: string, messages: ChatMessage[]): Promise<vo
 // App files
 // ---------------------------------------------------------------------------
 
-const BINARY_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'mp3', 'mp4', 'wav', 'woff', 'woff2', 'ttf']);
+const BINARY_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'mp3', 'mp4', 'wav', 'flac', 'ogg', 'm4a', 'webm', 'mov', 'mkv', 'glb', 'pdf', 'zip', 'avif', 'woff', 'woff2', 'ttf']);
 
 export function isBinaryPath(path: string): boolean {
   const ext = path.split('.').pop()?.toLowerCase() ?? '';
@@ -288,6 +353,7 @@ export function deleteFileWithoutTouch(id: string, path: string): void {
  * assets/img-1.png) so generated apps can reference it; returns its URI.
  */
 export async function writeBinaryFile(id: string, path: string, base64: string): Promise<string> {
+  assertProjectFilePathContained(id, path);
   const segments = path.split('/').filter(Boolean);
   let dir = filesDir(id);
   if (!dir.exists) dir.create({ intermediates: true });
@@ -313,4 +379,91 @@ function base64ToBytes(base64: string): Uint8Array {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
+}
+
+export async function listProjectFilePaths(id: string): Promise<string[]> {
+  return (await listProjectFileManifest(id)).map((file)=>file.path);
+}
+
+
+/** Capture native content synchronously so an in-app edit cannot interleave the snapshot. */
+export function readSyncSnapshot(id:string):string|null {
+ if(!/^[A-Za-z0-9_-]{1,128}$/.test(id))throw new Error('Invalid sync project identity.');
+ recoverSyncReplacements();
+ const metaFile=new File(projectDir(id),'project.json');if(!metaFile.exists)return null;
+ const chatFile=new File(projectDir(id),'chat.json');
+ let bytes=metaFile.size+(chatFile.exists?chatFile.size:0);
+ if(bytes>25_000_000)throw new Error('This project is too large to sync.');
+ const files:ProjectFile[]=[];
+ const collect=(dir:Directory,prefix:string)=>{
+  if(!dir.exists)return;
+  for(const entry of dir.list()){
+   if(entry instanceof Directory)collect(entry,prefix+entry.name+'/');
+   else{
+    if(files.length>=500)throw new Error('This project has too many files to sync.');
+    bytes+=entry.size;if(bytes>25_000_000)throw new Error('This project is too large to sync.');
+    const path=prefix+entry.name,binary=isBinaryPath(path);
+    files.push({path,encoding:binary?'base64':'utf-8',content:binary?entry.base64Sync():entry.textSync()});
+   }
+  }
+ };
+ collect(filesDir(id),'');
+ const meta=JSON.parse(metaFile.textSync());if(meta.id!==id)throw new Error('Project identity does not match its storage.');
+ return encodeFileBackedSnapshot({meta,chat:chatFile.exists?JSON.parse(chatFile.textSync()):[],files},path=>new File(filesDir(id),...path.split('/')).uri);
+}
+
+/** Native counterpart of desktop's compare-and-replace, protected by the recovery journal. */
+export async function replaceSyncedProject(raw:string,expected:string|null):Promise<void>{
+ const incoming=decodeProjectSnapshot(raw),id=incoming.meta.id;
+ if(readSyncSnapshot(id)!==expected)throw new Error('This project changed while syncing. Review its copies again.');
+ const metaFile=new File(projectDir(id),'project.json');const current:ProjectMeta|null=metaFile.exists?JSON.parse(metaFile.textSync()):null;
+ const chat=materializeSnapshotChat(incoming,path=>new File(filesDir(id),...path.split('/')).uri);
+ await withSyncRecovery(id,async()=>{
+  // All mutation is synchronous inside this callback. No JavaScript edits can
+  // interleave while the recovery journal guards the filesystem replacement.
+  const target=projectDir(id);if(target.exists)target.delete();target.create({intermediates:true});
+  for(const file of incoming.files){
+   let dir=filesDir(id);if(!dir.exists)dir.create({intermediates:true});
+   const segments=file.path.split('/');
+   for(const segment of segments.slice(0,-1)){dir=new Directory(dir,segment);if(!dir.exists)dir.create();}
+   new File(dir,segments[segments.length-1]).write(file.encoding==='base64'?base64ToBytes(file.content):file.content);
+  }
+  new File(target,'chat.json').write(JSON.stringify(chat));
+  new File(target,'project.json').write(JSON.stringify({...incoming.meta,...(current?.ai?{ai:current.ai}:{}),...(current?.github?{github:current.github}:{})}));
+  if(readSyncSnapshot(id)!==encodeFileBackedSnapshot(incoming,path=>new File(filesDir(id),...path.split('/')).uri))throw new Error('Could not verify the received project.');
+ });
+}
+
+/** Commit one complete asset without rewriting unrelated files or chat. */
+export async function importBinaryAssetExclusive(id:string,path:string,bytes:Uint8Array,createdAt:number):Promise<{alreadyImported:boolean}> {
+ validateBinaryImport(id,path,bytes,createdAt);
+ recoverSyncReplacements();assertProjectFilePathContained(id,path);
+ const metaFile=new File(projectDir(id),'project.json');
+ if(!metaFile.exists)throw new Error('The project changed or was removed.');
+ const meta=JSON.parse(metaFile.textSync()) as ProjectMeta;
+ if(meta.id!==id||meta.createdAt!==createdAt)throw new Error('The project changed or was removed.');
+ const manifest:ProjectFileManifestEntry[]=[];
+ if(filesDir(id).exists)collectFileManifest(filesDir(id),'',manifest);
+ const matches=manifest.filter(file=>conflictingImportPath(file.path,path));
+ if(matches.length){
+  const file=matches[0];
+  if(matches.length!==1||file.path!==path)throw new Error('A file or folder already uses this name. Choose a new path.');
+  if(file.encoding!=='base64')throw new Error('That path belongs to a text file. Choose a new asset path.');
+  if(file.bytes!==bytes.length)throw new Error(`The saved file size (${file.bytes} bytes) differs from the Library asset (${bytes.length} bytes). Nothing was overwritten.`);
+  assertIdenticalImportStream(new File(filesDir(id),...path.split('/')).open(FileMode.ReadOnly),bytes);
+  return {alreadyImported:true};
+ }
+ const stage=beginNativeAssetImport(projectDir(id)),temporary=stage.file;
+ try{
+  temporary.write(bytes);
+  if(temporary.size!==bytes.length)throw new Error('The asset did not save completely.');
+  const segments=path.split('/');let dir=filesDir(id);
+  if(!dir.exists)dir.create({intermediates:true});
+  for(const segment of segments.slice(0,-1)){dir=new Directory(dir,segment);if(!dir.exists)dir.create();}
+  const target=new File(dir,segments[segments.length-1]);
+  if(target.exists)throw new Error('That project file already exists. Choose a new path.');
+  temporary.move(target);
+  metaFile.write(JSON.stringify({...meta,updatedAt:Date.now()}));
+  return {alreadyImported:false};
+ }finally{stage.dispose();}
 }

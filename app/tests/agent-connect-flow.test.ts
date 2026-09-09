@@ -36,6 +36,7 @@ describe('complete Agent Connect MCP flow', () => {
     let fileContent = '<h1>before</h1>';
     const messages: string[] = [];
     const tools = createProjectConnectTools({
+      createProject: async (input: { name: string }) => ({project: {id: 'new-project', name: input.name}}),
       listProjects: async () => ({ projects: [{ id: 'p1', name: 'QA', emoji: '✨', updatedAt: 1 }], total: 1, truncated: false }),
       getProject: async () => ({ project: { id: 'p1', name: 'QA' }, files: [{ path: 'index.html', encoding: 'utf-8', bytes: fileContent.length }], totalBytes: fileContent.length }),
       readProjectFile: async () => ({ projectId: 'p1', path: 'index.html', encoding: 'utf-8', bytes: fileContent.length, content: fileContent }),
@@ -82,7 +83,9 @@ describe('complete Agent Connect MCP flow', () => {
       'read_project_file',
       'write_project_files',
       'append_project_message',
+      'create_project',
     ]);
+    expect((await callTool(30, 'create_project', {name: 'New build'})).project).toEqual({id: 'new-project', name: 'New build'});
     expect((await callTool(3, 'list_projects', {})).projects[0].id).toBe('p1');
     expect((await callTool(4, 'get_project', { projectId: 'p1' })).files[0].path).toBe('index.html');
     expect((await callTool(5, 'read_project_file', { projectId: 'p1', path: 'index.html' })).content).toContain('before');

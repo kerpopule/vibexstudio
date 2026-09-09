@@ -3,12 +3,16 @@
 **One open-source studio for building apps and making media, on every device
 you own — with nothing to sign up for.**
 
-Describe an app in chat and watch it become real. Make images, video, and
-music in Media Lab. Use the AI you already pay for — an API key, or a
-subscription sign-in (xAI/Grok, MiniMax, Kimi today; more coming). Your
-projects sync between your devices through **your** iCloud or **your**
-Google Drive. Publish to **your** GitHub. Free, Apache-2.0, no servers, no
-accounts, no telemetry.
+Describe an app in chat, reuse saved Media Lab creations, and preview the result.
+Projects are saved locally; prompts and selected files go to the services you
+connect. Share a project bundle or publish through your GitHub account.
+Provider generation runs on the provider's servers, while qualified local
+engines run on the Media Lab host you select.
+
+**Development status:** the unified Library, independent CPU background removal,
+and experimental 3D workflows are under active development. Not every advertised
+platform or engine has completed runtime qualification. See
+[capability status](docs/CAPABILITY-STATUS.md) before choosing a deployment.
 
 <p align="center">
   <img src="app/docs/screenshots/iphone-dark.png" width="220" alt="VibeXStudio on iPhone — NOIR dark">
@@ -34,14 +38,14 @@ accounts, no telemetry.
 
 | Directory | What it is |
 |---|---|
-| [`app/`](app/) | The VibeXStudio app — Expo/React Native for iOS, Android, and the web build the desktop wraps. Chat-to-app builder, background builds, device sync, Media Lab tab. |
+| [`app/`](app/) | The VibeXStudio app — Expo/React Native for iOS, Android, and the web build the desktop wraps. Chat-to-app builder, background builds, local projects, and Media Lab integration. |
 | [`desktop/`](desktop/) | Tauri shell for macOS/Windows/Linux. Hosts the app and can run Media Lab as a local sidecar. |
 | [`media-lab/`](media-lab/) | The Media Lab server — films, songs, images, characters, and Sparky the director. Run it on your own GPU box, or cloud-only with your fal.ai key. |
 
 ```mermaid
 flowchart LR
     subgraph one app everywhere
-      A[📱 app/ — iOS · Android] ---|your iCloud /\nyour Drive folder| A2[📱 your other devices]
+      A[📱 app/ — iOS · Android] ---|export / import project bundle| A2[📱 your other devices]
       D[🖥️ desktop/ — macOS · Windows · Linux]
     end
     D -->|sidecar| M[🎬 media-lab/\nlocal engines · your fal.ai key]
@@ -58,7 +62,7 @@ flowchart LR
   skippable, every one revisitable from the **Setup** tab's checklist.
 - **Build**: chat → files → live preview → publish to your GitHub Pages.
 - **Make media, three ways** — the Media Lab tab uses whichever you have:
-  1. **On device**: generate images and video straight through your
+  1. **Connected providers**: request images and video through your
      connected providers (ChatGPT/OpenAI images, Grok/xAI, Gemini/Veo)
      into a local gallery — no server needed.
   2. **Your fal.ai key**: cloud rendering through Media Lab's provider
@@ -82,9 +86,9 @@ flowchart LR
 - **Agents welcome**: Hermes, Claude Code, Codex, OpenCode or any MCP
   client can drive the app over your Wi-Fi with your approval; Media Lab
   and Cut expose the same commands the UI uses.
-- **Sync is yours**: Apple devices sync whole projects via your iCloud;
-  Android mirrors to a folder you pick in Google Drive.
-  ([How sync works](app/docs/SYNC.md))
+- **Share your projects**: export/import a `.vibex` bundle or use GitHub.
+  Automatic cross-device iCloud/Drive sync is not established in the current
+  local project store. See [storage and sync](app/docs/SYNC.md).
 
 ## Media Lab on your own box, one command
 
@@ -93,12 +97,13 @@ git clone https://github.com/kerpopule/vibexstudio && cd vibexstudio/media-lab
 ./install.sh          # venv, service, access code, then a QR in your terminal
 ```
 
-Point the app's camera at the QR and you're paired. GPU box (a DGX Spark
-works out of the box)? The first-run engine shelf offers LTX, H3, music,
-and the image suite with honest sizes; you accept each license yourself.
-No GPU? Cloud rendering with your fal.ai key. Details and the `media-lab`
-CLI (`status`, `pair`, `code`, `start/stop`) are in
-[media-lab/docs/INSTALL.md](media-lab/docs/INSTALL.md).
+Pairing connects the client to the server; it does not install or qualify every
+engine. Review supported hardware, downloads, terms, and capability status before
+installing a model. The independent background-removal setup is a development
+workflow; the 3D pack is still experimental and not generally installable.
+Legacy video/music paths remain separate. See
+[installation instructions](media-lab/docs/INSTALL.md) and
+[capability status](docs/CAPABILITY-STATUS.md).
 
 ## Build from source
 
@@ -116,18 +121,18 @@ Contributor guides live inside each part: [`app/CLAUDE.md`](app/CLAUDE.md)
 
 ## Privacy, in one paragraph
 
-Projects, chats, galleries, and keys live on your devices (keys in the OS
-keychain; sync — if you enable it — rides your own iCloud/Drive). The apps
-talk only to the AI providers you configured, your GitHub, and any Media
-Lab you paired. There is nothing else to talk to: VibeXStudio has no
-backend. The Media Lab server you run yourself stores its jobs and
-galleries on that machine, and never bundles model weights — engines are
-installed and licensed by you (the MiniMax H3 model in particular is
-private-use licensed and never ships here).
+The app stores projects locally. Connected AI providers receive prompts and
+selected files; GitHub receives content you choose to publish. A paired Media Lab
+server stores its jobs and creations on that host. Imported assets are copied
+into the project so exports do not depend on that server remaining online.
+Model weights and private deployment credentials are not included in the public
+controller; installed runtimes and providers have their own terms.
 
 ## License & credits
 
-Apache-2.0 across the repo. We credit everything we build on, required or
+VibeXStudio’s own code is offered under Apache-2.0. Third-party code, runtimes,
+and model weights retain their own licenses. Legacy Media Lab integrations still
+include Maestro/WanGP paths; their removal is not complete. We credit everything we build on, required or
 not — [`app/CREDITS.md`](app/CREDITS.md) ·
 [`desktop/CREDITS.md`](desktop/CREDITS.md) ·
 [`media-lab/CREDITS.md`](media-lab/CREDITS.md). If your work appears

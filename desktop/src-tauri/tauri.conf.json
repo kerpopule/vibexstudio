@@ -1,7 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "VibeXStudio",
-  "version": "1.2.0",
+  "mainBinaryName": "vibexstudio",
+  "version": "1.3.0",
   "identifier": "studio.vibex.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -42,7 +43,16 @@
     },
     "resources": {
       "../workbench/server.mjs": "workbench/server.mjs",
-      "resources/media-lab": "media-lab"
+      "../workbench/agent-transport.mjs": "workbench/agent-transport.mjs",
+      "../workbench/agent-enroll.mjs": "workbench/agent-enroll.mjs",
+      "../workbench/agent-device-identity.mjs": "workbench/agent-device-identity.mjs",
+      "../workbench/agent-ssh-plan.mjs": "workbench/agent-ssh-plan.mjs",
+      "../workbench/agent-remote-worker.mjs": "workbench/agent-remote-worker.mjs",
+      "../workbench/agent-remote-connection.mjs": "workbench/agent-remote-connection.mjs",
+      "../workbench/agent-tunnel.mjs": "workbench/agent-tunnel.mjs",
+      "../workbench/project-sync-folder.mjs": "workbench/project-sync-folder.mjs",
+      "../workbench/project-sync-worker.mjs": "workbench/project-sync-worker.mjs",
+      "../workbench/device-pairing.mjs": "workbench/device-pairing.mjs"
     },
     "createUpdaterArtifacts": true
   },

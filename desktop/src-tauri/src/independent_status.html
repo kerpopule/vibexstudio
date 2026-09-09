@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>__PAGE_CSS__</style></head><body>
+<main><h2>Media Lab on this computer</h2>
+<p id="status" role="status" aria-live="polite">Checking the controller…</p>
+<p class="dim">This controller accepts local connections. Generating media requires a separately installed and verified engine.</p>
+<p><button id="start" class="primary" disabled>Start controller</button><button id="stop" disabled>Stop controller</button></p>
+<p id="error" class="err" role="alert"></p>
+<p class="dim">Starting uses your existing independent installation. It does not install models or change your media.</p>
+</main><script>
+const inv=(name)=>window.__TAURI__.core.invoke(name);
+const start=document.getElementById('start'),stop=document.getElementById('stop');
+const status=document.getElementById('status'),error=document.getElementById('error');
+let pending=false,actionError='',statusRequest=0;
+async function refresh(){
+ const request=++statusRequest;
+ try {
+  const state=await inv('sidecar_status');
+  if(request!==statusRequest)return;
+  const running=state.medialab.running;
+  status.textContent=running?'Controller process is running.':'Controller is stopped.';
+  start.disabled=pending||running;stop.disabled=pending||!running;
+  error.textContent=actionError||(!running&&state.medialab.reason!=='disabled'?state.medialab.reason||'':'');
+ } catch(e){if(request!==statusRequest)return;status.textContent='Could not check the controller.';error.textContent=String(e);start.disabled=true;stop.disabled=true;}
+}
+async function act(command){
+ if(pending)return;pending=true;start.disabled=true;stop.disabled=true;error.textContent='';actionError='';
+ try{await inv(command);}catch(e){actionError=String(e);error.textContent=actionError;}
+ finally{pending=false;await refresh();}
+}
+start.onclick=()=>act('medialab_enable');stop.onclick=()=>act('medialab_disable');
+refresh();setInterval(refresh,2000);
+</script></body></html>

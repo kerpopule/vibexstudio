@@ -193,3 +193,46 @@ sha256 = ""
 requires = []
 exclusive_group = "llm-residency"
 hardware = ["nvidia-sm121"]
+
+
+[[models]]
+id = "triposr-image-to-3d"
+name = "TripoSR image to 3D (development candidate)"
+category = "model"
+status = "experimental"
+recommended = false
+quality = "Technical tracer passed; tested chair was distorted and has not received creative approval"
+speed = "No qualified cross-platform performance estimate"
+summary = "Independent local image-to-GLB path has been exercised on Spark. Portable runtime closure, installer activation and output quality remain unfinished. See docs/triposr-rebuilt-worker-review.json."
+disk_gb = 0
+memory_floor_gb = 0
+license_name = "MIT model/source; runtime components require their own notices"
+license_url = "https://github.com/VAST-AI-Research/TripoSR/blob/main/LICENSE"
+terms_acceptance_required = false
+source_url = "https://github.com/VAST-AI-Research/TripoSR"
+immutable_revision = "107cefdc244c39106fa830359024f6a2f1c78871"
+sha256 = ""
+requires = []
+exclusive_group = "3d-engine"
+hardware = ["linux-aarch64-development-only"]
+
+[[models]]
+id = "trellis2-image-to-3d"
+name = "TRELLIS.2 image to 3D (under review)"
+category = "model"
+status = "planned"
+recommended = false
+quality = "Not yet generated or evaluated in this independent runtime"
+speed = "Not measured on Spark"
+summary = "Optional candidate with separate DINOv3 component terms. Native extension builds, local-only component loading, checkpoint verification and quality tests remain. See docs/trellis-component-review.json and docs/trellis-toolchain-review.json."
+disk_gb = 0
+memory_floor_gb = 0
+license_name = "Component-specific terms; not a default permissive pack"
+license_url = "https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md"
+terms_acceptance_required = true
+source_url = "https://github.com/microsoft/TRELLIS.2"
+immutable_revision = "75fbf0183001ed9876c8dbb35de6b68552ee08bd"
+sha256 = ""
+requires = []
+exclusive_group = "3d-engine"
+hardware = ["linux-nvidia-unqualified"]

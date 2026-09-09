@@ -22,6 +22,8 @@ export interface MediaRequest {
 /** A submitted server job we still owe the project a file for. */
 export interface PendingMediaJob {
   jobId: string;
+  /** Origin that accepted this job. Missing on legacy records; never guessed. */
+  serverUrl?: string;
   projectId: string;
   targetPath: string;
   kind: MediaKind;
@@ -77,13 +79,11 @@ export function pendingMarkerContent(job: { kind: MediaKind; prompt: string }): 
 export const PLACEHOLDER_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
-const MAX_PENDING = 100;
 const MAX_DOWNLOAD_ATTEMPTS = 5;
-const MAX_PENDING_AGE_MS = 24 * 60 * 60 * 1000;
 
-/** Adds a job to the pending list, bounded so storage can't grow forever. */
+/** Adds a job without evicting another project or host's unfinished work. */
 export function addPendingJob(list: PendingMediaJob[], job: PendingMediaJob): PendingMediaJob[] {
-  return [...list.filter((j) => j.jobId !== job.jobId), job].slice(-MAX_PENDING);
+  return [...list.filter((j) => j.jobId !== job.jobId || j.serverUrl !== job.serverUrl || j.projectId !== job.projectId), job];
 }
 
 export interface HistoryJob {
@@ -104,18 +104,22 @@ export interface PendingMatchResult {
 /**
  * Splits the pending list against a /api/queue history snapshot. Jobs that
  * finished without a result URL count as failed — a "done" we can't download
- * is not a success. Stale entries (24h) are silently dropped so a wiped
- * server can't leave immortal ghosts.
+ * is not a success. Long-running jobs are not expired by a client-side age limit. Records for other
+ * hosts or unknown legacy origins are preserved until they can be reconciled.
  */
 export function matchFinishedJobs(
   list: PendingMediaJob[],
   history: HistoryJob[],
-  now: number = Date.now()
+  serverUrl: string
 ): PendingMatchResult {
   const byId = new Map(history.filter((j) => j.id).map((j) => [j.id as string, j]));
   const result: PendingMatchResult = { resolved: [], failed: [], remaining: [] };
   for (const job of list) {
-    if (now - job.createdAt > MAX_PENDING_AGE_MS) continue;
+    // Unknown legacy origins and other hosts must never match by job ID alone.
+    if (!mediaServerOrigin(job.serverUrl) || mediaServerOrigin(job.serverUrl) !== mediaServerOrigin(serverUrl)) {
+      result.remaining.push(job);
+      continue;
+    }
     const server = byId.get(job.jobId);
     if (!server) {
       result.remaining.push(job);
@@ -143,4 +147,12 @@ export function retryPendingJob(job: PendingMediaJob): PendingMediaJob | null {
 export function absoluteMediaUrl(serverUrl: string, resultUrl: string): string {
   if (/^https?:\/\//i.test(resultUrl)) return resultUrl;
   return `${serverUrl.replace(/\/+$/, '')}/${resultUrl.replace(/^\/+/, '')}`;
+}
+
+/** Invalid/credential-bearing URLs cannot identify a paired host. */
+export function mediaServerOrigin(value: string | undefined): string | null {
+  try {
+    const url = new URL(value ?? '');
+    return /^https?:$/.test(url.protocol) && !url.username && !url.password ? url.origin : null;
+  } catch { return null; }
 }

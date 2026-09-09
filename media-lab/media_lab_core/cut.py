@@ -14,7 +14,6 @@ importing a storyboard snapshot (``import_storyboard_manifest``) is optional.
 from __future__ import annotations
 
 import copy
-import fcntl
 import hashlib
 import json
 import math
@@ -24,6 +23,30 @@ from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
+
+_WINDOWS = os.name == "nt"
+
+
+@contextmanager
+def _exclusive_file_lock(handle):
+    """Use the OS lock primitive; the lock file remains present across releases."""
+    if _WINDOWS:
+        import msvcrt
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
 
 AssetResolver = Callable[[str], "Mapping[str, Any] | None"]
 
@@ -155,7 +178,7 @@ def _read_storyboard(path: str | Path) -> tuple[Path, dict[str, Any]]:
     if not source.is_file():
         raise CutError("configured storyboard is unavailable")
     try:
-        value = json.loads(source.read_text())
+        value = json.loads(source.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise CutError("configured storyboard is not valid JSON") from exc
     if not isinstance(value, dict):
@@ -547,8 +570,12 @@ def validate_manifest(project: Mapping[str, Any]) -> None:
     inventory = originals.get("inventory")
     if not isinstance(inventory, list) or not inventory or inventory[0] != source_record:
         raise CutError("original inventory must bind the import source exactly")
-    source_path = Path(str(source_record.get("path") or "")).expanduser()
-    if source_path.is_file() and _digest(source_path) != source_sha:
+    source_ref = str(source_record.get("path") or "")
+    source_path = Path(source_ref).expanduser()
+    # Gallery imports carry a logical inventory reference, not a filesystem
+    # name. Large scene lists can exceed a filesystem's filename length.
+    gallery_reference = source_record.get("kind") == "gallery_import" and source_ref.startswith("gallery:")
+    if not gallery_reference and source_path.is_file() and _digest(source_path) != source_sha:
         raise CutError("immutable import source bytes changed")
     timeline = project.get("timeline")
     storyboard = project.get("storyboard")
@@ -597,8 +624,7 @@ def validate_manifest(project: Mapping[str, Any]) -> None:
         if not isinstance(source, Mapping) or source.get("immutable") is not True:
             raise CutError("asset original source must be immutable")
         source_ref = str(source.get("path") or "")
-        if not source_ref.startswith("/media/") or Path(source_ref).name != source_ref[7:]:
-            raise CutError("asset source must be basename-only /media/<file>")
+        _media_relative(source_ref)
         _sha256(source.get("sha256"), "asset source hash")
         proxy = asset.get("proxy_ref")
         if proxy is not None:
@@ -1121,16 +1147,19 @@ def _atomic_write(path: Path, value: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f"{path.name}.tmp.{os.getpid()}")
     try:
-        with temporary.open("w") as handle:
+        with temporary.open("w", encoding="utf-8") as handle:
             handle.write(_canonical(value))
             handle.flush()
             os.fsync(handle.fileno())
         temporary.replace(path)
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        # Windows does not support opening a directory through os.open for fsync.
+        # The file is flushed before replacement; POSIX also syncs the directory.
+        if not _WINDOWS:
+            directory = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -1175,12 +1204,9 @@ class CutProjectStore:
     @contextmanager
     def _locked(self):
         self.lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.lock_path.open("a+") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
+        with self.lock_path.open("a+b") as handle:
+            with _exclusive_file_lock(handle):
                 yield
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     def load(self) -> dict[str, Any]:
         with self._locked():
@@ -1201,7 +1227,7 @@ class CutProjectStore:
 
     def _load_unlocked(self) -> dict[str, Any]:
         try:
-            value = json.loads(self.path.read_text())
+            value = json.loads(self.path.read_text(encoding="utf-8"))
             validate_manifest(value)
         except (OSError, json.JSONDecodeError, CutError):
             value = None
@@ -1222,7 +1248,7 @@ class CutProjectStore:
         if not self.journal_path.exists():
             return []
         records = []
-        for line in self.journal_path.read_text().splitlines():
+        for line in self.journal_path.read_text(encoding="utf-8").splitlines():
             try:
                 value = json.loads(line)
             except json.JSONDecodeError:
@@ -1233,7 +1259,7 @@ class CutProjectStore:
 
     def _append_journal(self, record: Mapping[str, Any]) -> None:
         self.journal_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.journal_path.open("a") as handle:
+        with self.journal_path.open("a", encoding="utf-8") as handle:
             handle.write(_canonical(record) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
@@ -1769,12 +1795,17 @@ def _even(value: Any, fallback: int) -> int:
     return number - (number % 2)
 
 
-def _media_basename(path: Any) -> str:
+def _media_relative(path: Any) -> str:
+    """Validate a portable library path without flattening nested folders."""
     text = str(path or "")
-    name = Path(text).name
-    if not name or "/" in name or name.startswith(".") or name != text.split("/")[-1]:
-        raise CutError("gallery item has no usable media file")
-    return name
+    if not text.startswith("/media/"):
+        raise CutError("asset source must be a /media/ path")
+    relative = text[7:]
+    if (not relative or any(c in relative for c in "\\%?#:")
+            or any(ord(c) < 32 for c in relative)
+            or any(part in ("", ".", "..") or part.startswith(".") for part in relative.split("/"))):
+        raise CutError("asset source has an unsafe media path")
+    return relative
 
 
 def _gallery_asset_record(item: Mapping[str, Any]) -> dict[str, Any]:
@@ -1784,9 +1815,9 @@ def _gallery_asset_record(item: Mapping[str, Any]) -> dict[str, Any]:
     kind = str(item.get("kind") or "").lower()
     if kind not in {"video", "image", "music"}:
         raise CutError(f"gallery item {job_id} is not a video, picture or song")
-    name = _media_basename(item.get("path") or item.get("url"))
+    name = _media_relative(item.get("path") or item.get("url"))
     poster = item.get("poster")
-    poster_ref = f"/media/{_media_basename(poster)}" if poster else None
+    poster_ref = f"/media/{_media_relative(poster)}" if poster else None
     duration = item.get("duration_seconds")
     if kind != "image":
         duration = _finite_number(duration, "source duration", minimum=0.04)
@@ -1908,8 +1939,8 @@ def build_gallery_project(
     """Build a v2 editing manifest whose clips are Media Lab gallery items.
 
     Every video or picture lands back-to-back on V1 (pictures as ``still_seconds``
-    stills); every song lands on the Music track.  Assets stay basename-only
-    ``/media/<file>`` references and are hashed so the manifest can prove what it cut.
+    stills); every song lands on the Music track. Assets retain portable
+    ``/media/<folder>/<file>`` references and hashes proving what was cut.
     """
 
     project_id = _stable_id(project_id, "project id")
@@ -2030,7 +2061,7 @@ def build_gallery_project(
     return project
 
 
-def probe_gallery_file(path: str | Path) -> dict[str, Any]:
+def probe_gallery_file(path: str | Path, *, media_root: str | Path | None = None) -> dict[str, Any]:
     """ffprobe a real media file into the resolver shape used by ``build_gallery_project``."""
 
     source = Path(path)
@@ -2044,7 +2075,9 @@ def probe_gallery_file(path: str | Path) -> dict[str, Any]:
     if not kind:
         raise CutError(f"unsupported media type: {suffix}")
     probe = probe_media(source)
-    info: dict[str, Any] = {"path": f"/media/{source.name}", "kind": kind, "exists": True,
+    relative = source.resolve().relative_to(Path(media_root).resolve()).as_posix() if media_root is not None else source.name
+    _media_relative(f"/media/{relative}")
+    info: dict[str, Any] = {"path": f"/media/{relative}", "kind": kind, "exists": True,
                             "sha256": _digest(source), "has_audio": False}
     for stream in probe.get("streams") or []:
         if stream.get("codec_type") == "video" and "width" not in info:
@@ -2332,8 +2365,11 @@ def _caption_image(text: str, width: int, height: int, path: Path) -> bool:
 
 
 def _asset_file(media_dir: Path, asset: Mapping[str, Any]) -> Path:
-    name = _media_basename((asset.get("source") or {}).get("path"))
-    path = media_dir / name
+    name = _media_relative((asset.get("source") or {}).get("path"))
+    root = media_dir.resolve()
+    path = (root / name).resolve()
+    if not path.is_relative_to(root):
+        raise CutError("asset source escapes the media folder")
     if not path.is_file():
         raise CutError(f"missing media: /media/{name} ({asset.get('title') or asset.get('id')})")
     return path
@@ -2529,6 +2565,13 @@ def plan_timeline_render(
     else:
         expected = total_seconds
 
+    # FFmpeg requires every input before output-scoped options such as -map
+    # and codecs. Register soft captions like any other input, including when
+    # Pillow is unavailable and a requested burn-in falls back to subtitles.
+    subtitle_index = None
+    if request_format == "mp4" and captions_mode == "embedded":
+        subtitle_index = add_input(["-i", str(work / "captions.srt")])
+
     command = ["ffmpeg", "-nostdin", "-v", "error", "-y", "-fflags", "+bitexact", *inputs,
                "-filter_complex", ";".join(filters), "-map", current_v]
     if include_audio:
@@ -2542,8 +2585,8 @@ def plan_timeline_render(
             command.extend(["-c:a", "aac", "-b:a", "192k", "-flags:a", "+bitexact"])
         else:
             command.append("-an")
-        if captions_mode == "embedded":
-            command.extend(["-i", str(work / "captions.srt"), "-map", f"{input_count}:s", "-c:s", "mov_text"])
+        if subtitle_index is not None:
+            command.extend(["-map", f"{subtitle_index}:s", "-c:s", "mov_text"])
         command.extend(["-movflags", "+faststart", "-metadata", "creation_time=1970-01-01T00:00:00Z"])
     else:
         command.extend(["-c:v", "libvpx-vp9", "-crf", crf, "-b:v", "0", "-r", str(fps), "-threads", "1",
@@ -2591,30 +2634,51 @@ def render_timeline(
     command = list(plan["command"])
     expected = max(0.001, float(plan["expected_seconds"]))
     run_command = command[:-1] + ["-progress", "pipe:1", "-nostats", command[-1]]
-    stderr_chunks: list[str] = []
+    if not isinstance(timeout_seconds, (int, float)) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise CutError("render timeout must be a positive number")
+    process = None
+    readers: list[threading.Thread] = []
+    stderr_tail = [""]
+    reader_errors: list[Exception] = []
     try:
         process = subprocess.Popen(run_command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, text=True)
 
-        def _drain() -> None:
+        def _stderr() -> None:
             assert process.stderr is not None
-            stderr_chunks.append(process.stderr.read())
+            try:
+                while chunk := process.stderr.read(4096):
+                    stderr_tail[0] = (stderr_tail[0] + chunk)[-65536:]
+            except Exception as error:
+                reader_errors.append(error)
+                process.kill()
 
-        drain = threading.Thread(target=_drain, daemon=True)
-        drain.start()
-        assert process.stdout is not None
-        for line in process.stdout:
-            if progress and line.startswith("out_time_us="):
-                try:
-                    done = int(line.split("=", 1)[1].strip()) / 1_000_000
-                except ValueError:
-                    continue
-                progress(max(0.0, min(0.99, done / expected)))
+        def _stdout() -> None:
+            assert process.stdout is not None
+            try:
+                for line in process.stdout:
+                    if progress and line.startswith("out_time_us="):
+                        try:
+                            done = int(line.split("=", 1)[1].strip()) / 1_000_000
+                        except ValueError:
+                            continue
+                        progress(max(0.0, min(0.99, done / expected)))
+            except Exception as error:
+                reader_errors.append(error)
+                process.kill()
+
+        # Drain both pipes concurrently; enforce the deadline from process start,
+        # not after stdout reaches EOF. No-progress and noisy processes both expire.
+        readers = [threading.Thread(target=target, daemon=True) for target in (_stderr, _stdout)]
+        for reader in readers:
+            reader.start()
         exit_code = process.wait(timeout=timeout_seconds)
-        drain.join(timeout=5)
-        stderr = "".join(stderr_chunks)
+        for reader in readers:
+            reader.join(timeout=5)
+        if reader_errors:
+            raise CutError("render progress reporting failed") from reader_errors[0]
         if exit_code != 0 or not temporary_output.is_file() or temporary_output.stat().st_size == 0:
-            detail = (stderr or "ffmpeg produced no artifact").strip()[-600:]
+            detail = (stderr_tail[0] or "ffmpeg produced no artifact").strip()[-600:]
             raise CutError(f"ffmpeg render failed: {detail}")
         probe = probe_media(temporary_output)
         if not any(stream.get("codec_type") == "video" for stream in probe.get("streams") or []):
@@ -2623,12 +2687,21 @@ def render_timeline(
         digest = _digest(temporary_output)
         temporary_output.replace(output_path)
     except subprocess.TimeoutExpired as exc:
-        process.kill()
-        temporary_output.unlink(missing_ok=True)
         raise CutError("ffmpeg render timed out") from exc
-    except Exception:
+    finally:
+        if process is not None:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            for reader in readers:
+                reader.join(timeout=5)
+            # Do not close a stream beneath a still-running callback/reader.
+            if not any(reader.is_alive() for reader in readers):
+                if process.stdout is not None:
+                    process.stdout.close()
+                if process.stderr is not None:
+                    process.stderr.close()
         temporary_output.unlink(missing_ok=True)
-        raise
     if progress:
         progress(1.0)
     final_command = command[:-1] + [str(output_path)]

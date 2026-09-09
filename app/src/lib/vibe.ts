@@ -9,8 +9,9 @@ import { buildSystemPrompt } from '@/lib/ai/prompts';
 import { expectsFileOutput, resolveAssistantText } from '@/lib/ai/turn-intent';
 import { executeWebRequests } from '@/lib/ai/web-tools';
 import { buildWebResultsMessage, EMPTY_WEB_BUDGET, planWebRound, type WebBudget } from '@/lib/ai/web-tools-core';
+import { captureLibrarySnapshot, importLibraryRequests } from '@/lib/library-reuse';
 import { getMediaLabPromptContext, handleMediaRequests } from '@/lib/medialab-tool';
-import { listFiles, newId, readChat, writeChat, writeFile } from '@/lib/storage/projects';
+import { listFiles, listProjectFilePaths, newId, readChat, writeChat, writeFile } from '@/lib/storage/projects';
 import type { ChatMessage, ProjectMeta, ProviderConnection } from '@/lib/types';
 
 /** Keep prompts bounded: only the most recent turns ride along. */
@@ -53,7 +54,7 @@ export async function runVibeTurn(opts: {
   const { project, userText, connection, secret, model, callbacks, signal } = opts;
 
   const history = await readChat(project.id);
-  const userMessage: ChatMessage = { id: newId(), role: 'user', text: userText, createdAt: Date.now() };
+  const userMessage: ChatMessage = { id: newId(), role: 'user', text: userText, request: { mode: 'chat', prompt: userText }, createdAt: Date.now() };
   let messages = [...history, userMessage];
   await writeChat(project.id, messages);
   callbacks.onMessages(messages);
@@ -61,13 +62,17 @@ export async function runVibeTurn(opts: {
   const files = await listFiles(project.id);
   // Media protocol context: paired Media Lab + its castable characters (or
   // the images-only variant). Never blocks the turn on a sleeping server.
-  const mediaLab = await getMediaLabPromptContext().catch(() => null);
-  const system = buildSystemPrompt(project.name, files, mediaLab);
+  const [mediaLab, library] = await Promise.all([
+    getMediaLabPromptContext().catch(() => null),
+    captureLibrarySnapshot(userText).catch(() => ({offers:[],sources:new Map(),unavailable:['The library could not be read.']})),
+  ]);
+  const system = buildSystemPrompt(project.name, files, mediaLab, library);
   const wire: WireMessage[] = messages
     .slice(-MAX_HISTORY_MESSAGES)
     .filter((m) => m.text.trim() !== '')
     .map((m) => ({ role: m.role, content: m.text }));
 
+  const written: string[] = [];
   let assistant: ChatMessage = { id: newId(), role: 'assistant', text: '', createdAt: Date.now() };
   try {
     // The agentic loop mutates a working copy of the wire conversation:
@@ -123,7 +128,7 @@ export async function runVibeTurn(opts: {
     }
     // A media fence IS real output — never trigger the fileless retry over
     // a reply that requested media, even without code blocks.
-    if (parsed.files.length === 0 && parsed.media.length === 0 && expectedFileOutput) {
+    if (parsed.files.length === 0 && parsed.media.length === 0 && parsed.assets.length === 0 && expectedFileOutput) {
       onDelta(`${raw}\n\n⚡ Tightening the build format…`);
       raw = await streamChat({
         connection,
@@ -141,15 +146,27 @@ export async function runVibeTurn(opts: {
       parsed = parseAssistantReply(raw);
     }
 
-    const written: string[] = [];
+    let libraryStatus = '';
+    if (parsed.assets.length) {
+      callbacks.onStream(`${raw}\n\nCopying your library creations into the project…`);
+      const result = await importLibraryRequests(project.id, parsed.assets, library,
+        [...await listProjectFilePaths(project.id), ...parsed.files.map((f)=>f.path), ...parsed.media.map((m)=>m.file)], signal);
+      written.push(...result.written);
+      libraryStatus = result.written.map((path)=>`Imported library creation → ${path}`).join('\n');
+      if (signal?.aborted) throw new DOMException('Stopped', 'AbortError');
+      if (result.errors.length) throw new Error(result.errors.join('\n'));
+    }
+    if (signal?.aborted) throw new DOMException('Stopped', 'AbortError');
     for (const file of parsed.files) {
+      if (signal?.aborted) throw new DOMException('Stopped', 'AbortError');
       await writeFile(project.id, file.path, file.content);
       written.push(file.path);
     }
     // Fire media submissions before finalizing the assistant message: server
-    // jobs get queued + placeholders written, on-device images generate
+    // jobs get queued + placeholders written, provider images generate
     // inline. The outcome's status lines ride on the reply text and its
     // written placeholders count as real file output.
+    if (signal?.aborted) throw new DOMException('Stopped', 'AbortError');
     let mediaStatus = '';
     if (parsed.media.length > 0) {
       callbacks.onStream(`${raw}\n\n🎬 Sending media to production…`);
@@ -160,23 +177,28 @@ export async function runVibeTurn(opts: {
     const baseText = resolveAssistantText(parsed.text, written.length, expectedFileOutput);
     assistant = {
       ...assistant,
-      text: mediaStatus ? `${baseText}\n\n${mediaStatus}` : baseText,
+      text: [baseText, libraryStatus, mediaStatus].filter(Boolean).join('\n\n'),
       filesWritten: written.length ? written : undefined,
       error:
         expectedFileOutput && written.length === 0
           ? 'no-file-blocks'
           : undefined,
     };
-    if (written.length) callbacks.onFilesChanged(written);
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') {
-      assistant = { ...assistant, text: 'Stopped.', error: 'aborted' };
+      assistant = { ...assistant, text: written.length
+        ? 'Stopped. Files already saved are listed below; review them in Files before continuing.'
+        : 'Stopped.', error: 'aborted' };
     } else {
       const message = e instanceof Error ? e.message : String(e);
       assistant = { ...assistant, text: message, error: message };
     }
   }
 
+  if (written.length) {
+    assistant.filesWritten = written;
+    callbacks.onFilesChanged(written);
+  }
   messages = [...messages, assistant];
   await writeChat(project.id, messages);
   callbacks.onMessages(messages);

@@ -1,14 +1,10 @@
 /**
  * Design tokens for VibeXStudio.
  *
- * The visual language is the Co-Agent / Media Lab "NOIR" system: a warm
- * near-black ground (never blue-black), liquid-glass surfaces, and
- * cyan→violet accents. Dark is canonical; light is a warm-paper derivation
- * with contrast-checked accents. Components read every value from here —
- * no hex literals in screens.
- *
- * Token sources: media-lab-studio static/index.html (`data-theme="coagent"`)
- * and coagent-command DESIGN-SYSTEM.md §1 (DARK/LIGHT token blocks).
+ * The current Media Lab reference uses near-black, neutral glass surfaces,
+ * fine luminous edges, blue accents, and dim blue/purple background orbs.
+ * Dark is canonical; light retains its warm-paper palette.
+ * Components share these tokens across desktop and mobile.
  */
 
 import '@/global.css';
@@ -42,38 +38,38 @@ export interface Theme {
 }
 
 /**
- * NOIR dark — the canonical Media Lab / Co-Agent look: warm near-black ink,
- * glass tiles, cyan (#5EC2FF) primary with a violet (#A89BFF) companion.
+ * NOIR dark — the canonical Media Lab / Co-Agent look: near-black ink,
+ * glass tiles, blue selected controls and neutral glass edges.
  */
 const dark: Theme = {
   text: 'rgba(255,255,255,0.98)',
-  /** Warm near-black — the NOIR ground. Never blue-black. */
-  background: '#0B0806',
-  backgroundElement: '#150F0B',
-  backgroundSelected: '#221913',
+  /** Near-black ground from the user’s current Media Lab screenshot. */
+  background: '#08090B',
+  backgroundElement: '#131416',
+  backgroundSelected: '#202124',
   /** Text ramp floor — never dimmer than 0.76 alpha on the NOIR ground. */
   textSecondary: 'rgba(255,255,255,0.76)',
   tint: '#5EC2FF',
-  /** Cyan-cast raised well behind selected/tinted fills. */
-  tintSoft: '#0E2230',
-  /** Dark ink on the cyan accent — white doesn't clear contrast on #5EC2FF. */
+  /** Blue-cast raised well behind selected/tinted fills. */
+  tintSoft: 'rgba(94,194,255,0.16)',
+  /** Dark ink on the blue accent. */
   onTint: '#04121C',
   onGradient: '#04121C',
   border: 'rgba(255,255,255,0.13)',
   danger: '#FF6B63',
   success: '#3DDC97',
   warning: '#FFB454',
-  accent: '#A89BFF',
-  /** Brand gradient — violet → cyan → deep cyan (the Co-Agent CTA wash). */
-  gradientStart: '#A89BFF',
-  gradientMid: '#5EC2FF',
-  gradientEnd: '#3A8FCC',
+  accent: '#78CBFF',
+  /** Blue selected-control gradient from current Media Lab. */
+  gradientStart: '#78CBFF',
+  gradientMid: '#50B7EE',
+  gradientEnd: '#328DC3',
   /** Glass surface fill + hairline (used by the Glass component fallback). */
-  glass: 'rgba(12,9,7,0.44)',
-  glassBorder: 'rgba(255,255,255,0.17)',
-  /** Subtle cyan wash behind hero/empty states. */
-  glowSoft: 'rgba(94,194,255,0.14)',
-  glow: '#5EC2FF',
+  glass: 'rgba(24,25,28,0.55)',
+  glassBorder: 'rgba(255,255,255,0.38)',
+  /** Subtle cool wash behind hero/empty states. */
+  glowSoft: 'rgba(94,194,255,0.08)',
+  glow: '#50B7EE',
 };
 
 /**
@@ -190,9 +186,9 @@ export const Shadows = {
     shadowOffset: { width: 0, height: 6 },
     elevation: 3,
   },
-  /** Floating action surfaces — gradient buttons, the composer. Cyan halo. */
+  /** Floating action surfaces — restrained neutral lift. */
   float: {
-    shadowColor: '#5EC2FF',
+    shadowColor: '#000000',
     shadowOpacity: 0.35,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 8 },

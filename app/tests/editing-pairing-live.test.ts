@@ -1,0 +1,24 @@
+import {expect,it,vi} from 'vitest';
+import {createHash,randomBytes} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
+const values=vi.hoisted(()=>new Map<string,string>());
+vi.mock('@react-native-async-storage/async-storage',()=>({default:{getItem:async(k:string)=>values.get(k)??null,setItem:async(k:string,v:string)=>{values.set(k,v);},removeItem:async(k:string)=>{values.delete(k);}}}));
+vi.mock('@/lib/storage/secrets',()=>({getEditingConnection:async(k:string)=>values.get('edit:'+k)??null,setEditingConnection:async(k:string,v:string)=>{values.set('edit:'+k,v);},getLibraryToken:async(k:string)=>values.get('library:'+k)??null,setLibraryToken:async(k:string,v:string)=>{values.set('library:'+k,v);}}));
+vi.mock('expo-crypto',()=>({getRandomBytes:(n:number)=>new Uint8Array(randomBytes(n)),CryptoDigestAlgorithm:{SHA256:'SHA-256'},digestStringAsync:async(_:string,v:string)=>createHash('sha256').update(v).digest('hex')}));
+import {connectEditing,hasEditingMediaPermission,disconnectEditing,listEditingDrafts} from '@/lib/remote-editing';
+import {listRemoteLibrary} from '@/lib/remote-library';
+const origin=process.env.VIBEX_EDITING_PAIRING_TEST_ORIGIN,file=process.env.VIBEX_EDITING_PAIRING_TEST_CREDENTIALS;
+it.skipIf(!origin||!file)('pairs both scopes against an actual isolated host and preserves device identity on renewal',async()=>{
+ if(new URL(origin!).hostname!=='127.0.0.1')throw new Error('This test requires a loopback-only isolated host.');
+ const {code}=JSON.parse(await readFile(file!,'utf8'));
+ await connectEditing(origin!,code,{includeLibrary:true});
+ expect(await hasEditingMediaPermission(origin!)).toBe(true);
+ expect(await listRemoteLibrary(origin!)).toHaveLength(0);
+ expect(await listEditingDrafts(origin!)).toHaveLength(0);
+ const first=JSON.parse(values.get('edit:'+origin!)!).deviceId;
+ await disconnectEditing(origin!);expect(await hasEditingMediaPermission(origin!)).toBe(false);
+ expect(await listRemoteLibrary(origin!)).toHaveLength(0);
+ await connectEditing(origin!,code,{includeLibrary:true});
+ expect(JSON.parse(values.get('edit:'+origin!)!).deviceId===first).toBe(true);
+ expect(await hasEditingMediaPermission(origin!)).toBe(true);
+});

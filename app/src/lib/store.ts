@@ -4,6 +4,8 @@
  */
 import { Appearance } from 'react-native';
 import { create } from 'zustand';
+import {forgetDirectorProject} from '@/lib/director-session';
+import { forgetProjectComposer } from '@/lib/project-composer';
 
 import { PROVIDERS } from '@/lib/ai/registry';
 import { refreshSubscription } from '@/lib/ai/subscriptionOauth';
@@ -160,6 +162,8 @@ export const useApp = create<AppState>((set, get) => ({
 
   deleteProject: async (id) => {
     await projectStore.deleteProject(id);
+    await forgetProjectComposer(id);
+    await forgetDirectorProject(id);
     set({ projects: get().projects.filter((p) => p.id !== id) });
   },
 
@@ -198,8 +202,7 @@ export const useApp = create<AppState>((set, get) => ({
       createdAt: Date.now(),
     };
     await secrets.setProviderSecret(connection.id, secret);
-    const providers = [...get().providers, connection];
-    await settings.setProviders(providers);
+    const providers = await settings.updateProviders(current => [...current, connection]);
     set({ providers });
     return connection;
   },
@@ -219,8 +222,7 @@ export const useApp = create<AppState>((set, get) => ({
     };
     await secrets.setProviderSecret(connection.id, accessToken);
     if (refreshToken) await secrets.setProviderRefreshToken(connection.id, refreshToken);
-    const providers = [...get().providers, connection];
-    await settings.setProviders(providers);
+    const providers = await settings.updateProviders(current => [...current, connection]);
     set({ providers });
     return connection;
   },
@@ -246,8 +248,10 @@ export const useApp = create<AppState>((set, get) => ({
         secrets.setProviderRefreshToken(connection.id, pending.refreshHandle),
         secrets.setPrivateDeviceProof(connection.id, pending.deviceProof),
       ]);
-      const providers = [...get().providers, connection];
-      await settings.setProviders(providers);
+      const providers = await settings.updateProviders(current => {
+        if(current.some(provider=>provider.privateProvider?.grantId===pending.metadata.grantId))throw new Error('This private grant is already connected on this device.');
+        return [...current,connection];
+      });
       set({ providers });
       pending.credential = '';
       pending.refreshHandle = '';
@@ -273,10 +277,9 @@ export const useApp = create<AppState>((set, get) => ({
     const tokens = await refreshSubscription(connection.subscription, refreshToken);
     await secrets.setProviderSecret(connectionId, tokens.accessToken);
     if (tokens.refreshToken) await secrets.setProviderRefreshToken(connectionId, tokens.refreshToken);
-    const providers = get().providers.map((p) =>
+    const providers = await settings.updateProviders(current => current.map((p) =>
       p.id === connectionId ? { ...p, tokenExpiresAt: tokens.expiresAt } : p
-    );
-    await settings.setProviders(providers);
+    ));
     set({ providers });
   },
 
@@ -290,10 +293,9 @@ export const useApp = create<AppState>((set, get) => ({
     if (!refreshHandle || !deviceProof) throw new Error('Private device credentials are missing from Keychain.');
     const refreshed = await refreshPrivateCredential(connection, refreshHandle, deviceProof);
     await secrets.setProviderSecret(connectionId, refreshed.credential);
-    const providers = get().providers.map((provider) => provider.id === connectionId && provider.privateProvider
+    const providers = await settings.updateProviders(current => current.map((provider) => provider.id === connectionId && provider.privateProvider
       ? { ...provider, privateProvider: { ...provider.privateProvider, credentialExpiresAt: refreshed.expiresAt } }
-      : provider);
-    await settings.setProviders(providers);
+      : provider));
     set({ providers });
   },
 
@@ -309,16 +311,14 @@ export const useApp = create<AppState>((set, get) => ({
     await secrets.clearProviderSecret(id);
     await secrets.clearProviderRefreshToken(id);
     await secrets.clearPrivateDeviceProof(id);
-    const providers = get().providers.filter((p) => p.id !== id);
-    await settings.setProviders(providers);
+    const providers = await settings.updateProviders(current => current.filter((p) => p.id !== id));
     set({ providers });
   },
 
   setConnectionModel: async (id, model) => {
-    const providers = get().providers.map((p) =>
+    const providers = await settings.updateProviders(current => current.map((p) =>
       p.id === id ? { ...p, defaultModel: model } : p
-    );
-    await settings.setProviders(providers);
+    ));
     set({ providers });
   },
 }));

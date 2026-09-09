@@ -1,18 +1,18 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { File } from 'expo-file-system';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { filesRootUri } from '@/lib/storage/projects';
+import { isBinaryPath, listFiles } from '@/lib/storage/projects';
+import { buildPreviewDocument } from '@/lib/preview-document';
 
 /**
- * Live preview of the project's web app, straight off the local filesystem —
- * the same files that get synced to GitHub Pages. `reloadKey` bumps on every
- * file the AI writes, so the page refreshes while generation streams.
+ * Load project resources into the WebView itself. Local file fetches can return
+ * status 0 on iOS; owned blob resources give games normal fetch/JSON behavior.
+ * Exported project files remain unchanged and retain their relative paths.
  */
 export function PreviewView({
   projectId,
@@ -36,10 +36,19 @@ export function PreviewView({
 }) {
   const theme = useTheme();
   const [manualReload, setManualReload] = useState(0);
-
-  const indexFile = new File(`${filesRootUri(projectId)}/index.html`);
-  // reloadKey in the dep below: re-check existence whenever files change.
-  const indexUri = indexFile.exists ? indexFile.uri : null;
+  const [html, setHtml] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    if (!remoteUrl) {
+      listFiles(projectId).then((files) => {
+        if (active) {setHtml(buildPreviewDocument(files, isBinaryPath));setPreviewError(null);}
+      }).catch(() => {
+        if (active) {setHtml(null);setPreviewError('The project files could not be loaded. Try reloading the preview.');}
+      });
+    }
+    return () => {active = false;};
+  }, [projectId, reloadKey, manualReload, remoteUrl]);
 
   if (remoteUrl) {
     return (
@@ -47,6 +56,7 @@ export function PreviewView({
         <WebView
           key={`remote-${manualReload}`}
           source={{ uri: remoteUrl }}
+          allowsInlineMediaPlayback
           style={styles.web}
         />
         <View style={[styles.remoteBadge, { backgroundColor: theme.tintSoft }]}>
@@ -74,7 +84,7 @@ export function PreviewView({
     );
   }
 
-  if (!indexUri) {
+  if (!html) {
     return (
       <View style={styles.empty}>
         <View style={[styles.emptyGlow, { backgroundColor: theme.glowSoft }]}>
@@ -84,7 +94,7 @@ export function PreviewView({
           Nothing to preview yet
         </ThemedText>
         <ThemedText themeColor="textSecondary" type="small" style={[styles.center, styles.emptyBody]}>
-          Head to Chat and describe your app — the preview lights up as soon as the AI writes files.
+          {previewError || 'Head to Chat and describe your app — the preview lights up as soon as the AI writes files.'}
         </ThemedText>
         <Pressable onPress={() => setManualReload((n) => n + 1)} hitSlop={8}>
           <ThemedText type="smallBold" themeColor="tint">
@@ -99,12 +109,9 @@ export function PreviewView({
     <View style={styles.container}>
       <WebView
         key={`${reloadKey}-${manualReload}`}
-        source={{ uri: indexUri }}
+        source={{ html }}
+        allowsInlineMediaPlayback
         originWhitelist={['*']}
-        allowFileAccess
-        allowFileAccessFromFileURLs
-        allowUniversalAccessFromFileURLs
-        allowingReadAccessToURL={filesRootUri(projectId)}
         style={styles.web}
       />
       {/* Refresh sits as a subtle silhouette top-right and disappears in

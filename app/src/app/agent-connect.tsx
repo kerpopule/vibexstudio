@@ -1,9 +1,10 @@
+import { Alert } from '@/lib/app-alert';
 import * as Clipboard from 'expo-clipboard';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -14,7 +15,13 @@ import { Row, RowDivider, Section } from '@/components/ui/section';
 import { Radii, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { buildAgentInvite } from '@/lib/agent-connect/invite';
+import { RemoteAgentSetup } from '@/components/remote-agent-setup';
+import type { RemoteTarget } from '@/lib/agent-connect/remote';
 import { agentConnectRuntime } from '@/lib/agent-connect/runtime';
+
+// Remember the user's destination across screen navigation in this app session.
+// A missing remote connection still disables its invite; never switch destinations silently.
+let sessionInviteLocation: 'local' | 'remote' = 'local';
 
 export default function AgentConnectScreen() {
   const insets = useSafeAreaInsets();
@@ -25,28 +32,18 @@ export default function AgentConnectScreen() {
     agentConnectRuntime.snapshot,
   );
   const core = agentConnectRuntime.core;
-  const [, forceRender] = useState(0);
+  // Keep mutable core fields in React state so the compiler tracks invite and linked-agent changes.
+  const [coreState, setCoreState] = useState(() => ({ticket:core.activeTicket, agents:[...core.agents]}));
   const [clock, setClock] = useState(0);
-  const ticket = core.activeTicket;
-  const pending = core.pendingApproval;
+  const ticket = coreState.ticket;
+  const [remoteTarget,setRemoteTarget]=useState<RemoteTarget|null>(null);
+  const [inviteLocation,setInviteLocation]=useState<'local'|'remote'>(()=>sessionInviteLocation);
+  const chooseInviteLocation=(value:'local'|'remote')=>{sessionInviteLocation=value;setInviteLocation(value);};
 
-  useEffect(() => core.subscribe(() => forceRender((value) => value + 1)), [core]);
+  useEffect(() => core.subscribe(() => setCoreState({ticket:core.activeTicket, agents:[...core.agents]})), [core]);
   useEffect(() => {
     void agentConnectRuntime.initialize();
   }, []);
-
-  useEffect(() => {
-    if (!pending) return;
-    Alert.alert(
-      'Allow this agent?',
-      `${pending.agentName} at ${pending.remoteAddress} wants access to list projects, read and write project files, and append visible project messages.`,
-      [
-        { text: 'Deny', style: 'cancel', onPress: () => void core.resolveApproval(false) },
-        { text: 'Allow', onPress: () => void core.resolveApproval(true) },
-      ],
-      { cancelable: false },
-    );
-  }, [core, pending]);
 
   useEffect(() => {
     if (!ticket || ticket.redeemed) return;
@@ -56,19 +53,21 @@ export default function AgentConnectScreen() {
 
   const invite = useMemo(() => {
     if (!ticket || !runtime.host || ticket.redeemed || ticket.expiresAt <= clock) return null;
-    return buildAgentInvite(ticket, runtime.host);
-  }, [runtime.host, ticket, clock]);
+    if (inviteLocation==='remote' && !remoteTarget) return null;
+    return inviteLocation==='remote' && remoteTarget
+      ? buildAgentInvite(ticket, '127.0.0.1', {port:remoteTarget.port,remoteServer:remoteTarget.host})
+      : buildAgentInvite(ticket, runtime.host, {port:runtime.port,localComputer:runtime.localComputer});
+  }, [runtime.host, runtime.port, runtime.localComputer, ticket, clock, remoteTarget, inviteLocation]);
 
   const issueInvite = () => {
     if (!runtime.running || !runtime.host) return;
     core.issueTicket();
-    forceRender((value) => value + 1);
   };
 
   const copyInvite = async () => {
     if (!invite) return;
     await Clipboard.setStringAsync(invite);
-    Alert.alert('Agent invite copied', 'Paste it into Hermes, Codex, Claude Code, OpenCode, or another MCP client on the same Wi-Fi.');
+    Alert.alert('Agent invite copied', inviteLocation==='remote' && remoteTarget ? `Paste it into an agent running on ${remoteTarget.host}. Keep Studio open.` : runtime.localComputer ? 'Paste it into an agent running on this computer. Keep Studio open.' : 'Paste it into Hermes or another MCP client on the same Wi-Fi.');
   };
 
   const shareInvite = async () => {
@@ -87,9 +86,13 @@ export default function AgentConnectScreen() {
   };
 
   const confirmRevoke = (agentId: string, name: string) => {
-    Alert.alert(`Unlink ${name}?`, 'Its bearer token will stop working immediately.', [
+    Alert.alert(`Unlink ${name}?`, 'This stops new requests from the agent. Work it already started may continue.', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Unlink', style: 'destructive', onPress: () => void core.revokeAgent(agentId) },
+      { text: 'Unlink', style: 'destructive', onPress: () => {
+        void core.revokeAgent(agentId).then(result => {
+          if (result.credentialCleanupPending) Alert.alert('Agent unlinked', 'Its access is removed. The device could not delete its old credential from the secure vault, but that credential no longer works.');
+        }).catch(() => Alert.alert('Could not unlink agent', 'The agent is still linked. Check device storage and try again.'));
+      } },
     ]);
   };
 
@@ -100,7 +103,7 @@ export default function AgentConnectScreen() {
           <ThemedText style={styles.heroIcon}>🪽</ThemedText>
           <ThemedText type="title" style={styles.center}>Connect an agent</ThemedText>
           <ThemedText themeColor="textSecondary" style={styles.center}>
-            Let a trusted agent work directly in your VibeX projects while this app is open on the same Wi-Fi.
+            Let a trusted agent work directly in your VibeX projects while this app is open.
           </ThemedText>
         </View>
 
@@ -111,9 +114,9 @@ export default function AgentConnectScreen() {
           </View>
           {runtime.running && runtime.host ? (
             <>
-              <Fact label="MCP address" value={`http://${runtime.host}:8791/mcp`} />
+              <Fact label="MCP address" value={`http://${runtime.host}:${runtime.port ?? 8791}/mcp`} />
               <ThemedText themeColor="textSecondary">
-                Local network only. Keep VibeXStudio in the foreground and keep both devices on the same Wi-Fi.
+                {runtime.localComputer ? 'Same computer only. Keep Studio open while your agent works. Use the remote setup below if your agent runs elsewhere.' : 'Local network only. Keep VibeXStudio in the foreground and keep both devices on the same Wi-Fi.'}
               </ThemedText>
             </>
           ) : (
@@ -123,11 +126,19 @@ export default function AgentConnectScreen() {
           )}
         </Glass>
 
+        {runtime.localComputer && runtime.running ? <Glass style={styles.card}><RemoteAgentSetup onTarget={setRemoteTarget}/></Glass> : null}
+
         <Glass style={styles.card}>
           <ThemedText type="heading">One-time invite</ThemedText>
           <ThemedText themeColor="textSecondary">
-            The code lasts 15 minutes, works once, and still requires you to tap Allow on this device. The returned bearer token lives only in the agent&apos;s secret store and this device&apos;s keychain.
+            The code lasts 15 minutes, works once, and still requires approval on this device. Choose projects only, or also allow media library access. The returned bearer token lives only in the agent&apos;s secret store and this device&apos;s keychain.
           </ThemedText>
+          {runtime.localComputer ? <>
+            <ThemedText type="smallBold">Where will you paste the invite?</ThemedText>
+            <Button title="Agent on this computer" variant={inviteLocation==='local'?'primary':'secondary'} onPress={()=>chooseInviteLocation('local')}/>
+            <Button title="Agent on my server" variant={inviteLocation==='remote'?'primary':'secondary'} onPress={()=>chooseInviteLocation('remote')}/>
+            <ThemedText>{inviteLocation==='local'?'Invite destination: this computer.':remoteTarget?`Invite destination: ${remoteTarget.host}. Keep its connection running.`:'Connect your server above before generating its invite.'}</ThemedText>
+          </> : null}
           {invite && ticket ? (
             <>
               <Fact label="Pairing code" value={ticket.code} mono />
@@ -136,17 +147,17 @@ export default function AgentConnectScreen() {
               <Button title="Share invite file" variant="secondary" onPress={shareInvite} />
             </>
           ) : (
-            <Button title="Generate one-time invite" onPress={issueInvite} disabled={!runtime.running} />
+            <Button title="Generate one-time invite" onPress={issueInvite} disabled={!runtime.running || (inviteLocation==='remote' && !remoteTarget)} />
           )}
         </Glass>
 
         <Section title="Linked agents">
-          {core.agents.length ? core.agents.map((agent, index) => (
+          {coreState.agents.length ? coreState.agents.map((agent, index) => (
             <View key={agent.id}>
               {index ? <RowDivider /> : null}
               <Row
                 title={agent.name}
-                subtitle={`Paired ${new Date(agent.pairedAt).toLocaleString()}${agent.lastSeenAt ? ` · last used ${new Date(agent.lastSeenAt).toLocaleString()}` : ''}`}
+                subtitle={`${agent.mediaRender ? 'Projects + video rendering' : agent.mediaEdit ? 'Projects + video editing' : agent.mediaGenerate ? 'Projects + media generation' : agent.mediaBackground ? (agent.mediaImport ? 'Projects + media tools' : 'Projects + background removal') : agent.mediaImport ? 'Projects + media import' : agent.mediaRead ? 'Projects + media library' : 'Projects only'} · Paired ${new Date(agent.pairedAt).toLocaleString()}${agent.lastSeenAt ? ` · last used ${new Date(agent.lastSeenAt).toLocaleString()}` : ''}`}
                 right={<ThemedText style={{ color: theme.danger }}>Unlink</ThemedText>}
                 onPress={() => confirmRevoke(agent.id, agent.name)}
               />

@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -26,38 +26,46 @@ export default function ConnectProviderScreen() {
   const [model, setModel] = useState(preselect ? PROVIDERS[preselect].defaultModel : '');
   const [baseUrl, setBaseUrl] = useState('');
   const [busy, setBusy] = useState(false);
+  const saving = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const spec = kind ? PROVIDERS[kind] : null;
 
   const saveWithKey = async () => {
-    if (!kind || !apiKey.trim()) return;
+    if (saving.current || !kind || !apiKey.trim()) return;
     if (kind === 'custom' && !baseUrl.trim()) {
       setError('A base URL is required for a custom endpoint.');
       return;
     }
+    saving.current = true;
     setBusy(true);
     setError(null);
     try {
       await addProvider({ kind, auth: 'apiKey', secret: apiKey.trim(), model, baseUrl });
-      router.dismiss();
+      setApiKey('');
+      router.canGoBack() ? router.back() : router.replace('/(tabs)/settings');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save the connection.');
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   };
 
   const saveWithOAuth = async () => {
+    if (saving.current) return;
+    saving.current = true;
     setBusy(true);
     setError(null);
     try {
       const key = await connectOpenRouter();
       await addProvider({ kind: 'openrouter', auth: 'oauth', secret: key, model });
-      router.dismiss();
+      setApiKey('');
+      router.canGoBack() ? router.back() : router.replace('/(tabs)/settings');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'OpenRouter sign-in failed.');
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   };
@@ -67,8 +75,7 @@ export default function ConnectProviderScreen() {
       <ThemedView style={styles.container}>
         <ScrollView contentContainerStyle={styles.content}>
           <ThemedText themeColor="textSecondary">
-            Bring your own AI. Everything is stored in this device’s secure keychain and sent only to the provider
-            you choose — no VibeXStudio account, no server.
+            Bring your own AI. Keys stay on this device: installed apps use the OS credential vault; plain browsers use this site’s local storage. AI requests go to your selected provider or endpoint. No VibeX account is needed.
           </ThemedText>
 
           <ThemedText type="smallBold" themeColor="textSecondary" style={styles.sectionLabel}>
@@ -129,10 +136,14 @@ export default function ConnectProviderScreen() {
   return (
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Pressable onPress={() => setKind(null)}>
+        <Pressable disabled={busy} onPress={() => { setKind(null); setApiKey(''); setBaseUrl(''); setError(null); }}>
           <ThemedText themeColor="tint">‹ All providers</ThemedText>
         </Pressable>
         <ThemedText type="subtitle">{spec!.name}</ThemedText>
+
+        <ThemedText type="small" themeColor="textSecondary">
+          Your key is saved on this device. Installed apps use the OS credential vault; plain browsers use this site’s local storage. Saving a key does not validate it or send an AI request.
+        </ThemedText>
 
         {spec!.supportsOAuth ? (
           <View style={styles.block}>
@@ -145,6 +156,7 @@ export default function ConnectProviderScreen() {
 
         {kind === 'custom' ? (
           <TextField
+            editable={!busy}
             label="Base URL"
             placeholder="https://my-host.example/v1"
             value={baseUrl}
@@ -155,6 +167,9 @@ export default function ConnectProviderScreen() {
         ) : null}
 
         <TextField
+          editable={!busy}
+          autoCapitalize="none"
+          autoCorrect={false}
           label="API key"
           placeholder="sk-…"
           value={apiKey}
@@ -172,6 +187,7 @@ export default function ConnectProviderScreen() {
         ) : null}
 
         <TextField
+          editable={!busy}
           label="Default model"
           placeholder={spec!.defaultModel || 'model-name'}
           value={model}
@@ -183,6 +199,7 @@ export default function ConnectProviderScreen() {
             {spec!.suggestedModels.map((suggested) => (
               <Pressable
                 key={suggested}
+                disabled={busy}
                 onPress={() => setModel(suggested)}
                 style={[
                   styles.chip,

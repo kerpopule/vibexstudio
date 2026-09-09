@@ -774,13 +774,14 @@
           <div class="dd">A fal.ai account renders for you — nothing to install, pay per creation.</div>
         </div>
       </div>
+      <a id="swIndependent" class="swpath" href="/setup/background" style="display:none">Set up independent background removal →</a>
       <div class="swback" id="swSkip">Skip for now →</div>
     </div>
     <!-- engine shelf -->
     <div id="sw_shelf" style="display:none">
       <h1>Engine shelf 🧰</h1>
-      <div class="swsub">LTX (fast video drafts) is the default. Everything else is an add-on —
-        honest sizes, each flips to ready on its own. Installs keep running while you set up.</div>
+      <div class="swsub">Choose an available engine below. Blocked entries cannot be installed.
+        Install progress stays visible while you set up.</div>
       <div id="swCards"></div>
       <div class="go" id="swInstall">⬇️ Install selected</div>
       <div id="swMsg" class="swstate" style="display:none"></div>
@@ -4991,6 +4992,7 @@ function swClose(){
   if(SW.poll){clearInterval(SW.poll);SW.poll=null;}
 }
 function swPaintHome(){
+  $('#swIndependent').style.display=SW.data?.independent_background_setup?'flex':'none';
   const gpu=!!(SW.data&&SW.data.gpu);
   $('#swGpuTitle').textContent=gpu?'This machine can render (GPU found)':'This machine can render';
   $('#swGpuDD').textContent=gpu
@@ -4999,6 +5001,7 @@ function swPaintHome(){
 }
 /* ---- engine shelf ---- */
 function swStateLine(e){
+  if(e.blocked)return `<div class="swstate">${esc(e.detail||'Independent setup is not available yet.')}</div>`;
   if(e.state==='ready')return '<div class="swstate ok">✅ Ready</div>';
   if(e.state==='installing')return `<div class="swstate busy">⏳ ${e.detail||'Installing…'} — keep setting up, we’ll tell you.</div>`;
   if(e.state==='failed')return `<div class="swstate bad">⚠️ ${e.detail||'Install failed'}</div>`;
@@ -5009,9 +5012,10 @@ function swPaintShelf(){
   const E=(SW.data&&SW.data.engines)||{};
   $('#swCards').innerHTML=Object.keys(E).map(k=>{
     const e=E[k];
-    const selectable=e.state!=='ready'&&e.state!=='installing'&&!e.requires_manual;
+    const selectable=!e.blocked&&e.state!=='ready'&&e.state!=='installing'&&!e.requires_manual;
     const checked=SW.sel[k]!==undefined?SW.sel[k]:(e.default&&selectable);
     if(selectable)SW.sel[k]=!!checked;
+    else delete SW.sel[k];
     const est=e.est_minutes?` · ~${e.est_minutes} min`:'';
     const box=selectable
       ?`<input type="checkbox" data-sweng="${k}"${checked?' checked':''}>`

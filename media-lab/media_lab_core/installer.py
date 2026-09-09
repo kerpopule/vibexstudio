@@ -162,7 +162,7 @@ def _run_install(engine: str, spec: dict, root: Path, base_dir: Path, on_ready) 
 def start_install(engine: str, spec: dict, root: Path, base_dir: Path, on_ready=None) -> bool:
     """Kick one engine's install on a daemon thread. False when one is
     already running or the data file says this engine needs a human."""
-    if spec.get("requires_manual"):
+    if spec.get("blocked") or spec.get("requires_manual"):
         return False
     if install_running(engine):
         return False

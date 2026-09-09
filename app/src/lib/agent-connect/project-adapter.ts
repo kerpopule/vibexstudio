@@ -18,6 +18,7 @@ export interface AgentProjectFileInfo {
 }
 
 export interface ProjectAgentRepository {
+  createProject(name: string, emoji: string): Promise<ProjectMeta>;
   listProjects(): Promise<ProjectMeta[]>;
   listFileManifest(projectId: string): Promise<AgentProjectFileInfo[]>;
   getFileInfo(projectId: string, path: string): Promise<AgentProjectFileInfo | null>;
@@ -110,6 +111,24 @@ export class ProjectAgentAdapter {
     await this.repo.assertPathContained(projectId, path);
   }
 
+  async createProject({ name }: { name: string }) {
+    if (typeof name !== 'string' || !name.trim() || name.trim().length > 120 || /[\u0000-\u001f\u007f]/.test(name)) {
+      throw new Error('Choose a project name of 1–120 characters without control characters.');
+    }
+    const cleanName = name.trim().normalize('NFC');
+    return this.enqueueMutation(async () => {
+      const projects = await this.repo.listProjects();
+      if (projects.some(project => project.name.normalize('NFC').toLowerCase() === cleanName.toLowerCase())) {
+        throw new Error('A project with this name already exists. Use list_projects to find it, or choose a different name.');
+      }
+      const project = await this.repo.createProject(cleanName, '✨');
+      // Creation succeeded even if refreshing the visible list fails. Do not invite a duplicate retry.
+      let refreshPending = false;
+      try { await this.repo.refreshProjects(project.id); } catch { refreshPending = true; }
+      return { project: { id: project.id, name: project.name, emoji: project.emoji }, refreshPending };
+    });
+  }
+
   async listProjects() {
     const all = await this.repo.listProjects();
     const projects = all.slice(0, MAX_AGENT_PROJECTS).map(({ id, name, emoji, updatedAt }) => ({
@@ -133,7 +152,8 @@ export class ProjectAgentAdapter {
       await this.requireContainedPath(projectId, file.path);
       const encoding = file.encoding;
       const bytes = file.bytes;
-      totalBytes += bytes;
+      if(!Number.isSafeInteger(bytes)||bytes<0)throw new Error('Invalid project file size.');
+      totalBytes += utf8Bytes(JSON.stringify({path:file.path,encoding,bytes}));
       if (totalBytes > MAX_AGENT_MANIFEST_BYTES) {
         throw new Error(`Project exceeds the ${MAX_AGENT_MANIFEST_BYTES}-byte agent manifest limit.`);
       }

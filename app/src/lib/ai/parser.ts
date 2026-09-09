@@ -12,6 +12,7 @@
  *   - a plain html block that starts with <!doctype html>/<html> is the app —
  *     it becomes index.html
  */
+import { parseLibraryFence, type LibraryRequest } from '@/lib/library-reuse-core';
 import { parseWebFence, webRequestKey, type WebRequest } from '@/lib/ai/web-tools-core';
 import { isValidMediaTarget, type MediaRequest } from '@/lib/medialab-core';
 import type { ProjectFile } from '@/lib/types';
@@ -30,6 +31,7 @@ export interface ParsedReply {
   files: ProjectFile[];
   /** Parsed ```medialab fences — generation requests, not file contents. */
   media: MediaRequest[];
+  assets: LibraryRequest[];
   /** Parsed ```web fences — research requests the turn loop may execute. */
   web: WebRequest[];
 }
@@ -38,6 +40,7 @@ export function parseAssistantReply(raw: string): ParsedReply {
   const lines = raw.split('\n');
   const files: ProjectFile[] = [];
   const media: MediaRequest[] = [];
+  const assets: LibraryRequest[] = [];
   const web: WebRequest[] = [];
   const textParts: string[] = [];
 
@@ -54,6 +57,16 @@ export function parseAssistantReply(raw: string): ParsedReply {
     let end = i + 1;
     while (end < lines.length && !/^```\s*$/.test(lines[end])) end += 1;
     const body = lines.slice(i + 1, end).join('\n');
+
+    if (open[1].toLowerCase() === 'asset') {
+      const request = end < lines.length ? parseLibraryFence(open[2], body) : null;
+      if (request) {
+        assets.push(request);
+        textParts.push(`Requested library import → \`${request.file}\``);
+      } else textParts.push(...lines.slice(i, Math.min(end + 1, lines.length)));
+      i = end + 1;
+      continue;
+    }
 
     // A ```medialab fence is a generation REQUEST — the body is a prompt,
     // never file content. Malformed ones stay in the visible text rather
@@ -142,6 +155,7 @@ export function parseAssistantReply(raw: string): ParsedReply {
     text: textParts.join('\n').replace(/\n{3,}/g, '\n\n').trim(),
     files: [...byPath.values()],
     media: [...mediaByFile.values()],
+    assets,
     web: [...webByKey.values()],
   };
 }

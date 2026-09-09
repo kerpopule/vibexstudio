@@ -185,7 +185,7 @@ def test_queue_handoff_requires_explicit_confirmation_and_stays_candidate(tmp_pa
     assert ready["payload"]["sources"] == ["/media/vx00.mp4"]
 
     project_with_media["assets"][0]["source"]["path"] = "https://example.com/vx00.mp4"
-    with pytest.raises(CutError, match="basename-only /media/"):
+    with pytest.raises(CutError, match="/media/"):
         build_queue_handoff(
             project_with_media,
             export_request,

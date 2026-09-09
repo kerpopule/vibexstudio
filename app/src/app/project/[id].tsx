@@ -11,6 +11,7 @@ import { ChatView } from '@/components/project/chat-view';
 import { FilesView } from '@/components/project/files-view';
 import { PreviewView } from '@/components/project/preview-view';
 import { ShareView } from '@/components/project/share-view';
+import { SparkyDirector } from '@/components/sparky-director';
 import { EmojiTile } from '@/components/ui/emoji-tile';
 import { Radii, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -95,7 +96,7 @@ export default function ProjectScreen() {
         <>
           <View style={styles.header}>
             <Pressable
-              onPress={() => router.back()}
+              onPress={() => router.replace('/(tabs)')}
               hitSlop={{ top: 16, bottom: 16, left: 20, right: 8 }}
               accessibilityRole="button"
               accessibilityLabel="Back to projects"
@@ -172,6 +173,7 @@ export default function ProjectScreen() {
       <View style={[styles.pane, activePane !== 'share' && styles.paneHidden, { paddingBottom: insets.bottom }]}>
         <ShareView project={project} onProjectChanged={setProject} />
       </View>
+      <SparkyDirector project={project} visible={showChrome} docked={activePane==='files'||activePane==='share'} onReviewInBuilder={()=>{setPane('chat');setImmersive(false);}} />
     </ThemedView>
   );
 }

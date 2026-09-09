@@ -1,14 +1,17 @@
+import {secretsInVault} from '@/lib/storage/secrets';
+import { Alert } from '@/lib/app-alert';
 /**
  * Setup — everything that connects VibeX to the world, in the order a
  * person thinks about it: the checklist first (what's done, what's next),
  * then Your AI, Media Lab, Your computer, Publish, Agents, and the
  * housekeeping (appearance, storage, privacy). Every row goes somewhere.
  */
+import {canReplaceProviderKey} from '@/lib/ai/replace-provider-key';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Segmented } from '@/components/segmented';
@@ -30,12 +33,13 @@ import { projectSizeBytes } from '@/lib/storage/projects';
 import type { AppearancePref } from '@/lib/storage/settings';
 import { useApp } from '@/lib/store';
 import { checkForUpdate, currentVersion, hasNativeUpdater, runNativeUpdater, updateDestination } from '@/lib/update-check';
-import { clearSyncFolder, pickSyncFolder, syncFolderUri, syncNow } from '@/lib/sync/android-folder-sync';
+import { clearSyncFolder, listFolderConflicts, keepBothFolderCopies, type FolderConflict, pickSyncFolder, syncFolderUri, syncNow } from '@/lib/sync/android-folder-sync';
 import { safTreeLabel } from '@/lib/sync/sync-plan';
 
 const STEP_GLYPH: Record<SetupStepId, string> = { ai: '✨', media: '🎬', computer: '🖥️', publish: '🐙' };
 
 export default function SetupScreen() {
+  const credentialStorage=secretsInVault()?'this device’s credential vault':'this site’s storage in this browser';
   const insets = useSafeAreaInsets();
   const theme = useTheme();
   const { github, providers, appearance, setAppearance, disconnectGitHub, removeProvider, mediaLab, workbench, unpairWorkbench } = useApp();
@@ -44,6 +48,7 @@ export default function SetupScreen() {
   const deleteProject = useApp((s) => s.deleteProject);
   const [sizes, setSizes] = useState<Record<string, number>>({});
   const [syncFolder, setSyncFolder] = useState<string | null>(null);
+  const [folderConflicts, setFolderConflicts] = useState<FolderConflict[]>([]);
   const [syncBusy, setSyncBusy] = useState(false);
   const [showStorage, setShowStorage] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -111,20 +116,37 @@ export default function SetupScreen() {
       const summary = await syncNow();
       await refreshProjects();
       await loadSizes();
+      setFolderConflicts(await listFolderConflicts());
       if (summary) {
         const parts = [
           summary.pushed ? `${summary.pushed} sent` : null,
           summary.pulled ? `${summary.pulled} updated` : null,
           summary.imported ? `${summary.imported} imported` : null,
           summary.failed ? `${summary.failed} failed` : null,
+          summary.conflicts ? `${summary.conflicts} need review; both copies kept` : null,
         ].filter(Boolean);
-        Alert.alert('Sync complete', parts.length ? parts.join(' · ') : 'Everything already up to date.');
+        Alert.alert(summary.conflicts ? 'Sync needs review' : 'Sync complete', parts.length ? parts.join(' · ') : 'Everything already up to date.');
       } else {
         Alert.alert('Sync unavailable', 'Could not reach the sync folder. Pick it again if the grant was revoked.');
       }
+    } catch (error) {
+      Alert.alert('Sync needs attention', error instanceof Error ? error.message : 'Reconnect your folder and try again.');
     } finally {
       setSyncBusy(false);
     }
+  };
+
+  const keepBoth = async (conflict: FolderConflict) => {
+    setSyncBusy(true);
+    try {
+      await keepBothFolderCopies(conflict);
+      await refreshProjects();
+      setFolderConflicts(await listFolderConflicts());
+      Alert.alert('Both copies kept', 'Your project stays as it was on this device. The other version is a separate project named “folder copy”. Both are saved in your chosen folder after the next sync finishes.');
+    } catch (error) {
+      await refreshProjects();
+      Alert.alert('Review needed', error instanceof Error ? error.message : 'Could not save both copies.');
+    } finally { setSyncBusy(false); }
   };
 
   const confirmStopSyncing = () => {
@@ -145,7 +167,7 @@ export default function SetupScreen() {
   };
 
   const confirmUnpairWorkbench = () => {
-    Alert.alert('Unpair this computer?', 'The pairing token is deleted from the keychain. Re-pair any time by scanning the desktop QR again.', [
+    Alert.alert('Unpair this computer?', `The pairing token is deleted from ${credentialStorage}. Re-pair any time by scanning the desktop QR again.`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Unpair', style: 'destructive', onPress: () => void unpairWorkbench() },
     ]);
@@ -160,8 +182,8 @@ export default function SetupScreen() {
 
   const confirmRemoveProvider = (id: string, label: string, isPrivate: boolean) => {
     const detail = isPrivate
-      ? 'This revokes the private device grant, then deletes its credential and refresh handle from this device’s keychain.'
-      : 'The key or sign-in is deleted from this device’s keychain.';
+      ? `This revokes the private device grant, then deletes its credential and refresh handle from ${credentialStorage}.`
+      : `The key or sign-in is deleted from ${credentialStorage}.`;
     Alert.alert(`Remove ${label}?`, detail, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: () => removeProvider(id) },
@@ -212,6 +234,7 @@ export default function SetupScreen() {
         </Glass>
 
         <Section title="Your AI">
+          <Row title="Move AI connections" subtitle="Bring your API keys and model choices to another device" onPress={()=>router.push('/transfer-ai')}/>
           {chat.map((provider) => (
             <View key={provider.id}>
               <Row
@@ -243,8 +266,8 @@ export default function SetupScreen() {
           />
           <RowDivider />
           <Row
-            title="Private hosted model"
-            subtitle="Redeem a signed, device-scoped invite"
+            title="Legacy private connection"
+            subtitle="Move to your own API or server"
             left={<EmojiTile emoji="🔐" size={36} />}
             onPress={() => router.push('/connect-private')}
           />
@@ -255,7 +278,7 @@ export default function SetupScreen() {
             <>
               <Row
                 title={`Paired · ${hostLabel(mediaLab.url)}`}
-                subtitle="The full studio — video, music, images, characters, Cut — lives in the Media Lab tab"
+                subtitle="Create opens your media tools. Available server features depend on what you connect."
                 left={<EmojiTile emoji="🎬" size={36} />}
                 onPress={() => router.push({ pathname: '/connect-media-lab', params: { url: mediaLab.url } })}
               />
@@ -278,6 +301,7 @@ export default function SetupScreen() {
                   </Pressable>
                 }
               />
+              {canReplaceProviderKey(provider)?<Row title="Replace API key" onPress={()=>router.push({pathname:'/replace-provider-key' as never,params:{connectionId:provider.id}})}/>:null}
               <RowDivider />
             </View>
           ))}
@@ -346,6 +370,10 @@ export default function SetupScreen() {
                     onPress={syncBusy ? undefined : runSyncNow}
                   />
                   <RowDivider />
+                  {folderConflicts.map((conflict) => <View key={conflict.id}>
+                    <Row title={`${conflict.name} · changed in two places`} subtitle="Keep both: your version stays here; the folder version becomes a separate project. Chat attachments outside project files are not synced yet." onPress={syncBusy ? undefined : () => void keepBoth(conflict)} right={<ThemedText type="smallBold">Keep both</ThemedText>} />
+                    <RowDivider />
+                  </View>)}
                   <Row title="Stop syncing" destructive onPress={confirmStopSyncing} />
                 </>
               ) : (
@@ -363,7 +391,7 @@ export default function SetupScreen() {
         <Section title="Agents">
           <Row
             title="Let an agent drive VibeX"
-            subtitle="Hermes, Claude Code, Codex, OpenCode, or any MCP client — over your local Wi-Fi, with your approval"
+            subtitle="Hermes, Claude Code, Codex, OpenCode, or any MCP client — on this computer or mobile local Wi-Fi, with your approval"
             left={<EmojiTile emoji="🪽" size={36} />}
             onPress={() => router.push('/agent-connect')}
           />
@@ -384,6 +412,8 @@ export default function SetupScreen() {
         </Section>
 
         <Section title="Storage">
+          <Row title="Your files, your storage" subtitle="This device, iCloud Drive, Google Drive, GitHub, or your server" onPress={() => router.push('/storage' as never)} />
+          <RowDivider />
           <Row
             title={`${formatBytes(totalBytes)} used by ${projects.length} project${projects.length === 1 ? '' : 's'}`}
             subtitle={`Apps, chats, and media live on ${thisDevice}`}
@@ -418,8 +448,8 @@ export default function SetupScreen() {
             title="Your data stays yours"
             subtitle={
               providers.some((provider) => provider.privateProvider)
-                ? `Projects stay on ${thisDevice}; keys stay in the secure keychain. Private VibeX prompts pass through the explicitly connected private broker; VibeXStudio adds no analytics or prompt logging.`
-                : `Projects live on ${thisDevice}; keys live in the secure keychain. Provider and GitHub calls go straight to services you choose. No analytics, no telemetry, no account.`
+                ? `Projects stay on ${thisDevice}; keys stay in ${credentialStorage}. Private VibeX prompts pass through the explicitly connected private broker; VibeXStudio adds no analytics or prompt logging.`
+                : `Projects live on ${thisDevice}; keys live in ${credentialStorage}. Provider and GitHub calls go straight to services you choose. No analytics, no telemetry, no account.`
             }
             left={<EmojiTile emoji="🔒" size={36} />}
           />
@@ -438,6 +468,7 @@ export default function SetupScreen() {
             left={<EmojiTile emoji="🌐" size={36} />}
             onPress={() => void Linking.openURL('https://github.com/kerpopule/vibexstudio')}
           />
+          <Row title="Third-party notices" onPress={()=>router.push('/third-party-notices')}/>
         </Section>
       </ScrollView>
     </ThemedView>

@@ -1,16 +1,7 @@
-/**
- * Cloud rendering (fal.ai) walkthrough — door 3. Four steps, each a tap:
- * make an account, add billing, copy the key, paste it here. Models come
- * from the curated catalog with the recommended ones pre-selected, so nobody
- * has to know a model id.
- *
- * Where the key lands: a paired Media Lab server takes it via its
- * /api/providers settings API; with no server, it becomes an on-device fal
- * connection so the phone's own studio renders in the cloud.
- */
+/** Direct fal.ai setup. Pairing a compute server never changes key ownership. */
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -30,7 +21,7 @@ const STEPS = [
   },
   {
     title: 'Add billing',
-    body: 'You only pay for what you render — images cost pennies.',
+    body: 'Review fal.ai’s current model prices and billing before generating.',
     url: 'https://fal.ai/dashboard/billing',
   },
   {
@@ -42,61 +33,37 @@ const STEPS = [
 
 export default function FalSetupScreen() {
   const theme = useTheme();
-  const mediaLab = useApp((s) => s.mediaLab);
   const providers = useApp((s) => s.providers);
   const addProvider = useApp((s) => s.addProvider);
-  const removeProvider = useApp((s) => s.removeProvider);
+  const saving = useRef(false);
 
   const [apiKey, setApiKey] = useState('');
   const [imageModel, setImageModel] = useState(recommendedFalModel('image'));
   const [videoModel, setVideoModel] = useState(recommendedFalModel('video'));
+  const [saved, setSaved] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const save = async () => {
     const key = apiKey.trim();
-    if (!key) return;
+    if (!key || saving.current || saved) return;
+    saving.current = true;
     setBusy(true);
     setError(null);
     try {
-      if (mediaLab) {
-        // A server is paired — the key belongs to it, so every device that
-        // uses that Media Lab gets cloud rendering.
-        const res = await fetch(`${mediaLab.url.replace(/\/+$/, '')}/api/providers`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            api_key: key,
-            enabled: true,
-            models: { image: imageModel, video: videoModel },
-          }),
-        });
-        if (res.status === 401 || res.status === 403) {
-          setError(
-            'Your Media Lab wants you to sign in first. Open the Media Lab tab, sign in there, then come back and tap Save again.'
-          );
-          return;
-        }
-        if (!res.ok) {
-          setError('Your Media Lab didn’t accept the key. Make sure it’s running, then try again.');
-          return;
-        }
-      } else {
-        // No server — the phone's own studio uses fal directly. Replace any
-        // earlier fal connection instead of stacking duplicates.
-        const existing = providers.find((p) => p.kind === 'fal');
-        if (existing) await removeProvider(existing.id);
-        await addProvider({
-          kind: 'fal',
-          auth: 'apiKey',
-          secret: key,
-          mediaModels: { image: imageModel, video: videoModel },
-        });
-      }
-      if (router.canDismiss()) router.dismissAll();
+      // Add the new connection before touching any existing one. Projects may
+      // still reference an older connection, so preserve it for explicit removal.
+      await addProvider({
+        kind: 'fal', auth: 'apiKey', secret: key,
+        mediaModels: { image: imageModel, video: videoModel },
+      });
+      setApiKey('');
+      setSaved(true);
     } catch {
-      setError('Something interrupted the save. Check your connection and try again.');
+      setError('Could not save the connection on this device. Check available storage or any credential-vault prompt, then try again. Existing connections are kept.');
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   };
@@ -150,19 +117,17 @@ export default function FalSetupScreen() {
             value={apiKey}
             onChangeText={setApiKey}
             secureTextEntry
+            editable={!busy && !saved}
             mono
           />
-          {mediaLab ? (
-            <ThemedText type="small" themeColor="textSecondary">
-              It’s saved to your paired Media Lab, so everything that uses it gets cloud rendering.
-            </ThemedText>
-          ) : (
-            <ThemedText type="small" themeColor="textSecondary">
-              It stays in this device’s secure keychain and goes only to fal.ai.
-            </ThemedText>
-          )}
+          <ThemedText type="small" themeColor="textSecondary">
+            Saved on this device for direct requests to fal.ai. Native apps use the OS credential vault; browsers use this site’s local storage. Pairing Media Lab does not send this key to that server.
+          </ThemedText>
+          {providers.some(provider => provider.kind === 'fal') ? <ThemedText type="small" themeColor="textSecondary">This adds a new connection. Existing connections and projects are kept; remove an old connection in Setup when you no longer need it.</ThemedText> : null}
         </View>
 
+        <Button title={advanced ? 'Hide model choices' : 'Choose image and video models'} variant="secondary" onPress={() => setAdvanced(value => !value)} disabled={busy || saved} />
+        {advanced ? <>
         <ModelPicker
           label="IMAGES"
           options={catalogFor('image')}
@@ -176,7 +141,12 @@ export default function FalSetupScreen() {
           onChange={setVideoModel}
         />
 
-        <Button title="Save and start creating" onPress={save} loading={busy} disabled={!apiKey.trim()} />
+        </> : <ThemedText type="small" themeColor="textSecondary">Start with the selected defaults. You can change models before generating.</ThemedText>}
+        {saved ? <>
+          <ThemedText accessibilityRole="alert">Connection saved on this device. No generation was started and the key has not been verified with fal.ai.</ThemedText>
+          <Button title="Done" onPress={() => router.canGoBack() ? router.back() : router.replace('/(tabs)')} />
+        </> : <Button title="Save on this device" onPress={save} loading={busy} disabled={!apiKey.trim()} />}
+
         {error ? (
           <ThemedText type="small" style={{ color: theme.danger }}>
             {error}

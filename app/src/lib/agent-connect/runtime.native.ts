@@ -8,6 +8,8 @@ import { agentCredentialStore, agentMetadataStore } from '@/lib/agent-connect/pe
 import { projectConnectTools } from '@/lib/agent-connect/tools';
 
 export interface AgentConnectSnapshot {
+  port?: number;
+  localComputer?: boolean;
   supported: boolean;
   running: boolean;
   host: string | null;

@@ -7,6 +7,7 @@
  * Format: a JSON envelope (text files inline as UTF-8, binaries as base64).
  * Pure module — no Expo imports — so it stays unit-testable.
  */
+import {isPrivateProjectFile} from '../private-project-files';
 import type { ProjectFile } from '@/lib/types';
 
 export const BUNDLE_FORMAT = 'vibex/bundle';
@@ -35,6 +36,12 @@ interface Envelope {
 }
 
 export function encodeBundle(bundle: VibexBundle, exportedAt: number): string {
+  bundle={...bundle,files:bundle.files.filter(file=>!isPrivateProjectFile(file.path))};
+  if (!bundle.files.length) throw new Error('Add files to this project before sharing it.');
+  if (bundle.files.length > MAX_FILES) throw new Error('This project has too many files for a VibeX bundle.');
+  if (bundle.files.reduce((total, file) => total + file.content.length, 0) > MAX_TOTAL_CHARS) {
+    throw new Error('This project is too large for a VibeX bundle. Reduce asset sizes or share through GitHub instead.');
+  }
   const envelope: Envelope = {
     format: BUNDLE_FORMAT,
     version: BUNDLE_VERSION,
@@ -44,7 +51,10 @@ export function encodeBundle(bundle: VibexBundle, exportedAt: number): string {
     description: bundle.description,
     files: bundle.files.map((f) => ({ ...f, path: assertSafePath(f.path) })),
   };
-  return JSON.stringify(envelope);
+  assertDistinctPaths(envelope.files);
+  const text = JSON.stringify(envelope);
+  if (text.length > MAX_TOTAL_CHARS) throw new Error('This project is too large for a VibeX bundle. Reduce asset sizes or share through GitHub instead.');
+  return text;
 }
 
 /** Parses + validates bundle text. Throws a user-readable Error when it isn't one of ours. */
@@ -77,12 +87,29 @@ export function decodeBundle(text: string): VibexBundle {
     };
   });
 
+  assertDistinctPaths(files);
   return {
     name: typeof env.name === 'string' && env.name.trim() ? env.name.trim().slice(0, 80) : 'Shared app',
     emoji: typeof env.emoji === 'string' && env.emoji ? env.emoji.slice(0, 8) : '📦',
     description: typeof env.description === 'string' ? env.description.slice(0, 500) : '',
     files,
   };
+}
+
+/** A portable bundle cannot depend on filesystem case or Unicode rules. */
+function assertDistinctPaths(files: ProjectFile[]): void {
+  const paths = new Set<string>();
+  for (const file of files) {
+    const key = file.path.normalize('NFC').toLowerCase();
+    if (paths.has(key)) throw new Error('This bundle contains conflicting file names. Rename the duplicate files before sharing.');
+    paths.add(key);
+  }
+  for (const path of paths) {
+    const parts = path.split('/');
+    for (let i = 1; i < parts.length; i++) {
+      if (paths.has(parts.slice(0, i).join('/'))) throw new Error('This bundle uses the same path for a file and a folder. Rename it before sharing.');
+    }
+  }
 }
 
 /**

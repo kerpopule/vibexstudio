@@ -20,6 +20,7 @@ class MemoryRepo implements ProjectAgentRepository {
   failPath: string | null = null;
   escapedPath: string | null = null;
 
+  async createProject(name: string, emoji: string) { const project = {id: `p${this.projects.length+1}`, name, emoji, description: "", createdAt: 3, updatedAt: 3}; this.projects.push(project); return project; }
   async listProjects() { return this.projects; }
   async listFileManifest(projectId: string) {
     return [...this.files.entries()]
@@ -150,5 +151,33 @@ describe('agent project adapter', () => {
       id: 'agent-message-1', role: 'assistant', text: '[Hermes · completed] Finished the requested edits.', createdAt: 1234,
     }]);
     expect(repo.chatRefreshes).toBe(1);
+  });
+});
+
+it('returns metadata for large binary assets without reading their contents',async()=>{
+ const {repo,adapter}=createAdapter();
+ repo.listFileManifest=async()=>[{path:'assets/large.mp4',encoding:'base64',bytes:128*1024*1024}];
+ repo.readFile=async()=>{throw new Error('File content must not be read');};
+ expect((await adapter.getProject({projectId:'p1'})).files).toEqual([{path:'assets/large.mp4',encoding:'base64',bytes:128*1024*1024}]);
+});
+
+
+describe('agent project creation', () => {
+  it('creates a discoverable empty project and rejects duplicate concurrent names', async () => {
+    const {adapter, repo} = createAdapter();
+    const results = await Promise.allSettled([adapter.createProject({name: '  New game  '}), adapter.createProject({name: 'new game'})]);
+    expect(results[0]).toMatchObject({status: 'fulfilled', value: {project: {id: 'p2', name: 'New game'}, refreshPending: false}});
+    expect(results[1].status).toBe('rejected');
+    expect(repo.projects).toHaveLength(2);
+    expect((await adapter.getProject({projectId: 'p2'})).files).toEqual([]);
+    expect(repo.refreshes).toBe(1);
+  });
+  it('rejects invalid names before writing and reports creation despite refresh failure', async () => {
+    const {adapter, repo} = createAdapter();
+    for (const name of ['', '  ', 'a'.repeat(121), 'bad\nname']) await expect(adapter.createProject({name})).rejects.toThrow();
+    expect(repo.projects).toHaveLength(1);
+    repo.refreshProjects = async () => {throw new Error('screen unavailable');};
+    expect(await adapter.createProject({name: 'Created'})).toMatchObject({project: {name: 'Created'}, refreshPending: true});
+    expect(repo.projects).toHaveLength(2);
   });
 });

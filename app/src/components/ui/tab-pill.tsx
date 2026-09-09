@@ -15,12 +15,13 @@ import { Fonts, Radii, Shadows } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useUiChrome } from '@/lib/ui-chrome';
 
-/** Bottom padding a scrolling screen needs so its last row clears the pill. */
-export const TAB_PILL_CLEARANCE = 96;
+/** Bottom padding so the last row clears both the pill and corner director. */
+export const TAB_PILL_CLEARANCE = 148;
 
 export const TAB_ICONS: Record<string, { on: keyof typeof Ionicons.glyphMap; off: keyof typeof Ionicons.glyphMap }> = {
   index: { on: 'color-wand', off: 'color-wand-outline' },
   'media-lab': { on: 'film', off: 'film-outline' },
+  creations: { on: 'images', off: 'images-outline' },
   settings: { on: 'options', off: 'options-outline' },
 };
 
@@ -102,8 +103,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   tab: {
-    minWidth: 78,
-    paddingHorizontal: 14,
+    minWidth: 68,
+    paddingHorizontal: 10,
     paddingVertical: 9,
     borderRadius: Radii.pill,
     alignItems: 'center',
