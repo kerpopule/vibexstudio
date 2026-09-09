@@ -14,6 +14,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Radii, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useHostingMediaServer } from '@/hooks/use-hosting-media-server';
+import { appBrowserOrigin, isUnreachableFailure, originRefusalMessage, requestedSetupMethod } from '@/lib/media-lab-setup';
 import { normalizeServerUrl, probeMediaLab } from '@/lib/media-pairing';
 import { connectRemoteLibrary } from '@/lib/remote-library';
 import { connectRemoteGeneration, disconnectRemoteGeneration, hasRemoteGenerationPermission } from '@/lib/remote-generation';
@@ -25,12 +26,14 @@ import { canUseLocalController, localControllerStatus, installLocalController, s
 export default function ConnectMediaLabScreen() {
   const theme = useTheme();
   // A failed vibex://pair QR scan lands here with the address prefilled.
-  const params = useLocalSearchParams<{ url?: string; generation?: string }>();
+  const params = useLocalSearchParams<{ url?: string; generation?: string; method?: string }>();
   const mediaLab = useApp((s) => s.mediaLab);
   const onboardingComplete = useApp((s) => s.onboardingComplete);
   const setMediaLab = useApp((s) => s.setMediaLab);
   const hostingServer = useHostingMediaServer();
-  const [method,setMethod]=useState<'local'|'tailnet'|'address'|null>(()=>params.url||mediaLab?.url?'address':null);
+  // Onboarding's "set it up here" door and a returning user's bookmark both
+  // arrive as ?method=; without it a saved server always reopened on 'address'.
+  const [method,setMethod]=useState<'local'|'tailnet'|'address'|null>(()=>requestedSetupMethod(params.method,canUseLocalController())??(params.url||mediaLab?.url?'address':null));
   const [showRequirements,setShowRequirements]=useState(false);
   useEffect(()=>{
     if(params.url||mediaLab?.url)setMethod(current=>current??'address');
@@ -104,7 +107,14 @@ export default function ConnectMediaLabScreen() {
         e instanceof Error ? e.message :
         (typeof e === 'object' && e && 'message' in e && typeof (e as {message: unknown}).message === 'string')
           ? (e as {message: string}).message : '';
-      setError(message || 'Could not connect to Media Lab.');
+      // A server that is up but has not been told to allow this app's origin
+      // refuses the call before it leaves the device, so it fails exactly like
+      // no server at all. /manifest.json is CORS-open on purpose — it is the
+      // pairing probe — so a probe that answers after a transport failure
+      // points at the server's origin list, not at the network.
+      const refusal = isUnreachableFailure(message) && await probeMediaLab(url)
+        ? originRefusalMessage(appBrowserOrigin()) : null;
+      setError(refusal ?? (message || 'Could not connect to Media Lab.'));
     }
     finally { setBusy(false);setPairing(false); }
 

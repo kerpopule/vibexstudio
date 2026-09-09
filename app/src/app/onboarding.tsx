@@ -31,6 +31,8 @@ import { PROVIDERS } from '@/lib/ai/registry';
 import { SUBSCRIPTION_ORDER, SUBSCRIPTION_PROVIDERS, type SubscriptionProviderId } from '@/lib/ai/subscriptionOauth';
 import { thisDevice } from '@/lib/device';
 import { onboardingLayoutForViewport } from '@/lib/layout';
+import { canUseLocalController } from '@/lib/local-controller';
+import { hostHereDoor } from '@/lib/media-lab-setup';
 import { enter } from '@/lib/motion';
 import { hostLabel, mediaCapable, readyToBuild } from '@/lib/setup';
 import { useApp } from '@/lib/store';
@@ -246,6 +248,9 @@ function MediaStep() {
   const mediaLab = useApp((s) => s.mediaLab);
   const onDevice = mediaCapable(providers);
   const hasFal = providers.some((p) => p.kind === 'fal');
+  // Someone with no server can only be told to scan a QR nothing is showing,
+  // so the list also carries the door that creates one.
+  const hostHere = hostHereDoor(canUseLocalController());
   return (
     <>
       <StepHeader
@@ -276,6 +281,13 @@ function MediaStep() {
           }
           done={mediaLab != null}
           onPress={() => router.push('/pair-scan' as never)}
+        />
+        <DoorRow
+          glyph="⬇️"
+          title={hostHere.title}
+          body={hostHere.body}
+          done={false}
+          onPress={() => router.push(hostHere.route as never)}
         />
         <DoorRow
           glyph="☁️"
