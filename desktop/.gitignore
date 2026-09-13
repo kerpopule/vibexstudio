@@ -1,4 +1,8 @@
 node_modules/
+# Expo exports web font assets beneath dist/assets/node_modules. These are
+# release files, not installed dependencies, and must ship with desktop/dist.
+!dist/assets/node_modules/
+!dist/assets/node_modules/**
 src-tauri/target/
 src-tauri/gen/
 .DS_Store
