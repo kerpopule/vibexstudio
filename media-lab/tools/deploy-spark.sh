@@ -156,6 +156,8 @@ say "rsync staging -> live"
 rssh "rsync -rlptD --delete $RSYNC_FILTER '$STAGE/' '$REMOTE_HOME/' && rm -rf '$STAGE'"
 
 # ---------------------------------------------------------------- 5. compile
+say "installing requirements.txt into the box's venv"
+rssh "cd '$REMOTE_HOME' && [ -x .venv/bin/pip ] && .venv/bin/pip install -q -r requirements.txt 2>&1 | tail -3 || echo '  (no .venv/bin/pip; skipped)'"
 say "py_compile with the box's venv"
 if ! rssh "cd '$REMOTE_HOME' && PY=\$( [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3 ); \
       \$PY -m py_compile app.py \$(ls *.py 2>/dev/null) && \
