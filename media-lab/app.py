@@ -38,6 +38,8 @@ from screenshot_song import (EXACT_SONG_MAX_WORDS, aligned_starts,
 # Per-host settings (data root, bind/tailnet hosts, model and runtime roots)
 # come from config/local.env; see config/local.env.example.
 ROOT = local_config.home()
+SOURCE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = ROOT / "static" if (ROOT / "static").is_dir() else SOURCE_DIR / "static"
 JOBS_DIR = ROOT / "jobs"
 MEDIA = ROOT / "media"
 SCREENSHOT_SONGS_DIR = ROOT / "screenshot-songs"
@@ -196,6 +198,8 @@ for _grp, _entries in STYLE_LIB:
 # Each entry: (id, emoji, label, prompt_prefix, gif_path, blurb).
 def _load_prompt_template(template_id):
     path = ROOT / "prompt-templates" / f"{template_id}.json"
+    if not path.exists():
+        path = SOURCE_DIR / "prompt-templates" / f"{template_id}.json"
     spec = json.loads(path.read_text(encoding="utf-8"))
     if spec.get("template_id") != template_id or not isinstance(spec.get("prompt"), str):
         raise RuntimeError(f"Malformed prompt template: {path}")
@@ -2440,7 +2444,10 @@ class _ResidencyRuntime:
         return detail
 
 
-RESIDENCY = ResidencyController(ROOT / "config/model-residency-policy.json",
+_residency_policy = ROOT / "config/model-residency-policy.json"
+if not _residency_policy.exists():
+    _residency_policy = SOURCE_DIR / "config/model-residency-policy.json"
+RESIDENCY = ResidencyController(_residency_policy,
                                 POOL_DIR / "residency", _ResidencyRuntime())
 
 
@@ -10260,7 +10267,7 @@ THEME_INK = {"": "#0B0806", "coagent": "#0B0806", "autoedu": "#0F0F11", "source4
 
 @app.get("/manifest.json")
 def manifest(theme: str = ""):
-    data = json.loads((ROOT / "static/manifest.json").read_text())
+    data = json.loads((STATIC_DIR / "manifest.json").read_text())
     ink = THEME_INK.get(theme, THEME_INK[""])
     # id/start_url stay fixed — changing them would orphan the installed app
     data["background_color"] = data["theme_color"] = ink
@@ -10272,22 +10279,22 @@ def manifest(theme: str = ""):
 
 @app.get("/sw.js")
 def service_worker():
-    return FileResponse(str(ROOT / "static/sw.js"),
+    return FileResponse(str(STATIC_DIR / "sw.js"),
                         media_type="application/javascript",
                         headers={"Cache-Control": "no-cache"})
 
 app.mount("/media", StaticFiles(directory=str(MEDIA)), name="media")
-app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/")
 def index():
-    return FileResponse(str(ROOT / "static/index.html"))
+    return FileResponse(str(STATIC_DIR / "index.html"))
 
 @app.get("/cut")
 def cut_page():
-    return FileResponse(str(ROOT / "static/cut.html"))
+    return FileResponse(str(STATIC_DIR / "cut.html"))
 
 
 @app.get('/setup/background')
 def background_setup_page():
-    return FileResponse(str(ROOT/'static/background-setup.html'))
+    return FileResponse(str(STATIC_DIR / 'background-setup.html'))
