@@ -106,6 +106,7 @@ PROTECT=(
   '/.venv' '/.worktrees' '/app.py.*' '*.bak*' '/HANDOFF.md' '/V2-BUILD-REPORT.md'
   '/QWEN38-CUTOVER.md' '/backfill-*.py' '/screenshot-songs' '/voices' '/uploads*'
   '/runner/models' '/runner/wheels' '/static/templates' '/static/template-library/images'
+  '/prompt-templates/source-media' '/runner/maestro_refresh.sh'
 )
 # One rsync filter file on the Spark: protect lines first (first match wins, and
 # excluded receiver files are never deleted), then the allowlist, then "- *".
@@ -140,7 +141,7 @@ echo "idle"
 
 if (( DRY )); then
   say "dry run: rsync plan"
-  rssh "rsync -rlptD -n -iv --delete $RSYNC_FILTER '$STAGE/' '$REMOTE_HOME/'" | sed 's/^/  /' | head -200
+  rssh "rsync -rlptD -n -iv --delete $RSYNC_FILTER '$STAGE/' '$REMOTE_HOME/'" | sed 's/^/  /'
   rssh "rm -rf '$STAGE'"
   exit 0
 fi
