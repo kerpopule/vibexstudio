@@ -15,7 +15,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,6 +31,8 @@ import { PROVIDERS } from '@/lib/ai/registry';
 import { SUBSCRIPTION_ORDER, SUBSCRIPTION_PROVIDERS, type SubscriptionProviderId } from '@/lib/ai/subscriptionOauth';
 import { thisDevice } from '@/lib/device';
 import { onboardingLayoutForViewport } from '@/lib/layout';
+import { localInstallAvailable } from '@/lib/local-controller';
+import { hostHereDoor } from '@/lib/media-lab-setup';
 import { enter } from '@/lib/motion';
 import { hostLabel, mediaCapable, readyToBuild } from '@/lib/setup';
 import { useApp } from '@/lib/store';
@@ -246,6 +248,18 @@ function MediaStep() {
   const mediaLab = useApp((s) => s.mediaLab);
   const onDevice = mediaCapable(providers);
   const hasFal = providers.some((p) => p.kind === 'fal');
+  // Someone with no server can only be told to scan a QR nothing is showing,
+  // so the list also carries the door that creates one.
+  // The desktop refuses to install on Windows and x86_64 Linux, so the shell
+  // is asked rather than assuming the bridge's presence means it can host.
+  // Starts false so we never offer an install we cannot perform.
+  const [canHostHere, setCanHostHere] = useState(false);
+  useEffect(() => {
+    let live = true;
+    localInstallAvailable().then((ok) => { if (live) setCanHostHere(ok); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const hostHere = hostHereDoor(canHostHere);
   return (
     <>
       <StepHeader
@@ -276,6 +290,13 @@ function MediaStep() {
           }
           done={mediaLab != null}
           onPress={() => router.push('/pair-scan' as never)}
+        />
+        <DoorRow
+          glyph="⬇️"
+          title={hostHere.title}
+          body={hostHere.body}
+          done={false}
+          onPress={() => router.push(hostHere.route as never)}
         />
         <DoorRow
           glyph="☁️"
