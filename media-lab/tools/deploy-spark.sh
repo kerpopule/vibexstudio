@@ -53,7 +53,7 @@ BRANCH="$(git branch -r --contains "$COMMIT" 2>/dev/null | sed -n 's|^ *origin/|
 BRANCH="${BRANCH:-$(git branch --contains "$COMMIT" --format='%(refname:short)' | head -1)}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 STAGE="$REMOTE_HOME.deploy-$TAG-$STAMP"
-BACKUP="$REMOTE_HOME/.backups/deploy-$STAMP-$COMMIT"
+BACKUP="$REMOTE_ABS_HOME/$REMOTE_HOME/.backups/deploy-$STAMP-$COMMIT"
 say "deploying $SUBDIR/ at $TAG ($COMMIT) to $SPARK:~/$REMOTE_HOME"
 
 # Guard: the tree must not carry private identity (the same check CI runs).
@@ -160,7 +160,7 @@ if ! rssh "cd '$REMOTE_HOME' && PY=\$( [ -x .venv/bin/python ] && echo .venv/bin
       \$PY -m py_compile app.py \$(ls *.py 2>/dev/null) && \
       \$PY -m compileall -q media_lab_core runner tools >/dev/null"; then
   echo "compile FAILED — roll back with:" >&2
-  echo "  ssh $SPARK 'rsync -rlptD --delete $RSYNC_FILTER ~/$BACKUP/ ~/$REMOTE_HOME/ && systemctl --user restart $SERVICE'" >&2
+  echo "  ssh $SPARK 'rsync -rlptD --delete $RSYNC_FILTER $BACKUP/ ~/$REMOTE_HOME/ && systemctl --user restart $SERVICE'" >&2
   exit 1
 fi
 
@@ -174,7 +174,7 @@ for _ in $(seq 1 60); do
 done
 if (( ! ok )); then
   echo "service did not answer on :$REMOTE_PORT after restart — roll back with:" >&2
-  echo "  ssh $SPARK 'rsync -rlptD --delete $RSYNC_FILTER ~/$BACKUP/ ~/$REMOTE_HOME/ && systemctl --user restart $SERVICE'" >&2
+  echo "  ssh $SPARK 'rsync -rlptD --delete $RSYNC_FILTER $BACKUP/ ~/$REMOTE_HOME/ && systemctl --user restart $SERVICE'" >&2
   rssh "journalctl --user -u '$SERVICE' -n 40 --no-pager" >&2 || true
   exit 1
 fi
