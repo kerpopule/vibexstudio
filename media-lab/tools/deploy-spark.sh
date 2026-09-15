@@ -41,6 +41,9 @@ fi
 say()  { printf '\033[1m==> %s\033[0m\n' "$*"; }
 die()  { echo "deploy-spark: $*" >&2; exit 1; }
 rssh() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$SPARK" "$@"; }
+# Media Lab binds MEDIA_LAB_BIND_HOST (often the tailnet IP), not loopback: read it from the Spark's local.env.
+REMOTE_BIND="$(rssh "sed -n 's/^MEDIA_LAB_BIND_HOST=//p' ~/${REMOTE_HOME:-media-lab-simple}/config/local.env 2>/dev/null | tr -d '\"' | head -1" || true)"
+REMOTE_BIND="${REMOTE_BIND:-127.0.0.1}"
 
 # ---------------------------------------------------------------- 0. identity
 git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || die "no such tag: $TAG"
@@ -118,7 +121,7 @@ rssh "test -f '$STAGE/app.py'" || die "staging failed"
 say "waiting for the queue to go idle (up to ${QUEUE_WAIT_S}s)"
 deadline=$(( $(date +%s) + QUEUE_WAIT_S ))
 while :; do
-  active="$(rssh "curl -s -m 5 -H 'Host: localhost' http://127.0.0.1:$REMOTE_PORT/api/queue?hist=0" \
+  active="$(rssh "curl -s -m 5 -H 'Host: localhost' http://$REMOTE_BIND:$REMOTE_PORT/api/queue?hist=0 || true" \
             | python3 -c 'import json,sys
 try:
     d=json.load(sys.stdin); print(d.get("active_total", len(d.get("active",[]))))
@@ -159,7 +162,7 @@ say "restarting $SERVICE"
 rssh "systemctl --user restart '$SERVICE'"
 ok=0
 for _ in $(seq 1 60); do
-  if rssh "curl -sf -m 5 -H 'Host: localhost' http://127.0.0.1:$REMOTE_PORT/api/queue?hist=0 >/dev/null"; then ok=1; break; fi
+  if rssh "curl -sf -m 5 -H 'Host: localhost' http://$REMOTE_BIND:$REMOTE_PORT/api/queue?hist=0 >/dev/null"; then ok=1; break; fi
   sleep 3
 done
 if (( ! ok )); then
