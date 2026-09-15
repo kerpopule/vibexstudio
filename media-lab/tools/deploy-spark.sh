@@ -95,6 +95,7 @@ ALLOW=(
 )
 # What the box owns: never written, never deleted (rsync --exclude, first wins).
 PROTECT=(
+  '._*' '.DS_Store'
   '/config/local.env' '/config/engine-installs.json' '/config/fal-catalog.json'
   '/config/model-residency-policy.json'
   '/productions' '/qa' '/research' '/reference' '/medialab-import' '/image-svc'
@@ -121,7 +122,7 @@ RSYNC_FILTER="--filter=\"merge $RULES_FILE\""   # one argv on the remote shell: 
 say "staging to $SPARK:~/$STAGE"
 rssh "mkdir -p '$STAGE' '$REMOTE_HOME/.backups'"
 rssh "cat > '$RULES_FILE'" < "$WORK/deploy-rules"
-tar -C "$WORK/$SUBDIR" -cf - . | rssh "tar -xf - -C '$STAGE'"
+COPYFILE_DISABLE=1 tar --exclude='._*' --exclude='.DS_Store' -C "$WORK/$SUBDIR" -cf - . | rssh "tar -xf - -C '$STAGE'"   # no macOS AppleDouble shadows
 rssh "test -f '$STAGE/app.py'" || die "staging failed"
 
 # ---------------------------------------------------------------- 3. idle
@@ -158,7 +159,7 @@ rssh "rsync -rlptD --delete $RSYNC_FILTER '$STAGE/' '$REMOTE_HOME/' && rm -rf '$
 say "py_compile with the box's venv"
 if ! rssh "cd '$REMOTE_HOME' && PY=\$( [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3 ); \
       \$PY -m py_compile app.py \$(ls *.py 2>/dev/null) && \
-      \$PY -m compileall -q media_lab_core runner tools >/dev/null"; then
+      \$PY -m compileall -q media_lab_core runner tools 2>&1 | grep -E 'Error|error' | head -20; test \${PIPESTATUS[0]} -eq 0"; then
   echo "compile FAILED — roll back with:" >&2
   echo "  ssh $SPARK 'rsync -rlptD --delete $RSYNC_FILTER $BACKUP/ ~/$REMOTE_HOME/ && systemctl --user restart $SERVICE'" >&2
   exit 1
