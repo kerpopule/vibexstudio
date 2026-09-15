@@ -527,7 +527,7 @@ Pinned manifest and cargo/rustc/rust-std component SHA-256 values are recorded
 in triposr-rust-toolchain-review.json. Downloaded three archives totaling
 108,298,076 bytes under a bounded unit and verified every hash. Reviewed
 installer prefix/ldconfig handling; extracted with tar data filter and installed
-only into /home/medialab/runtime/vibex-rust-toolchain-16bg/toolchain using
+only into ~/runtime/vibex-rust-toolchain-16bg/toolchain using
 --disable-ldconfig. Installation unit allowed AF_UNIX only, MemoryMax2G, swap0,
 CPU200%, RuntimeMax180s. It exited successfully in 7.188 seconds.
 

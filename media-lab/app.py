@@ -11,6 +11,7 @@ from fastapi.responses import Response, FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from media_lab_core import studio_library, studio_jobs, studio_inputs, background_host, background_setup
+from media_lab_core import local_config
 from media_lab_core.job_store import JobStore
 from media_lab_core.director_context import project_context_message
 from media_lab_core import installer as engine_installer
@@ -34,7 +35,9 @@ from screenshot_song import (EXACT_SONG_MAX_WORDS, aligned_starts,
                               render_screenshot_video, song_first_auto_seconds,
                               song_first_lyrics_qa, song_first_word_budget)
 
-ROOT = Path.home() / "media-lab-simple"
+# Per-host settings (data root, bind/tailnet hosts, model and runtime roots)
+# come from config/local.env; see config/local.env.example.
+ROOT = local_config.home()
 JOBS_DIR = ROOT / "jobs"
 MEDIA = ROOT / "media"
 SCREENSHOT_SONGS_DIR = ROOT / "screenshot-songs"
@@ -926,12 +929,15 @@ def session_role(raw: str) -> str:
         return "user"
     return ""
 
-TRUSTED_HOSTS = {"YOUR_TAILNET_IP", "127.0.0.1", "localhost"}
+# Loopback, the bind address and MEDIA_LAB_TAILNET_HOST (config/local.env).
+TRUSTED_HOSTS = local_config.trusted_hosts()
 # The only hostnames the Cloudflare tunnel ingress ever sends us. A request
 # carrying one of these came through the edge, which means Cloudflare set
 # CF-Connecting-IP itself (it overwrites whatever the client sent) — that is the
 # one client-identity signal we can trust here.
-PUBLIC_HOSTS = {"media.autoedu.ai", "media.source4ai.com"}
+# MEDIA_LAB_PUBLIC_HOSTS in config/local.env (comma separated); empty when the
+# studio is not published through a tunnel.
+PUBLIC_HOSTS = local_config.public_hosts()
 GATE_EXEMPT = {"/manifest.json", "/sw.js", "/api/gate", "/gate", "/favicon.ico"}
 # Exempt EXACT files, never a prefix. The PWA needs its icons before the visitor
 # has a cookie (iOS reads the manifest from a logged-out page), and nothing else
@@ -1149,7 +1155,7 @@ def record_ok(ns, key):
 
 def _secure_cookie(request: Request) -> bool:
     """Mark cookies Secure only when this request really came over HTTPS. The Lab
-    is also served plain-HTTP on the tailnet (http://YOUR_TAILNET_IP:7863), where a
+    is also served plain-HTTP on the tailnet (http://<tailnet address>:7863), where a
     blanket secure=True would make the browser silently drop the cookie."""
     host = (request.headers.get("host") or "").split(":")[0].lower()
     if host in PUBLIC_HOSTS:
@@ -1686,7 +1692,7 @@ ENGINES = {
 # weights count as the `voice` companion and are handled below through its API.
 COMPANION_ENGINE_NAMES = tuple(ENGINES)
 COMPANION_NAMES = frozenset((*COMPANION_ENGINE_NAMES, "voice"))
-PPLX_MODELS_URL = "http://127.0.0.1:8004/v1/models"
+PPLX_MODELS_URL = local_config.text_upstream() + "/v1/models"   # MEDIA_LAB_TEXT_UPSTREAM
 QWEN_GB = 32        # measured qwen38-vllm residency, 2026-08-18 (not the old 20G llama.cpp)
 MEM_CAP_GB = 105    # leave an explicit operational margin on the 121 GiB unified pool
 IDLE_REAP_S = 3600  # 60-minute keep-warm for h3 / music / image; LTX is the idle default
@@ -6211,9 +6217,9 @@ def run_say(j):
 ENH_PY = COMFY_IMAGE_DIR / ".venv/bin/python"
 ENH_SCRIPT = ROOT / "runner/enhance_video.py"
 ENH_MODELS = ROOT / "runner/models"
-LATENTSYNC_ROOT = Path("/home/medialab/runtime/LatentSync.stage")
+LATENTSYNC_ROOT = local_config.runtime_root() / "LatentSync.stage"   # MEDIA_LAB_RUNTIME_ROOT
 LATENTSYNC_SCRIPT = ROOT / "runner/latentsync_video.sh"
-HVA_MODELS = Path("/home/medialab/.local/share/media-lab-p2-models/maestro-hunyuan-avatar")
+HVA_MODELS = local_config.models_root() / "maestro-hunyuan-avatar"   # MEDIA_LAB_MODELS_ROOT
 HVA_SCRIPT = ROOT / "runner/hunyuan_avatar_video.sh"
 HVA_RUNNER = ROOT / "runner/hunyuan_avatar_once.py"
 HVA_MANIFEST = ROOT / "research/hunyuan-avatar/model-manifest.json"

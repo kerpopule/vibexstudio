@@ -954,7 +954,8 @@
   <div class="hint" id="galcount" style="margin-left:6px"></div>
   </div>
 
-  <a class="adv" href="http://YOUR_TAILNET_IP:7864" target="_blank">Need every knob? <b>Advanced mode →</b></a>
+  <a class="adv" href="#" data-port="7864" target="_blank" rel="noopener">Need every knob? <b>Advanced mode →</b></a>
+  <script>(function(){var a=document.querySelector("a.adv");if(a)a.href=location.protocol+"//"+location.hostname+":"+a.dataset.port;})();</script>
   </section>
 
   <!-- ================= MUSIC ================= -->

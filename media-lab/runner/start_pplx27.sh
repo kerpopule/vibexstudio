@@ -2,7 +2,9 @@
 # PPLX Computer Qwen3.8-27B + DFlash2, private/local Spark inference.
 # Stable media-lab-text alias lets Director survive governed PPLX/Flash swaps.
 set -Eeuo pipefail
-MODEL_DIR=/home/medialab/models/pplx-computer-qwen-3-8-27b-dflash2-20260824
+# Per-host paths come from config/local.env (see config/local.env.example).
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/local_env.sh"
+MODEL_DIR="$HOME/models/pplx-computer-qwen-3-8-27b-dflash2-20260824"
 IMAGE=vllm-dflash2:lmheadfix
 # Keep PPLX resident and first in the memory budget while leaving the measured
 # LTX decode floor intact. 0.30 left only ~69.4 GiB MemAvailable on the 121 GiB
@@ -23,11 +25,11 @@ fi
 docker rm -f qwen38-vllm >/dev/null 2>&1 || true
 exec docker run -d --name qwen38-vllm --restart unless-stopped --init \
   --device nvidia.com/gpu=all --ipc=host \
-  -p 127.0.0.1:8004:8000 -p YOUR_TAILNET_IP:8004:8000 \
+  "${MEDIA_LAB_PUBLISH_8004[@]}" \
   -v "$MODEL_DIR":/models/active:ro \
-  -v /home/medialab/.cache/huggingface:/root/.cache/huggingface \
-  -v /home/medialab/.cache/vllm:/root/.cache/vllm \
-  -v /home/medialab/.cache/flashinfer:/root/.cache/flashinfer \
+  -v "$HOME/.cache/huggingface:/root/.cache/huggingface" \
+  -v "$HOME/.cache/vllm:/root/.cache/vllm" \
+  -v "$HOME/.cache/flashinfer:/root/.cache/flashinfer" \
   -e HF_HUB_OFFLINE=1 \
   --entrypoint vllm \
   "$IMAGE" \

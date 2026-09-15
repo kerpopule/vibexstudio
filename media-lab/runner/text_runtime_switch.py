@@ -97,7 +97,7 @@ def mem_available_gib() -> float:
 
 
 def flash_floor_gib() -> float:
-    receipt = Path("/home/medialab/models/Qwen3.8-Flash-Next-UD-IQ1_M/MEDIA-LAB-RECEIPT.json")
+    receipt = Path.home() / "models/Qwen3.8-Flash-Next-UD-IQ1_M/MEDIA-LAB-RECEIPT.json"
     total = int(json.loads(receipt.read_text())["total_bytes"])
     return total / (1024 ** 3) + 24.0 + 4.0
 

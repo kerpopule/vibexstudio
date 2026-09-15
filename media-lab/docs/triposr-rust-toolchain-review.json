@@ -45,7 +45,7 @@
     }
   ],
   "smoke": {
-    "prefix": "/home/medialab/runtime/vibex-rust-toolchain-16bg/toolchain",
+    "prefix": "~/runtime/vibex-rust-toolchain-16bg/toolchain",
     "versions": {
       "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
       "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)"

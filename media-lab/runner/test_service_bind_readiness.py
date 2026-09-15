@@ -14,7 +14,10 @@ class MediaLabBindReadinessContract(unittest.TestCase):
     def test_dropin_waits_for_exact_canonical_tailscale_address(self):
         self.assertIn("ExecStartPre=", self.text)
         self.assertIn("tailscale0", self.text)
-        self.assertIn("inet YOUR_TAILNET_IP/32", self.text)
+        # The address is per-host: it comes from config/local.env, never a literal.
+        self.assertIn("EnvironmentFile=-%h/media-lab-simple/config/local.env", self.text)
+        self.assertIn("MEDIA_LAB_TAILNET_HOST", self.text)
+        self.assertIn("/32", self.text)
         self.assertIn("until ", self.text)
 
     def test_dropin_never_times_out_while_tailnet_recovers(self):

@@ -18,12 +18,16 @@ State between runs lives in watchdog-state.json next to this script's data dir.
 Never restarts more often than RESTART_COOLDOWN_MIN.
 """
 import json, os, subprocess, sys, time, urllib.error, urllib.request
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from media_lab_core import local_config   # config/local.env, stdlib only
 
 HOME = os.path.expanduser("~")
-ROOT = os.path.join(HOME, "media-lab-simple")
+ROOT = str(local_config.home())
 STATE = os.path.join(ROOT, "watchdog-state.json")
-QUEUE_URL = "http://YOUR_TAILNET_IP:7863/api/queue"
-TUNNEL_URL = "https://media.autoedu.ai/"
+QUEUE_URL = local_config.studio_url() + "/api/queue"
+# First public hostname, if the studio is published (MEDIA_LAB_PUBLIC_HOSTS).
+_PUBLIC = sorted(local_config.public_hosts())
+TUNNEL_URL = f"https://{_PUBLIC[0]}/" if _PUBLIC else ""
 TUNNEL_METRICS_URL = "http://127.0.0.1:20241/metrics"
 TUNNEL_PROBE_UA = "MediaLabWatchdog/1.0"
 TUNNEL_ORIGIN_FAILURE_CODES = (0, 502, 503, 504, 521, 522, 523, 530)

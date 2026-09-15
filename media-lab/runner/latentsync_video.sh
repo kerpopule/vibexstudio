@@ -9,15 +9,17 @@ SEED=${4:?seed}
 GUIDANCE=${5:?guidance scale}
 MOUTH_LOCK_UNTIL=${6:?mouth lock until}
 JOBDIR=${7:?job directory}
-ROOT=/home/medialab/runtime/LatentSync.stage
+# Per-host paths come from config/local.env (see config/local.env.example).
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/local_env.sh"
+ROOT="$MEDIA_LAB_RUNTIME_ROOT/LatentSync.stage"
 LOCK=/run/user/1000/spark-gpu.lock
 POOL=media-lab-pool.service
 SEG=media-lab-segment.service
 LTX=media-lab-ltx-engine
 H3=media-lab-h3-engine
-POOL_LOCK=/home/medialab/media-lab-simple/runner/pool_lock.sh
-LOCKER=/home/medialab/media-lab-simple/runner/lock_instrumental_mouth.py
-LOCK_PY=/home/medialab/runtime/LatentSync.stage/.venv/bin/python
+POOL_LOCK="$MEDIA_LAB_HOME/runner/pool_lock.sh"
+LOCKER="$MEDIA_LAB_HOME/runner/lock_instrumental_mouth.py"
+LOCK_PY="$ROOT/.venv/bin/python"
 RAW="$JOBDIR/latentsync-raw.mp4"
 NORM="$JOBDIR/latentsync-normalized.mkv"
 VISUAL="$JOBDIR/latentsync-visual.mp4"

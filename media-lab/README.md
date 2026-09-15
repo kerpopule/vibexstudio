@@ -77,6 +77,16 @@ can host Media Lab as a sidecar, and the
 [phone app](https://github.com/kerpopule/vibexstudio) pairs to any Media Lab
 over your LAN or tailnet — a Media Lab tab appears in the app.
 
+## Per-host settings
+
+Nothing in the tree names a machine. Hostnames, the bind/tailnet address,
+public hostnames behind a tunnel, and model/runtime roots live in one
+gitignored file, `config/local.env` — copy `config/local.env.example` into
+`~/media-lab-simple/config/` and edit it. `app.py`, the runner scripts and the
+systemd units all read it; `python -m media_lab_core.local_config` prints what
+resolves on this host. CI runs `tools/identity_guard.py` so a private address
+can never be committed by accident.
+
 ## Good to know
 
 - **The H3 model is separately licensed** (private, single-machine use).

@@ -21,9 +21,12 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from media_lab_core import local_config   # config/local.env, stdlib only
 
 HOME = os.path.expanduser("~")
-STATE = os.path.join(HOME, "media-lab-simple", "supervisor-state.json")
+STATE = os.path.join(str(local_config.home()), "supervisor-state.json")
 ENV = dict(os.environ,
            XDG_RUNTIME_DIR="/run/user/1000",
            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/1000/bus")
@@ -35,7 +38,7 @@ STRIKES = 2
 
 UNITS = [
     # (unit, probe url, what a healthy answer looks like)
-    ("media-lab-simple.service", "http://YOUR_TAILNET_IP:7863/api/queue", None),
+    ("media-lab-simple.service", local_config.studio_url() + "/api/queue", None),
     ("media-lab-image.service", "http://127.0.0.1:8295/health", None),
     ("media-lab-tunnel.service", None, None),
     # media-lab-pool.service is intentionally inactive in cold-idle mode.

@@ -19,14 +19,17 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from media_lab_core import local_config   # config/local.env, stdlib only
+
 HOME = Path.home()
-ROOT = HOME / "media-lab-simple"
+ROOT = local_config.home()
 PLAN = ROOT / "runner" / "overnight_refinement_plan_2026_08_20.json"
 STATE = ROOT / "pool" / "overnight-refinement-2026-08-20-state.json"
 EVENTS = ROOT / "pool" / "overnight-refinement-2026-08-20-events.jsonl"
 RUN_LOCK = Path("/run/user/1000/media-lab-overnight-refinement.lock")
 GPU_LOCK = Path("/run/user/1000/spark-gpu.lock")
-BASE = "http://YOUR_TAILNET_IP:7863"
+BASE = local_config.studio_url()
 QUEUE_URL = BASE + "/api/queue?limit=1000"
 TIMER = "media-lab-overnight-refinement.timer"
 TRANSIENT = (
