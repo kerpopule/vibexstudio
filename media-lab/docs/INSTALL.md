@@ -90,7 +90,12 @@ python3 -m media_lab_core.local_config     # show what resolves
 
 Process environment overrides the file, the file overrides the defaults, and
 the defaults describe a private single-machine install (`127.0.0.1`, no public
-hosts). The runner shell scripts source the same file and the systemd units
+hosts).
+
+Music: YuE2 is the primary song engine (`YUE2_KIT`, `YUE2_MODELS_ROOT`,
+`YUE2_PORT`; weights are CC BY-NC 4.0, non-commercial use only) and the stem
+separator is `MELBAND_ROFORMER_ROOT`; see [MUSIC.md](MUSIC.md) for the runtime
+layout and the edit tools. The runner shell scripts source the same file and the systemd units
 load it with `EnvironmentFile=`, so there is exactly one place to edit.
 
 ## Pairing from the phone

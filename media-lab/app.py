@@ -1421,7 +1421,8 @@ def admin_guard(request: Request, pin: Optional[str]):
 
 # ---------- ETA stats ----------
 ETA_DEFAULT = {"video": 6, "music": 12, "screenshotsong": 14, "image": 3, "character": 9, "storyboard": 4, "assemble": 2,
-               "assembly_import": 1, "musicvideo": 18, "selfchar": 10, "speak": 2, "say": 8, "filmbeat": 6, "enhance": 6}
+               "assembly_import": 1, "musicvideo": 18, "selfchar": 10, "speak": 2, "say": 8, "filmbeat": 6, "enhance": 6,
+               "stems": 2}
 ETA_DEFAULT_WARM = {"video": 3, "music": 8, "screenshotsong": 10, "image": 1, "character": 4, "musicvideo": 10,
                     "selfchar": 5, "say": 5, "filmbeat": 3, "enhance": 5}
 def eta_key(j):
@@ -1433,6 +1434,9 @@ def eta_key(j):
     if j["kind"] in ("music", "screenshotsong"):
         req = j.get("request") or {}
         seconds = req.get("duration_seconds") or req.get("length", "auto")
+        # Music 3 keeps its historical key; YuE2 renders at a different speed.
+        if _music_engine_for(j) == "yue2":
+            return f"{j['kind']}/yue2/{seconds}/{temp}"
         return f"{j['kind']}/{seconds}/{temp}"
     if j["kind"] in ("image", "character", "selfchar"):
         return f"{j['kind']}/{temp}"
@@ -1770,6 +1774,29 @@ H3_VARIANT_RECEIPT.parent.mkdir(parents=True, exist_ok=True)
 COMFY_MUSIC_DIR = Path.home() / "runtime/music3-iso/ComfyUI"
 COMFY_IMAGE_DIR = Path.home() / "runtime/comfy-ltx25/ComfyUI"
 SOL_H3_PORT = 8291
+# Cross-process inference mutex (shared with the engine shims and image_service).
+INFERENCE_LOCK = "/run/user/1000/media-lab-inference.lock"
+
+# ---------- music engines ----------
+# YuE2 is the PRIMARY music engine (Steve, 2026-09-14): the default for every
+# new song. MiniMax Music 3 (ComfyUI, ENGINES["music"]) stays as a secondary
+# choice and remains the engine behind screenshot songs, whose Director QA
+# contract was measured against it. Request-level names are "yue2" | "music3";
+# MUSIC_ENGINE_UNITS maps them to the ENGINES residency slots.
+MUSIC_ENGINES = ("yue2", "music3")
+MUSIC_ENGINE_UNITS = {"yue2": "yue2", "music3": "music"}
+MUSIC_COT_MODES = ("full", "melody", "off")
+# The YuE2 weights are CC BY-NC 4.0. Every YuE2-made song carries the licence
+# id in its job and gallery row, and the UI shows the notice next to the name.
+YUE2_LICENSE = "CC-BY-NC-4.0"
+YUE2_LICENSE_NOTICE = "Non-commercial use only (YuE2 weights are CC BY-NC 4.0)"
+YUE2_PORT = local_config.yue2_port()                       # YUE2_PORT in config/local.env
+MUSIC_ABC_MAX = 60_000                                     # an edited score, in characters
+
+
+def _yue2_command() -> str:
+    """Start script for the YuE2 shim; per-host paths come from config/local.env."""
+    return f"exec bash {shlex.quote(str(SOURCE_DIR / 'runner/start_yue2_engine.sh'))}"
 
 
 def _sol_h3_command() -> str:
@@ -1816,6 +1843,12 @@ ENGINES = {
     "image": {"port": 8195, "kind": "unit", "unit": "media-lab-comfy-image.service",
               "health": "/system_stats", "gb": 15, "boot_wait": 150,
               "cmd": f"cd {COMFY_IMAGE_DIR} && exec .venv/bin/python main.py --disable-api-nodes --listen 127.0.0.1 --port 8195 --disable-auto-launch"},
+    # YuE2 (runner/yue2_engine_server.py): the primary music engine. Measured on
+    # the Spark: ~4 s pipeline load, 16-17 GiB peak, ~200 s per 60-90 s song.
+    # The shim takes the inference lock itself, so run_music must not hold it
+    # around /generate (see _yue2_generate).
+    "yue2":  {"port": YUE2_PORT, "kind": "unit", "unit": "media-lab-yue2.service",
+              "cmd": _yue2_command(), "health": "/health", "gb": 18, "boot_wait": 240},
 }
 # Steve's promoted Spark contract: PPLX-27B is the protected primary and exactly
 # one heavyweight companion owns the remaining unified-memory slot.  The
@@ -2386,7 +2419,7 @@ def ensure_engine(name, j=None):
         if name == "h3":
             resident = resident_engines()
             projected = QWEN_GB + ENGINES["h3"]["gb"] + sum(ENGINES[n]["gb"] for n in resident)
-            for cheap in ("music", "image"):
+            for cheap in ("music", "yue2", "image"):
                 if projected > MEM_CAP_GB and cheap in resident:
                     if j is not None: j["stage"] = "making room for H3…"
                     stop_engine(cheap); resident.remove(cheap)
@@ -2493,7 +2526,7 @@ class _ResidencyRuntime:
                                     capture_output=True, text=True)
         return {"models": model_state,
                 "aux": {n: {"resident": engine_up(n), "busy": engine_busy(n)}
-                        for n in ("image", "music")},
+                        for n in ("image", "music", "yue2")},
                 "memory": {"available_gb": round(_mem_available_gb(), 2)},
                 "pool_lease": {"owner": pool_owner, "meaning": "model-pool ownership"},
                 "inference": {"locked": bool((lock_users.stdout or "").strip()),
@@ -2705,7 +2738,7 @@ def reap_idle_engines():
     H3 render can therefore exceed IDLE_REAP_S without being idle.  The busy
     probe is the authoritative guard against killing that active transaction.
     """
-    for name in ("h3", "music", "image"):
+    for name in ("h3", "music", "yue2", "image"):
         idle = engine_idle_s(name)
         if (idle is not None and idle > IDLE_REAP_S
                 and engine_up(name) and not engine_busy(name)):
@@ -2882,7 +2915,7 @@ def cast_lines(cast_ids, chars=None):
     return out
 
 # ---------- workers per kind ----------
-def gallery_add(item_id, prompt, kind, url, poster, style="", engine=""):
+def gallery_add(item_id, prompt, kind, url, poster, style="", engine="", license=""):
     g = _load(ROOT / "gallery.json", [])
     if any(x.get("id") == item_id for x in g):
         return
@@ -2892,6 +2925,9 @@ def gallery_add(item_id, prompt, kind, url, poster, style="", engine=""):
     # different painters, were previously indistinguishable in the library.
     if engine:
         row["engine"] = engine
+    # Weights licence (YuE2 is CC BY-NC 4.0): the library shows the notice.
+    if license:
+        row["license"] = license
     g.insert(0, row)
     _save(ROOT / "gallery.json", g[:500])
 
@@ -3266,9 +3302,105 @@ def run_video(j):
                        "try again in a minute.")
     _run_video_cold(j)
 
+def _music_engine_for(j) -> str:
+    """'yue2' | 'music3' for a music-family job. New songs default to YuE2;
+    screenshot songs stay on Music 3 unless the request names an engine."""
+    r = j.get("request") or {}
+    engine = str(r.get("engine") or "").strip().lower()
+    if engine in MUSIC_ENGINES:
+        return engine
+    return "yue2" if j.get("kind") == "music" else "music3"
+
+
+def _style_line_from_caption(caption: str) -> str:
+    """One line of genre/mood/instruments for YuE2 out of the Music 3 caption.
+    The 'Global Metadata' paragraph is the closest thing the songwriter writes."""
+    text = str(caption or "")
+    para = ""
+    for block in re.split(r"\n\s*\n", text):
+        block = block.strip()
+        if block.lower().startswith("global metadata"):
+            para = block.split(":", 1)[1] if ":" in block else block
+            break
+    para = para or text.split("\n", 1)[0]
+    line = " ".join(para.split()).strip(" .")
+    return line[:300]
+
+
+def _abc_strip_chords(abc: str) -> str:
+    """Drop chord symbols ("Am", "G7"...) so a transcribed song becomes a
+    melody-only score YuE2 can re-harmonise under a new style (cot=melody)."""
+    out = []
+    for line in str(abc or "").splitlines():
+        if re.match(r"^[A-Za-z]:", line) or line.startswith("%"):
+            out.append(line)
+            continue
+        out.append(re.sub(r'"[^"\n]*"', "", line))
+    return "\n".join(out).strip() + "\n"
+
+
+def _music_song_file(song_id: str):
+    """The library MP3 for a song id (native, uploaded or imported), or None."""
+    name = Path(str(song_id or "")).name
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", name):
+        return None
+    song = MEDIA / f"{name}.mp3"
+    return song if song.is_file() else None
+
+
+def _music_song_abc(song_id: str) -> str:
+    """The ABC score of a library song: the job record first, then jobs/<id>/score.abc."""
+    j = jobs.get(song_id) or {}
+    abc = str(j.get("abc") or "")
+    if not abc:
+        try:
+            abc = (JOBS_DIR / Path(str(song_id)).name / "score.abc").read_text(encoding="utf-8")
+        except OSError:
+            abc = ""
+    return abc
+
+
+def _yue2_url(path: str) -> str:
+    return f"http://127.0.0.1:{ENGINES['yue2']['port']}{path}"
+
+
+def _yue2_generate(body: dict, j=None, timeout=3600):
+    """POST /generate to the YuE2 shim. The shim holds the inference lock itself
+    (409 when another engine has it), so unlike Sol/LTX the app must NOT take the
+    lock here. A stop from the queue is forwarded as /interrupt."""
+    stop = threading.Event()
+
+    def watch():
+        while not stop.wait(2):
+            if j is not None and j.get("cancel"):
+                try:
+                    http_json(_yue2_url("/interrupt"), {}, timeout=5)
+                except Exception:
+                    pass
+                return
+    watcher = threading.Thread(target=watch, daemon=True)
+    watcher.start()
+    try:
+        return http_json(_yue2_url("/generate"), body, timeout=timeout)
+    finally:
+        stop.set()
+
+
+def _yue2_transcribe(song: Path, request_id: str, max_seconds=None, task="melody-full"):
+    body = {"audio_path": str(song), "task": task, "request_id": request_id}
+    if max_seconds:
+        body["max_seconds"] = int(max_seconds)
+    return http_json(_yue2_url("/transcribe"), body, timeout=1900)
+
+
 def run_music(j, finalize: bool = True):
     r = j["request"]
     jd = JOBS_DIR / j["id"]; jd.mkdir(parents=True, exist_ok=True)
+    engine = _music_engine_for(j)
+    j["engine"] = engine
+    instrumental = bool(r.get("instrumental"))
+    if engine == "yue2":
+        j["license"] = YUE2_LICENSE
     song_first = (j.get("kind") == "screenshotsong" and
                   r.get("screenshot_song_mode") == "song")
     melodic_exact = (j.get("kind") == "screenshotsong" and
@@ -3307,6 +3439,9 @@ def run_music(j, finalize: bool = True):
         )
     if own:
         user += f"\nThe user supplied these lyrics — keep their words, add section tags:\n{own}"
+    if instrumental:
+        user += ("\nThe song is INSTRUMENTAL: no vocals at all. Say so in Vocal Details "
+                 "and return an empty string for lyrics.")
     if melodic_exact:
         user += (
             "\nThis is an exact-lyrics screenshot song. Every supplied word is immutable and "
@@ -3314,12 +3449,23 @@ def run_music(j, finalize: bool = True):
             "a clearly pitched melodic performance with sustained notes and instrumental "
             "breathing room; never speak, narrate, recite, chant, or rap the lyrics."
         )
+    # A re-arrangement or cover already carries a style line and (optionally)
+    # lyrics; the score is the contract, so the songwriter is not consulted.
+    skip_writer = (engine == "yue2" and bool(r.get("skip_songwriter"))
+                   and bool(str(r.get("style") or "").strip()))
     try:
-        data = qwen_json(MUSIC_SYS, user)
-        caption = str(data.get("caption", "")).strip()
-        lyrics = _finalize_music_lyrics(
-            own, str(data.get("lyrics", "")), literal)
-        assert "Global Metadata" in caption and "Arrangement" in caption
+        if skip_writer:
+            caption = f"Global Metadata: {str(r.get('style')).strip()}"
+            lyrics = "" if instrumental else own
+            data = {}
+        else:
+            data = qwen_json(MUSIC_SYS, user)
+            caption = str(data.get("caption", "")).strip()
+            lyrics = _finalize_music_lyrics(
+                own, str(data.get("lyrics", "")), literal)
+            assert "Global Metadata" in caption and "Arrangement" in caption
+        if instrumental:
+            lyrics = ""
         if literal:
             caption = _literal_music_caption(caption)
         if melodic_exact:
@@ -3359,12 +3505,45 @@ def run_music(j, finalize: bool = True):
     except Exception as e:
         return fail(j, "The studio's songwriter is unavailable — try again in a minute.", str(e))
     j["caption"] = caption; j["lyrics"] = lyrics
+    unit = MUSIC_ENGINE_UNITS[engine]
+    style_line = ""
+    cot = "full"
+    abc = ""
+    if engine == "yue2":
+        style_line = str(r.get("style") or "").strip() or _style_line_from_caption(caption)
+        j["style_line"] = style_line
+        cot = str(r.get("cot") or "full").strip().lower()
+        if cot not in MUSIC_COT_MODES:
+            cot = "full"
+        abc = str(r.get("abc") or "").strip()
     j["stage"] = "starting"
-    st = ensure_engine("music", j)
+    st = ensure_engine(unit, j)
     if st == "busy":
         return fail(j, BUSY_MSG)
     if st == "fail":
         return fail(j, friendly("comfy_boot"))
+    reference = str(r.get("reference_song_id") or "").strip()
+    if engine == "yue2" and reference and not abc:
+        # A cover: SheetSage2 transcribes the reference song, the chords are
+        # dropped, and YuE2 re-harmonises the bare melody under the new style.
+        song = _music_song_file(reference)
+        if song is None:
+            return fail(j, "The reference song is no longer in the library.")
+        j["stage"] = "transcribing"
+        try:
+            res = _yue2_transcribe(song, f"{j['id']}-ref", max_seconds=secs)
+        except Exception as e:
+            return fail(j, "The reference song could not be transcribed — try again.", str(e))
+        if not res.get("ok") or not res.get("abc"):
+            return fail(j, "The reference song could not be transcribed — try again.",
+                        str(res.get("error") or ""))
+        (jd / "reference.abc").write_text(str(res["abc"]), encoding="utf-8")
+        abc = _abc_strip_chords(str(res["abc"]))
+        cot = "melody"
+        j["reference_song_id"] = reference
+        touch_engine("yue2")
+    if engine == "yue2":
+        j["cot"] = cot
 
     # Screenshot songs receive a real post-render Director gate against exact
     # reviewed text; the legacy adaptation branch remains only for old jobs.
@@ -3376,37 +3555,74 @@ def run_music(j, finalize: bool = True):
     approved_transcript: dict = {}
     for attempt in range(1, max_attempts + 1):
         seed = random.randrange(1, 2**31)
-        pl = json.loads(json.dumps(MUSIC_TEMPLATE))
-        pl["13"]["inputs"].update(caption=caption, lyrics=lyrics, seed=seed,
-                                  max_duration=secs)
-        pl["9"]["inputs"]["seed"] = seed
-        prefix = f"music3-lab/LAB_{j['id']}_a{attempt}"
-        pl["35"]["inputs"]["filename_prefix"] = prefix
-        (jd / f"payload-attempt-{attempt}.json").write_text(json.dumps(pl))
+        if attempt == 1 and r.get("seed") is not None:
+            try:
+                seed = int(r["seed"])
+            except (TypeError, ValueError):
+                pass
         j["stage"] = "generating" if attempt == 1 else f"repairing take {attempt}"
         j["director_attempt"] = attempt
-        try:
-            # Music 3 owns the same cross-process inference transaction as video,
-            # image, and TTS. The text Director remains independently reachable.
-            with open("/run/user/1000/media-lab-inference.lock", "a+") as gate:
-                fcntl.flock(gate, fcntl.LOCK_EX)
-                comfy_run(8196, pl, timeout_s=3600, poll_s=5, job=j)
-        except Exception as e:
-            return fail(j, "The recording session failed — try again.", str(e))
-        touch_engine("music")
-        outs = sorted(
-            (COMFY_MUSIC_DIR / "output/music3-lab").glob(
-                f"LAB_{j['id']}_a{attempt}*.flac"),
-            key=lambda p: p.stat().st_mtime)
-        if not outs:
-            return fail(j, "The song rendered but went missing — try again.")
+        outs: list[Path] = []
+        if engine == "yue2":
+            body = {"style": style_line,
+                    "lyrics": "[Instrumental]" if (instrumental or not lyrics.strip()) else lyrics,
+                    "cot": cot, "seed": seed, "max_seconds": secs,
+                    "request_id": f"{j['id']}-a{attempt}"}
+            if abc:
+                body["abc"] = abc
+            (jd / f"payload-attempt-{attempt}.json").write_text(json.dumps(body))
+            try:
+                res = _yue2_generate(body, j)
+            except Exception as e:
+                if "HTTP 409" in str(e):
+                    return fail(j, BUSY_MSG, str(e))
+                return fail(j, "The recording session failed — try again.", str(e))
+            if j.get("cancel"):
+                return fail(j, "Stopped by you — the take was discarded.")
+            if not res.get("ok"):
+                return fail(j, "The recording session failed — try again.",
+                            str(res.get("error") or ""))
+            touch_engine("yue2")
+            flac = Path(str(res.get("file") or ""))
+            if not flac.is_file():
+                return fail(j, "The song rendered but went missing — try again.")
+            j["abc"] = str(res.get("abc") or abc or "")
+            j["yue2"] = {k: res.get(k) for k in ("seconds", "elapsed", "seed", "sample_rate",
+                                                 "truncated", "timing", "cached")}
+            (jd / "score.abc").write_text(j["abc"], encoding="utf-8")
+            (jd / "result.json").write_text(json.dumps(res, indent=2), encoding="utf-8")
+            source = flac
+        else:
+            pl = json.loads(json.dumps(MUSIC_TEMPLATE))
+            pl["13"]["inputs"].update(caption=caption, lyrics=lyrics, seed=seed,
+                                      max_duration=secs)
+            pl["9"]["inputs"]["seed"] = seed
+            prefix = f"music3-lab/LAB_{j['id']}_a{attempt}"
+            pl["35"]["inputs"]["filename_prefix"] = prefix
+            (jd / f"payload-attempt-{attempt}.json").write_text(json.dumps(pl))
+            try:
+                # Music 3 owns the same cross-process inference transaction as video,
+                # image, and TTS. The text Director remains independently reachable.
+                with open(INFERENCE_LOCK, "a+") as gate:
+                    fcntl.flock(gate, fcntl.LOCK_EX)
+                    comfy_run(8196, pl, timeout_s=3600, poll_s=5, job=j)
+            except Exception as e:
+                return fail(j, "The recording session failed — try again.", str(e))
+            touch_engine("music")
+            outs = sorted(
+                (COMFY_MUSIC_DIR / "output/music3-lab").glob(
+                    f"LAB_{j['id']}_a{attempt}*.flac"),
+                key=lambda p: p.stat().st_mtime)
+            if not outs:
+                return fail(j, "The song rendered but went missing — try again.")
+            source = outs[-1]
         j["stage"] = "encoding"
         candidate = jd / f"candidate-attempt-{attempt}.mp3"
         encoded = subprocess.run(
-            ["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(outs[-1]),
+            ["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source),
              "-codec:a", "libmp3lame", "-q:a", "2", str(candidate)],
             capture_output=True, text=True)
-        for raw in outs:
+        for raw in outs:   # Music 3 scratch only; the YuE2 job dir is the shim's cache
             raw.unlink(missing_ok=True)
         if encoded.returncode or not candidate.exists() or candidate.stat().st_size <= 0:
             candidate.unlink(missing_ok=True)
@@ -3470,7 +3686,8 @@ def run_music(j, finalize: bool = True):
     if finalize:
         j["status"] = "done"; j["stage"] = "done"
         gallery_add(j["id"], f"🎵 {str(r.get('vibe',''))[:120]}", "music", j["url"],
-                    f"/media/{wave.name}" if wave.exists() else "")
+                    f"/media/{wave.name}" if wave.exists() else "",
+                    engine=engine, license=str(j.get("license") or ""))
     else:
         # A screenshot-song is one parent job. Never expose a transient `done`
         # state or publish its audio before the screenshot cut also succeeds.
@@ -7034,10 +7251,11 @@ def run_maestro(j):
     released_image = release_image_weights("Maestro render")
     if released_image is None and engine_up("image"):
         return fail(j, "Could not unload image weights for Maestro.")
-    if engine_up("music"):
-        if engine_busy("music"):
-            return fail(j, "Music is active; refusing to interrupt it for Maestro.")
-        stop_engine("music")
+    for music_engine in ("music", "yue2"):
+        if engine_up(music_engine):
+            if engine_busy(music_engine):
+                return fail(j, "Music is active; refusing to interrupt it for Maestro.")
+            stop_engine(music_engine)
     release_video_engines("Maestro render")
     remaining = [name for name in VIDEO_ENGINE_NAMES if engine_up(name)]
     if remaining:
@@ -7134,7 +7352,89 @@ def run_maestro(j):
     return _finish_video(j, source)
 
 
-RUNNERS = {"video": run_video, "maestro": run_maestro, "music": run_music,
+def _melband_cli():
+    """(binary, models_dir, model) for the Mel-Band RoFormer separator, or None
+    when the kit is not installed on this host (MELBAND_ROFORMER_ROOT)."""
+    cfg = local_config.melband()
+    root = Path(cfg.get("MELBAND_ROFORMER_ROOT") or "")
+    binary = root / ".venv/bin/melband-roformer-infer"
+    if not root.name or not binary.is_file():
+        return None
+    return binary, root / "models", cfg.get("MELBAND_ROFORMER_MODEL") or "melband-roformer-kim-vocals"
+
+
+def run_stems(j):
+    """Split a library song into vocals + instrumental (Mel-Band RoFormer) and
+    file both as music assets: they land in the gallery and on Cut's music track
+    like any other song. The parent's engine/licence travel with the stems."""
+    r = j["request"]
+    song_id = str(r.get("song_id") or "")
+    song = _music_song_file(song_id)
+    if song is None:
+        return fail(j, "That song is no longer in the library.")
+    cli = _melband_cli()
+    if cli is None:
+        return fail(j, "The stem separator (Mel-Band RoFormer) is not installed on this host.")
+    binary, models_dir, model = cli
+    parent = jobs.get(song_id) or {}
+    parent_row = next((x for x in _load(ROOT / "gallery.json", []) if x.get("id") == song_id), {})
+    title = str(r.get("title") or parent.get("title") or parent_row.get("title")
+                or parent_row.get("prompt") or parent.get("caption") or song_id)[:120]
+    jd = JOBS_DIR / j["id"]; jd.mkdir(parents=True, exist_ok=True)
+    inp = jd / "input"; out = jd / "output"
+    for d in (inp, out):
+        shutil.rmtree(d, ignore_errors=True); d.mkdir(parents=True)
+    wav = inp / "song.wav"
+    j["stage"] = "preparing"
+    _ff(["-i", str(song), "-ac", "2", "-ar", "44100", str(wav)], timeout=600)
+    if not _nonempty(wav):
+        return fail(j, "The song could not be decoded for separation.")
+    j["stage"] = "separating"
+    try:
+        with open(INFERENCE_LOCK, "a+") as gate:
+            fcntl.flock(gate, fcntl.LOCK_EX)
+            proc = subprocess.run([str(binary), "--models_dir", str(models_dir), "--model", model,
+                                   "--input_folder", str(inp), "--store_dir", str(out)],
+                                  capture_output=True, text=True, timeout=1800)
+    except Exception as e:
+        return fail(j, "The stem separator failed — try again.", str(e))
+    if proc.returncode:
+        return fail(j, "The stem separator failed — try again.", (proc.stderr or proc.stdout)[-800:])
+    stems = {}
+    for stem in ("vocals", "instrumental"):
+        hits = sorted(out.glob(f"*_{stem}.*"))
+        if not hits:
+            return fail(j, f"The separator produced no {stem} stem.")
+        stems[stem] = hits[-1]
+    j["stage"] = "filing"
+    made = {}
+    for stem, path in stems.items():
+        imported = import_media(path, title=f"{title} — {stem}", kind="music",
+                                prompt=f"{stem} stem of {title}", source=f"stems:{song_id}")
+        imported.update({"stem": stem, "stem_of": song_id,
+                         "engine": parent.get("engine") or parent_row.get("engine") or "",
+                         "license": parent.get("license") or parent_row.get("license") or ""})
+        imported["request"].update({"stem": stem, "stem_of": song_id})
+        made[stem] = imported["id"]
+    g = _load(ROOT / "gallery.json", [])
+    for row in g:
+        for stem, sid in made.items():
+            if row.get("id") == sid:
+                row.update({"stem": stem, "stem_of": song_id, "prompt": f"🎚 {title} — {stem}"})
+                if jobs[sid].get("engine"):
+                    row["engine"] = jobs[sid]["engine"]
+                if jobs[sid].get("license"):
+                    row["license"] = jobs[sid]["license"]
+    _save(ROOT / "gallery.json", g)
+    shutil.rmtree(inp, ignore_errors=True); shutil.rmtree(out, ignore_errors=True)
+    j["stems"] = made
+    j["url"] = jobs[made["instrumental"]]["url"]
+    j["poster"] = jobs[made["instrumental"]].get("poster") or ""
+    j["status"] = "done"; j["stage"] = "done"
+    save_state()
+
+
+RUNNERS = {"video": run_video, "maestro": run_maestro, "music": run_music, "stems": run_stems,
            "screenshotsong": run_screenshot_song, "image": run_image,
            "charsheets": run_charsheets,
            "character": run_character, "storyboard": run_storyboard, "assemble": run_assemble,
@@ -7181,7 +7481,7 @@ VIDEO_SETTLE_S = 30
 ENGINE_MAINTENANCE = ROOT / ".engine-maintenance"
 
 IMAGE_JOB_KINDS = {"image", "charsheets", "character", "selfchar", "charremix", "enhance"}
-COMPANION_JOB_KINDS = IMAGE_JOB_KINDS | {"music", "screenshotsong", "speak"}
+COMPANION_JOB_KINDS = IMAGE_JOB_KINDS | {"music", "screenshotsong", "speak", "stems"}
 
 def video_work_pending():
     """True while any queued/running companion work still needs exclusivity.
@@ -7209,10 +7509,11 @@ def restore_warm_ltx_idle():
             return False
         if not release_voice_weights():
             raise ResidencyError("loaded TTS weights would not release before LTX restore")
-        if engine_up("music"):
-            if engine_busy("music"):
-                raise ResidencyError("Music 3 is active; refusing LTX restore")
-            stop_engine("music")
+        for music_engine in ("music", "yue2"):
+            if engine_up(music_engine):
+                if engine_busy(music_engine):
+                    raise ResidencyError(f"{music_engine} is active; refusing LTX restore")
+                stop_engine(music_engine)
         released = release_image_weights("restoring chat after media work")
         if released is None and engine_up("image"):
             stop_engine("image")
@@ -7578,6 +7879,32 @@ class MusicReq(BaseModel):
     lyrics: str = ""
     length: str = "auto"
     duration_seconds: Optional[int] = None
+    engine: str = "yue2"            # "yue2" (primary, CC BY-NC 4.0 weights) | "music3"
+    style: str = ""                 # one-line genre/mood/instruments; empty = from the songwriter
+    cot: str = "full"               # YuE2 chain-of-thought: full | melody | off
+    abc: str = ""                   # an edited ABC score to record from
+    reference_song_id: str = ""     # cover: transcribe this library song, keep its melody
+    seed: Optional[int] = None
+    instrumental: bool = False
+
+
+class MusicPlanReq(BaseModel):
+    style: str
+    lyrics: str = ""
+    cot: str = "full"
+    seed: Optional[int] = None
+
+
+class MusicRearrangeReq(BaseModel):
+    style: str = ""
+    lyrics: str = ""
+    abc: str = ""
+    vibe: str = ""
+
+
+class MusicCoverReq(BaseModel):
+    style: str = ""
+    vibe: str = ""
 class ScreenshotSongFrame(BaseModel):
     source: str
     text: str
@@ -7672,18 +7999,192 @@ def maestro_model(r: MaestroModelReq):
     return {"id": j["id"], "eta_min": 15,
             "model": r.model_id, "lazy_download": bool(model.get("lazy_download"))}
 
+def _validate_music_request(request: dict):
+    """Normalise the engine-specific fields of a music request; str = the error."""
+    engine = str(request.get("engine") or "yue2").strip().lower()
+    if engine not in MUSIC_ENGINES:
+        return f"unknown music engine {engine!r}: choose yue2 or music3"
+    request["engine"] = engine
+    cot = str(request.get("cot") or "full").strip().lower()
+    if cot not in MUSIC_COT_MODES:
+        return "cot must be full, melody or off"
+    request["cot"] = cot
+    request["style"] = str(request.get("style") or "").strip()[:300]
+    abc = str(request.get("abc") or "").strip()
+    if len(abc) > MUSIC_ABC_MAX:
+        return f"the score is too long (over {MUSIC_ABC_MAX} characters)"
+    request["abc"] = abc
+    ref = str(request.get("reference_song_id") or "").strip()
+    if ref and _music_song_file(ref) is None:
+        return "the reference song is not in the library"
+    request["reference_song_id"] = ref
+    if engine != "yue2" and (abc or ref):
+        return "scores and covers need the YuE2 engine"
+    return None
+
+
+def _submit_music(request: dict):
+    engine = request["engine"]
+    return submit_job("music", request,
+                      extra={"warm": engine_up(MUSIC_ENGINE_UNITS[engine]), "engine": engine,
+                             **({"license": YUE2_LICENSE} if engine == "yue2" else {})})
+
+
 @app.post("/api/music")
 def music(r: MusicReq):
     if not r.vibe.strip():
         return JSONResponse({"error": "empty"}, status_code=400)
     request = r.dict()
+    bad = _validate_music_request(request)
+    if bad:
+        return JSONResponse({"error": bad}, status_code=400)
     try:
         request["duration_seconds"] = _music_seconds(request)
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
-    j = submit_job("music", request, extra={"warm": engine_up("music")})
-    return {"id": j["id"], "eta_min": eta_estimate(j),
+    j = _submit_music(request)
+    return {"id": j["id"], "eta_min": eta_estimate(j), "engine": j["engine"],
+            "license": j.get("license") or "",
             "duration_seconds": request["duration_seconds"]}
+
+
+@app.get("/api/music/engines")
+def music_engines():
+    """What the music card offers: YuE2 first (default), Music 3 second."""
+    return {"default": "yue2",
+            "engines": [
+                {"id": "yue2", "name": "YuE2", "license": YUE2_LICENSE,
+                 "notice": YUE2_LICENSE_NOTICE, "installed": bool(local_config.yue2().get("YUE2_KIT")),
+                 "warm": engine_up("yue2"), "edit_tools": True},
+                {"id": "music3", "name": "Music 3", "license": "", "notice": "",
+                 "installed": COMFY_MUSIC_DIR.is_dir(), "warm": engine_up("music"),
+                 "edit_tools": False}],
+            "stems": _melband_cli() is not None}
+
+
+@app.post("/api/music/plan")
+def music_plan(r: MusicPlanReq):
+    """Ask YuE2 for a score (ABC) without recording: the score can be edited
+    and handed back through /api/music {abc}. Synchronous; needs the engine."""
+    style = r.style.strip()[:300]
+    if not style:
+        return JSONResponse({"error": "style required"}, status_code=400)
+    cot = r.cot.strip().lower() or "full"
+    if cot not in ("full", "melody"):
+        return JSONResponse({"error": "plan needs cot=full or melody"}, status_code=400)
+    st = ensure_engine("yue2")
+    if st == "busy":
+        return JSONResponse({"error": BUSY_MSG}, status_code=409)
+    if st != "up":
+        return JSONResponse({"error": friendly("comfy_boot")}, status_code=503)
+    body = {"style": style, "lyrics": r.lyrics.strip() or "[Instrumental]", "cot": cot,
+            "seed": int(r.seed or 0), "request_id": f"plan-{uuid.uuid4().hex[:12]}"}
+    try:
+        res = http_json(_yue2_url("/plan"), body, timeout=900)
+    except Exception as e:
+        code = 409 if "HTTP 409" in str(e) else 502
+        return JSONResponse({"error": "YuE2 could not plan the score", "detail": str(e)[:300]},
+                            status_code=code)
+    touch_engine("yue2")
+    if not res.get("ok"):
+        return JSONResponse({"error": str(res.get("error") or "plan failed")}, status_code=502)
+    return {"abc": res.get("abc") or "", "seed": res.get("seed"), "elapsed": res.get("elapsed"),
+            "license": YUE2_LICENSE}
+
+
+@app.get("/api/music/{song_id}/abc")
+def music_abc(song_id: str):
+    """The ABC score a YuE2 song was recorded from (uploads have none: 404)."""
+    sid = Path(song_id).name
+    abc = _music_song_abc(sid)
+    if not abc:
+        return JSONResponse({"error": "no score for this song"}, status_code=404)
+    j = jobs.get(sid) or {}
+    return {"id": sid, "abc": abc, "engine": j.get("engine") or "yue2",
+            "license": j.get("license") or YUE2_LICENSE, "style": j.get("style_line") or "",
+            "lyrics": j.get("lyrics") or "", "cot": j.get("cot") or "full"}
+
+
+@app.post("/api/music/{song_id}/rearrange")
+def music_rearrange(song_id: str, r: MusicRearrangeReq):
+    """Record the same score again under a new style / lyrics (or an edited score)."""
+    sid = Path(song_id).name
+    src = jobs.get(sid) or {}
+    abc = r.abc.strip() or _music_song_abc(sid)
+    if not abc:
+        return JSONResponse({"error": "that song has no score to re-arrange; try Cover"},
+                            status_code=400)
+    if len(abc) > MUSIC_ABC_MAX:
+        return JSONResponse({"error": f"the score is too long (over {MUSIC_ABC_MAX} characters)"},
+                            status_code=400)
+    sreq = src.get("request") or {}
+    style = r.style.strip()[:300] or str(src.get("style_line") or sreq.get("style") or "").strip()
+    if not style:
+        return JSONResponse({"error": "style required"}, status_code=400)
+    lyrics = r.lyrics.strip() or str(src.get("lyrics") or "")
+    request = {"vibe": r.vibe.strip() or str(sreq.get("vibe") or src.get("title") or "Re-arrangement"),
+               "lyrics": lyrics, "style": style, "abc": abc, "engine": "yue2",
+               "cot": str(src.get("cot") or "full"), "instrumental": bool(sreq.get("instrumental")),
+               "length": "auto", "duration_seconds": None, "reference_song_id": "", "seed": None,
+               "skip_songwriter": True, "rearranged_from": sid}
+    secs = src.get("duration_seconds") or sreq.get("duration_seconds")
+    if secs:
+        request["duration_seconds"] = int(secs)
+    else:
+        song = _music_song_file(sid)
+        if song is not None:
+            request["duration_seconds"] = int(min(180, max(20, round(media_duration(song) or 90))))
+    try:
+        request["duration_seconds"] = _music_seconds(request)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    j = _submit_music(request)
+    return {"id": j["id"], "eta_min": eta_estimate(j), "engine": "yue2", "license": YUE2_LICENSE,
+            "duration_seconds": request["duration_seconds"]}
+
+
+@app.post("/api/music/{song_id}/cover")
+def music_cover(song_id: str, r: MusicCoverReq):
+    """A cover of any library song (uploads too): transcribe, keep the melody,
+    record it under a new style."""
+    sid = Path(song_id).name
+    song = _music_song_file(sid)
+    if song is None:
+        return JSONResponse({"error": "unknown song"}, status_code=404)
+    src = jobs.get(sid) or {}
+    sreq = src.get("request") or {}
+    title = str(src.get("title") or sreq.get("title") or sreq.get("vibe") or sid)[:80]
+    style = r.style.strip()[:300]
+    request = {"vibe": r.vibe.strip() or f"A cover of {title}", "lyrics": str(src.get("lyrics") or ""),
+               "style": style, "abc": "", "engine": "yue2", "cot": "melody",
+               "instrumental": bool(sreq.get("instrumental")), "length": "auto",
+               "duration_seconds": int(min(180, max(20, round(media_duration(song) or 90)))),
+               "reference_song_id": sid, "seed": None,
+               "skip_songwriter": bool(style), "cover_of": sid}
+    try:
+        request["duration_seconds"] = _music_seconds(request)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    j = _submit_music(request)
+    return {"id": j["id"], "eta_min": eta_estimate(j), "engine": "yue2", "license": YUE2_LICENSE,
+            "duration_seconds": request["duration_seconds"]}
+
+
+@app.post("/api/music/{song_id}/stems")
+def music_stems(song_id: str):
+    """Queue a vocals/instrumental split; both stems become music assets."""
+    sid = Path(song_id).name
+    if _music_song_file(sid) is None:
+        return JSONResponse({"error": "unknown song"}, status_code=404)
+    if _melband_cli() is None:
+        return JSONResponse({"error": "The stem separator is not installed on this host."},
+                            status_code=503)
+    src = jobs.get(sid) or {}
+    row = next((x for x in _load(ROOT / "gallery.json", []) if x.get("id") == sid), {})
+    title = str(src.get("title") or row.get("title") or row.get("prompt")
+                or (src.get("request") or {}).get("vibe") or sid)[:120]
+    j = submit_job("stems", {"song_id": sid, "title": title})
+    return {"id": j["id"], "eta_min": eta_estimate(j)}
 
 SCREENSHOT_UPLOAD_MAX = 20 * 1024 * 1024
 SCREENSHOT_UPLOAD_COUNT = 16

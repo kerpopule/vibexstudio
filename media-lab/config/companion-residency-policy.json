@@ -20,6 +20,7 @@
       "qwen-image",
       "flux-kontext",
       "music3",
+      "yue2",
       "voicebox-tts"
     ],
     "service_shells_do_not_count_when_models_are_unloaded": true,
@@ -63,6 +64,14 @@
     "music3": {
       "warm_idle": 15.0,
       "active_upper_bound": null,
+      "qualified_with_pplx": false
+    },
+    "yue2": {
+      "warm_idle": 4.0,
+      "active_upper_bound": 18.0,
+      "measured_peak_observed": 17.0,
+      "license": "CC-BY-NC-4.0",
+      "status": "measured-2026-09-14: ~200 s per 60-90 s song, 16-17 GiB peak, ~4 s load",
       "qualified_with_pplx": false
     },
     "voicebox-tts": {

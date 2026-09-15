@@ -79,5 +79,5 @@ class PplxLtxCoResidencyContractTests(unittest.TestCase):
         self.assertEqual("exactly_one_when_idle_or_rendering",
                          policy["companion_slot"]["cardinality"])
         self.assertEqual({"ltx", "h3", "qwen-image", "flux-kontext",
-                          "music3", "voicebox-tts"},
+                          "music3", "yue2", "voicebox-tts"},
                          set(policy["companion_slot"]["members"]))

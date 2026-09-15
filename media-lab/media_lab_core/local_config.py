@@ -53,11 +53,23 @@ DEFAULTS: dict[str, str] = {
     "SOL_H3_SPARK_RUNTIME_ROOT": "",
     "SOL_H3_SPARK_QWEN_WEIGHTS_ROOT": "~/.local/share",
     "SOL_H3_SPARK_QWEN_IMAGE": "sol-h3-spark-qwen",
+    # YuE2 music engine (runner/yue2_engine_server.py): the isolated kit
+    # (venv, YuE checkout, SheetSage2 venv), the weights root holding
+    # YuE2-3B / YuE2-Vae / SheetSage2 / MERT-v2-FullSong, and the loopback port
+    # app.py starts the transient unit media-lab-yue2.service on.
+    "YUE2_KIT": "~/runtime/yue2-iso",
+    "YUE2_MODELS_ROOT": "~/.local/share/media-lab-p3-models/yue2",
+    "YUE2_PORT": "8197",
+    # Mel-Band RoFormer vocal/instrumental separator used for song stems:
+    # <root>/.venv/bin/melband-roformer-infer and <root>/models/<model>.
+    "MELBAND_ROFORMER_ROOT": "~/runtime/melband-roformer-0.1.5",
+    "MELBAND_ROFORMER_MODEL": "melband-roformer-kim-vocals",
 }
 
 _PATH_KEYS = {"MEDIA_LAB_HOME", "MEDIA_LAB_MODELS_ROOT", "MEDIA_LAB_RUNTIME_ROOT",
               "SOL_PKG", "SOL_ROOT", "SOL_H3_SPARK_RUNTIME_ROOT",
-              "SOL_H3_SPARK_QWEN_WEIGHTS_ROOT"}
+              "SOL_H3_SPARK_QWEN_WEIGHTS_ROOT", "YUE2_KIT", "YUE2_MODELS_ROOT",
+              "MELBAND_ROFORMER_ROOT"}
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 
@@ -198,6 +210,22 @@ def sol() -> dict[str, str]:
 
 def sol_configured() -> bool:
     return bool(sol().get("SOL_PKG"))
+
+
+def yue2() -> dict[str, str]:
+    """The YUE2_* keys, resolved, for the YuE2 music engine command."""
+    values = load()
+    return {k: values[k] for k in values if k.startswith("YUE2_")}
+
+
+def yue2_port() -> int:
+    return int_value("YUE2_PORT", int(DEFAULTS["YUE2_PORT"]))
+
+
+def melband() -> dict[str, str]:
+    """The MELBAND_ROFORMER_* keys, resolved, for the stem separator."""
+    values = load()
+    return {k: values[k] for k in values if k.startswith("MELBAND_ROFORMER_")}
 
 
 def subprocess_env(base: dict[str, str] | None = None) -> dict[str, str]:
