@@ -107,13 +107,18 @@ PROTECT=(
   '/QWEN38-CUTOVER.md' '/backfill-*.py' '/screenshot-songs' '/voices' '/uploads*'
   '/runner/models' '/runner/wheels' '/static/templates' '/static/template-library/images'
 )
-RSYNC_RULES=()
-for p in "${PROTECT[@]}"; do RSYNC_RULES+=(--exclude "$p"); done
-for a in "${ALLOW[@]}";   do RSYNC_RULES+=(--filter "$a"); done
+# One rsync filter file on the Spark: protect lines first (first match wins, and
+# excluded receiver files are never deleted), then the allowlist, then "- *".
+# A merge file avoids shell quoting entirely (macOS bash 3.2 lacks ${arr[@]@Q}).
+RULES_FILE="$REMOTE_HOME/.backups/deploy-rules-$STAMP"
+{ for p in "${PROTECT[@]}"; do printf '%s\n' "- $p"; done
+  for a in "${ALLOW[@]}";   do printf '%s\n' "$a"; done; } > "$WORK/deploy-rules"
+RSYNC_FILTER="--filter=\"merge $RULES_FILE\""   # one argv on the remote shell: --filter="merge /path"
 
 # ---------------------------------------------------------------- 2. stage
 say "staging to $SPARK:~/$STAGE"
 rssh "mkdir -p '$STAGE' '$REMOTE_HOME/.backups'"
+rssh "cat > '$RULES_FILE'" < "$WORK/deploy-rules"
 tar -C "$WORK/$SUBDIR" -cf - . | rssh "tar -xf - -C '$STAGE'"
 rssh "test -f '$STAGE/app.py'" || die "staging failed"
 
@@ -135,7 +140,7 @@ echo "idle"
 
 if (( DRY )); then
   say "dry run: rsync plan"
-  rssh "rsync -rlptD -n -iv --delete ${RSYNC_RULES[*]@Q} '$STAGE/' '$REMOTE_HOME/'" | sed 's/^/  /' | head -200
+  rssh "rsync -rlptD -n -iv --delete $RSYNC_FILTER '$STAGE/' '$REMOTE_HOME/'" | sed 's/^/  /' | head -200
   rssh "rm -rf '$STAGE'"
   exit 0
 fi
@@ -143,9 +148,9 @@ fi
 # ---------------------------------------------------------------- 4. backup + rsync
 say "backing up the live code files to ~/$BACKUP"
 rssh "mkdir -p '$BACKUP' && cd '$REMOTE_HOME' && \
-  rsync -rlptD ${RSYNC_RULES[*]@Q} ./ '$BACKUP/' >/dev/null"
+  rsync -rlptD $RSYNC_FILTER ./ '$BACKUP/' >/dev/null"
 say "rsync staging -> live"
-rssh "rsync -rlptD --delete ${RSYNC_RULES[*]@Q} '$STAGE/' '$REMOTE_HOME/' && rm -rf '$STAGE'"
+rssh "rsync -rlptD --delete $RSYNC_FILTER '$STAGE/' '$REMOTE_HOME/' && rm -rf '$STAGE'"
 
 # ---------------------------------------------------------------- 5. compile
 say "py_compile with the box's venv"
@@ -153,7 +158,7 @@ if ! rssh "cd '$REMOTE_HOME' && PY=\$( [ -x .venv/bin/python ] && echo .venv/bin
       \$PY -m py_compile app.py \$(ls *.py 2>/dev/null) && \
       \$PY -m compileall -q media_lab_core runner tools >/dev/null"; then
   echo "compile FAILED — roll back with:" >&2
-  echo "  ssh $SPARK 'rsync -rlptD --delete ${RSYNC_RULES[*]@Q} ~/$BACKUP/ ~/$REMOTE_HOME/ && systemctl --user restart $SERVICE'" >&2
+  echo "  ssh $SPARK 'rsync -rlptD --delete $RSYNC_FILTER ~/$BACKUP/ ~/$REMOTE_HOME/ && systemctl --user restart $SERVICE'" >&2
   exit 1
 fi
 
@@ -167,7 +172,7 @@ for _ in $(seq 1 60); do
 done
 if (( ! ok )); then
   echo "service did not answer on :$REMOTE_PORT after restart — roll back with:" >&2
-  echo "  ssh $SPARK 'rsync -rlptD --delete ${RSYNC_RULES[*]@Q} ~/$BACKUP/ ~/$REMOTE_HOME/ && systemctl --user restart $SERVICE'" >&2
+  echo "  ssh $SPARK 'rsync -rlptD --delete $RSYNC_FILTER ~/$BACKUP/ ~/$REMOTE_HOME/ && systemctl --user restart $SERVICE'" >&2
   rssh "journalctl --user -u '$SERVICE' -n 40 --no-pager" >&2 || true
   exit 1
 fi
