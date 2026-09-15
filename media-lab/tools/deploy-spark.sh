@@ -111,7 +111,8 @@ PROTECT=(
 # One rsync filter file on the Spark: protect lines first (first match wins, and
 # excluded receiver files are never deleted), then the allowlist, then "- *".
 # A merge file avoids shell quoting entirely (macOS bash 3.2 lacks ${arr[@]@Q}).
-RULES_FILE="$REMOTE_HOME/.backups/deploy-rules-$STAMP"
+REMOTE_ABS_HOME="$(rssh 'printf %s "$HOME"')"
+RULES_FILE="$REMOTE_ABS_HOME/$REMOTE_HOME/.backups/deploy-rules-$STAMP"   # absolute: later steps cd into the live tree
 { for p in "${PROTECT[@]}"; do printf '%s\n' "- $p"; done
   for a in "${ALLOW[@]}";   do printf '%s\n' "$a"; done; } > "$WORK/deploy-rules"
 RSYNC_FILTER="--filter=\"merge $RULES_FILE\""   # one argv on the remote shell: --filter="merge /path"
