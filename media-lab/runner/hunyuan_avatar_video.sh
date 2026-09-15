@@ -10,16 +10,18 @@ STEPS=${5:?steps}
 PROMPT=${6:?prompt}
 JOBDIR=${7:?job directory}
 FRAMES=${8:-129}
+# Per-host paths come from config/local.env (see config/local.env.example).
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/local_env.sh"
 LOCK=/run/user/1000/spark-gpu.lock
 POOL=media-lab-pool.service
 LTX=media-lab-ltx-engine
 H3=media-lab-h3-engine
 UNIT_RESIDENTS=(media-lab-segment.service media-lab-image.service media-lab-comfy-image.service media-lab-comfy-music.service)
 CONTAINER_RESIDENTS=("$LTX" "$H3")
-POOL_LOCK=/home/medialab/media-lab-simple/runner/pool_lock.sh
-RUNPY=/home/medialab/media-lab-simple/runner/hunyuan_avatar_once.py
-MODEL_DIR=/home/medialab/.local/share/media-lab-p2-models/maestro-hunyuan-avatar
-MANIFEST=/home/medialab/media-lab-simple/research/hunyuan-avatar/model-manifest.json
+POOL_LOCK="$MEDIA_LAB_HOME/runner/pool_lock.sh"
+RUNPY="$MEDIA_LAB_HOME/runner/hunyuan_avatar_once.py"
+MODEL_DIR="$MEDIA_LAB_MODELS_ROOT/maestro-hunyuan-avatar"
+MANIFEST="$MEDIA_LAB_HOME/research/hunyuan-avatar/model-manifest.json"
 IMAGE_TAG=media-lab-hunyuan-avatar:v1.9.0-r3
 IMAGE_ID=sha256:78961d13f4b4634f74eb28b9e078e85967e3f9456d9199a0b813d616b48e33c9
 FPS=25
@@ -298,7 +300,7 @@ echo "HVA_CANARY_START seed=$SEED steps=$STEPS frames=$FRAMES fps=$FPS size=${WI
 docker run --name "$CONTAINER" --rm --network none --gpus all \
   -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   -v "$MODEL_DIR:/models:ro" \
-  -v /home/medialab/media-lab-simple/media:/media:ro \
+  -v "$MEDIA_LAB_HOME/media:/media:ro" \
   -v "$RUNPY:/work/run.py:ro" \
   -v "$JOBDIR:/work/job" \
   --entrypoint python3 "$IMAGE_ID" /work/run.py \

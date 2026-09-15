@@ -39,19 +39,19 @@
   "replacements": [
     {
       "name": "safetensors",
-      "path": "/home/medialab/runtime/vibex-rust-wheel-build-16bh/wheels/safetensors-0.8.0-cp310-abi3-linux_aarch64.whl",
+      "path": "~/runtime/vibex-rust-wheel-build-16bh/wheels/safetensors-0.8.0-cp310-abi3-linux_aarch64.whl",
       "sha256": "d76b9d898895b6caa98ff231a15138e294f3e7b268fe3d968682f37183c77e51",
       "bytes": 505682
     },
     {
       "name": "tokenizers",
-      "path": "/home/medialab/runtime/vibex-tokenizers-build-16bi/wheels/tokenizers-0.22.2-cp39-abi3-linux_aarch64.whl",
+      "path": "~/runtime/vibex-tokenizers-build-16bi/wheels/tokenizers-0.22.2-cp39-abi3-linux_aarch64.whl",
       "sha256": "8ba313f1cb09983ce3adb60c84511ccec21b1f1316c33de4aaec601eccd863f6",
       "bytes": 3326770
     },
     {
       "name": "hf-xet",
-      "path": "/home/medialab/runtime/vibex-hf-xet-build-16bj/wheels/hf_xet-1.6.0-cp38-abi3-linux_aarch64.whl",
+      "path": "~/runtime/vibex-hf-xet-build-16bj/wheels/hf_xet-1.6.0-cp38-abi3-linux_aarch64.whl",
       "sha256": "0d975d386160ae8a5d98037a5afbacaea81866c2c9ec1eb169af9339a981c322",
       "bytes": 4461263
     }

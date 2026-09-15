@@ -124,7 +124,7 @@ describe('update check', () => {
 describe('server model setup navigation', () => {
   it('uses only the paired origin and never includes URL tokens', () => {
     expect(modelSetupUrl('https://spark.example:9443/pair?token=secret#private')).toBe('https://spark.example:9443/setup/background');
-    expect(modelSetupUrl('http://YOUR_TAILNET_IP:7863')).toBe('http://YOUR_TAILNET_IP:7863/setup/background');
+    expect(modelSetupUrl('http://100.64.0.10:7863')).toBe('http://100.64.0.10:7863/setup/background');
     for (const url of [undefined, 'invalid', 'file:///private/data', 'https://user:secret@example.com']) {
       expect(modelSetupUrl(url)).toBeNull();
     }

@@ -3,7 +3,9 @@
 # Flash is an idle Director/Hermes runtime; it must not overlap a video engine
 # until a measured sampler canary proves the 24-GiB operational floor.
 set -Eeuo pipefail
-MODEL_DIR=/home/medialab/models/Qwen3.8-Flash-Next-UD-IQ1_M
+# Per-host paths come from config/local.env (see config/local.env.example).
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/local_env.sh"
+MODEL_DIR="$HOME/models/Qwen3.8-Flash-Next-UD-IQ1_M"
 MODEL_REL=UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf
 IMAGE=media-lab-qwen-flash-next:pr27742-035e2273
 MAX_LEN=${FLASH_NEXT_MAX_LEN:-65536}
@@ -18,7 +20,7 @@ fi
 docker rm -f qwen38-flash-next >/dev/null 2>&1 || true
 exec docker run -d --name qwen38-flash-next --restart unless-stopped --init \
   --device nvidia.com/gpu=all --ipc=host \
-  -p 127.0.0.1:8004:8000 -p YOUR_TAILNET_IP:8004:8000 \
+  "${MEDIA_LAB_PUBLISH_8004[@]}" \
   -v "$MODEL_DIR":/models/active:ro \
   --entrypoint /opt/qwen-flash-next/llama-server \
   "$IMAGE" \

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # PPLX-only, fail-closed supervisor for the governed Spark text slot.
 set -u
-ROOT=/home/medialab/media-lab-simple
+# Per-host paths come from config/local.env (see config/local.env.example).
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/local_env.sh"
+ROOT="$MEDIA_LAB_HOME"
 STATE_DIR="$ROOT/pool"
 ACTIVE="$STATE_DIR/text-runtime-active"
 MAINT="$ROOT/.chat-maintenance"

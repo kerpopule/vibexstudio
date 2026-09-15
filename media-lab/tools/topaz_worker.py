@@ -25,7 +25,10 @@ import sys
 import tempfile
 import time
 
-SPARK = "medialab@YOUR_TAILNET_IP"
+# ssh target of the studio host: MEDIA_LAB_SSH in config/local.env (or the env).
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from media_lab_core import local_config
+SPARK = local_config.get("MEDIA_LAB_SSH")
 RPOOL = "media-lab-simple/pool"
 RMEDIA = "media-lab-simple/media"
 MODEL = os.environ.get("TVAI_MODEL", "prob-4")     # Proteus v4 auto

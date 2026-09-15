@@ -75,6 +75,24 @@ left as it is.
 somewhere else. The server itself reads `~/media-lab-simple`, so the installer
 keeps a symlink there pointing at your directory.
 
+### Per-host settings (`config/local.env`)
+
+Everything that differs between machines — bind address, tailnet address,
+public hostnames behind a tunnel, where model weights and engine runtimes
+live, the Sol-H3 install — is read from `~/media-lab-simple/config/local.env`.
+It is gitignored; start from `config/local.env.example`:
+
+```sh
+cp config/local.env.example ~/media-lab-simple/config/local.env
+$EDITOR ~/media-lab-simple/config/local.env
+python3 -m media_lab_core.local_config     # show what resolves
+```
+
+Process environment overrides the file, the file overrides the defaults, and
+the defaults describe a private single-machine install (`127.0.0.1`, no public
+hosts). The runner shell scripts source the same file and the systemd units
+load it with `EnvironmentFile=`, so there is exactly one place to edit.
+
 ## Pairing from the phone
 
 1. Install **VibeXStudio** on the phone.

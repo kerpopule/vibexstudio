@@ -226,5 +226,5 @@ def test_cut_ui_contract_and_entrypoints_exist():
     # no private hosts in anything Cut ships
     for text in (html, css, js, (ROOT / "media_lab_core/cut.py").read_text(),
                  (ROOT / "media_lab_core/cut_cli.py").read_text(), (ROOT / "docs/CUT.md").read_text()):
-        for bad in ("100.66.", "medialab", "steves-macbook-pro"):
+        for bad in ("100.66.", "medialab", "macbook-pro", "tail33"):
             assert bad not in text

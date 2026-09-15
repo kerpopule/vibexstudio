@@ -163,7 +163,7 @@
     ],
     "lock_sha256": "a3ff2022b3790e2f5863fe59732ab76da81dd75bc3a94905127206e87125170d",
     "command": [
-      "/home/medialab/runtime/vibex-rust-wheel-build-16bh/frontend/bin/maturin",
+      "~/runtime/vibex-rust-wheel-build-16bh/frontend/bin/maturin",
       "build",
       "--release",
       "--locked",
@@ -173,7 +173,7 @@
       "--interpreter",
       "/usr/bin/python3",
       "--out",
-      "/home/medialab/runtime/vibex-tokenizers-build-16bi/wheels"
+      "~/runtime/vibex-tokenizers-build-16bi/wheels"
     ],
     "network": "denied",
     "wheel_notice_files": [],

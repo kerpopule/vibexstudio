@@ -17,6 +17,8 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))
+from media_lab_core import local_config   # MEDIA_LAB_SSH from config/local.env
 # Default: straight to the Spark over the tailnet — no Cloudflare 100s timeout,
 # no edge bot checks, and the tailnet Host is trusted so there is no gate.
 UPSTREAM = os.environ.get("UPSTREAM", "http://127.0.0.1:7863").rstrip("/")
@@ -46,10 +48,13 @@ def _studio_session():
         return _session["value"]
     import json as _json
     import subprocess
+    target = local_config.get("MEDIA_LAB_SSH")
+    if not target:
+        return None
     try:
         code = subprocess.run(
             ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
-             "medialab@YOUR_TAILNET_IP", "cat media-lab-simple/access-code.txt"],
+             target, "cat media-lab-simple/access-code.txt"],
             capture_output=True, text=True, timeout=15).stdout.strip()
         if not code:
             return None
