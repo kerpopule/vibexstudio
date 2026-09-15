@@ -1365,7 +1365,7 @@ def admin_guard(request: Request, pin: Optional[str]):
 
 # ---------- ETA stats ----------
 ETA_DEFAULT = {"video": 6, "music": 12, "screenshotsong": 14, "image": 3, "character": 9, "storyboard": 4, "assemble": 2,
-               "musicvideo": 18, "selfchar": 10, "speak": 2, "say": 8, "filmbeat": 6, "enhance": 6}
+               "assembly_import": 1, "musicvideo": 18, "selfchar": 10, "speak": 2, "say": 8, "filmbeat": 6, "enhance": 6}
 ETA_DEFAULT_WARM = {"video": 3, "music": 8, "screenshotsong": 10, "image": 1, "character": 4, "musicvideo": 10,
                     "selfchar": 5, "say": 5, "filmbeat": 3, "enhance": 5}
 def eta_key(j):
@@ -4885,6 +4885,74 @@ def _has_audio(p):
                         "stream=codec_type", "-of", "csv=p=0", str(p)], capture_output=True, text=True)
     return bool(r.stdout.strip())
 
+def _beat_assembly_url(beat):
+    """Prefer an untrimmed assembly source while leaving the clean preview clip intact."""
+    return beat.get("assembly_source_url") or beat.get("clip_url")
+
+def _beat_trim_window(beat, clip):
+    """Return a validated (start, end, duration) trim window for one storyboard beat."""
+    clip_duration = media_duration(clip)
+    if not clip_duration or clip_duration <= 0:
+        raise ValueError("The source clip duration could not be read.")
+    try:
+        start = float(beat.get("trim_in_seconds", 0) or 0)
+        raw_end = beat.get("trim_out_seconds")
+        end = clip_duration if raw_end in (None, "") else float(raw_end)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Trim points must be numbers.") from exc
+    if start < 0:
+        raise ValueError("Trim in cannot be negative.")
+    if end <= start:
+        raise ValueError("Trim out must be later than trim in.")
+    if end > clip_duration + 0.05:
+        raise ValueError(f"Trim out {end:.3f}s exceeds the {clip_duration:.3f}s source clip.")
+    end = min(end, clip_duration)
+    return round(start, 6), round(end, 6), round(end - start, 6)
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _commit_storyboard_assembly(board: dict, boards: list, j: dict, final: Path,
+                                url: str, poster: str = "") -> bool:
+    """Finish an assembly job only after its exact bytes are bound to Storyboard.
+
+    This is the assembly/delivery barrier: a stitched film is not a completed
+    Media Lab job until the board has a final URL, a SHA-256 receipt, and the
+    queue job id, and those values survive a readback of storyboards.json.
+    """
+    if not final.exists() or final.stat().st_size <= 0:
+        fail(j, "The assembled film is empty or missing.")
+        return False
+    digest = _sha256_file(final)
+    board["final_url"] = url
+    board["final_sha256"] = digest
+    board["last_assembly_job_id"] = j["id"]
+    board["assembly_registered_at"] = time.time()
+    board["candidate_not_final_until_steve_approves"] = True
+    board["private_internal_only"] = True
+    board["publication_authorized"] = False
+    board["external_sharing_authorized"] = False
+    _save(BOARDS_FILE, boards)
+    persisted = next((b for b in _load(BOARDS_FILE, []) if b.get("id") == board.get("id")), None)
+    if not persisted or persisted.get("final_url") != url or persisted.get("final_sha256") != digest \
+            or persisted.get("last_assembly_job_id") != j.get("id"):
+        fail(j, "Storyboard readback failed; the assembly is blocked from delivery.")
+        return False
+    j["status"] = "done"
+    j["stage"] = "done"
+    j["url"] = url
+    j["poster"] = poster or None
+    j["board_id"] = board["id"]
+    j["sha256"] = digest
+    j["storyboard_registered"] = True
+    return True
+
+
 def run_assemble(j):
     r = j["request"]
     boards = _load(BOARDS_FILE, [])
@@ -4907,16 +4975,28 @@ def run_assemble(j):
     if board.get("bible"):
         recompose_board(board)
         _save(BOARDS_FILE, boards)
-    clips = [MEDIA / Path(b["clip_url"]).name for b in board["beats"] if b.get("clip_url")]
-    clips = [c for c in clips if c.exists()]
-    if not clips:
+    sources = []
+    for beat in board["beats"]:
+        url = _beat_assembly_url(beat)
+        if not url:
+            continue
+        clip = MEDIA / Path(url).name
+        if not clip.exists():
+            continue
+        try:
+            start, end, duration = _beat_trim_window(beat, clip)
+        except ValueError as exc:
+            return fail(j, f"Scene trim is invalid: {exc}")
+        sources.append((beat, clip, start, end, duration))
+    if not sources:
         return fail(j, "Film at least one scene first.")
     j["stage"] = "encoding"
-    n = len(clips)
+    clips = [item[1] for item in sources]
+    n = len(sources)
     song = MEDIA / f"{Path(str(board.get('song_id') or '')).name}.mp3"
     if board.get("song_id") and song.exists():
         # song boards: the song IS the soundtrack
-        total = sum((media_duration(c) or 5.0) for c in clips)
+        total = sum(item[4] for item in sources)
         jd = JOBS_DIR / j["id"]; jd.mkdir(parents=True, exist_ok=True)
         seg = jd / "seg.m4a"
         subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-t", f"{total:.3f}",
@@ -4931,7 +5011,8 @@ def run_assemble(j):
         # normalize every clip before concat — mixed engines (LTX 1280x704 vs
         # H3 864x480) or refilmed beats must never break the stitch
         aw, ah = board_size(board)
-        fc = ("".join(f"[{i}:v]scale={aw}:{ah}:force_original_aspect_ratio=decrease,"
+        fc = ("".join(f"[{i}:v]trim=start={sources[i][2]:.6f}:end={sources[i][3]:.6f},setpts=PTS-STARTPTS,"
+                      f"scale={aw}:{ah}:force_original_aspect_ratio=decrease,"
                       f"pad={aw}:{ah}:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1,format=yuv420p[n{i}];"
                       for i in range(n))
               + "".join(f"[n{i}]" for i in range(n)) + f"concat=n={n}:v=1:a=0[v]")
@@ -4940,10 +5021,9 @@ def run_assemble(j):
                 "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(final)]
         subprocess.run(cmd, check=False)
+        final_url = f"/media/board_{board['id']}.mp4"
         if final.exists() and final.stat().st_size > 0:
-            board["final_url"] = f"/media/board_{board['id']}.mp4"
-            _save(BOARDS_FILE, boards)
-            j["status"] = "done"; j["stage"] = "done"; j["url"] = board["final_url"]; j["board_id"] = board["id"]
+            _commit_storyboard_assembly(board, boards, j, final, final_url)
         else:
             fail(j, "The film could not be stitched together — try again.")
         return
@@ -4952,11 +5032,14 @@ def run_assemble(j):
     for c in clips:
         cmd += ["-i", str(c)]
     aw, ah = board_size(board)
-    norm = "".join(f"[{i}:v]scale={aw}:{ah}:force_original_aspect_ratio=decrease,"
+    norm = "".join(f"[{i}:v]trim=start={sources[i][2]:.6f}:end={sources[i][3]:.6f},setpts=PTS-STARTPTS,"
+                   f"scale={aw}:{ah}:force_original_aspect_ratio=decrease,"
                    f"pad={aw}:{ah}:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1,format=yuv420p[n{i}];"
                    for i in range(n))
     if use_audio:
-        anorm = "".join(f"[{i}:a]aresample=48000,aformat=channel_layouts=stereo[m{i}];" for i in range(n))
+        anorm = "".join(f"[{i}:a]atrim=start={sources[i][2]:.6f}:end={sources[i][3]:.6f},"
+                        f"asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo[m{i}];"
+                        for i in range(n))
         fc = norm + anorm + "".join(f"[n{i}][m{i}]" for i in range(n)) + f"concat=n={n}:v=1:a=1[v][a]"
         maps = ["-map", "[v]", "-map", "[a]", "-c:a", "aac", "-b:a", "128k"]
     else:
@@ -4967,15 +5050,71 @@ def run_assemble(j):
             "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(final)]
     subprocess.run(cmd, check=False)
     if final.exists() and final.stat().st_size > 0:
-        board["final_url"] = f"/media/board_{board['id']}.mp4"
-        _save(BOARDS_FILE, boards)
-        j["status"] = "done"; j["stage"] = "done"; j["url"] = board["final_url"]; j["board_id"] = board["id"]
+        poster_path = MEDIA / f"board_{board['id']}.jpg"
         subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", "1", "-i", str(final),
-                        "-frames:v", "1", str(MEDIA / f"board_{board['id']}.jpg")], check=False)
-        gallery_add(f"board_{board['id']}", f"🎞 {board.get('title','Storyboard film')}", "boardfilm",
-                    board["final_url"], f"/media/board_{board['id']}.jpg", style="storyboard")
+                        "-frames:v", "1", str(poster_path)], check=False)
+        final_url = f"/media/board_{board['id']}.mp4"
+        poster_url = f"/media/board_{board['id']}.jpg" if _nonempty(poster_path) else ""
+        if _commit_storyboard_assembly(board, boards, j, final, final_url, poster_url):
+            gallery_add(f"board_{board['id']}", f"🎞 {board.get('title','Storyboard film')}", "boardfilm",
+                        final_url, poster_url, style="storyboard")
     else:
         fail(j, "The film could not be stitched together — try again.")
+
+
+def run_assembly_import(j):
+    """Queue-register an externally assembled private candidate on its board.
+
+    The inbox watcher moves the source under inbox/imported before enqueueing it.
+    Exact bytes are copied into media/ only after board, hash, and video checks.
+    """
+    r = j.get("request") or {}
+    board_id = str(r.get("board_id") or "").strip()
+    source = Path(str(r.get("path") or "")).expanduser().resolve()
+    allowed = (ROOT / "inbox" / "imported").resolve()
+    try:
+        source.relative_to(allowed)
+    except ValueError:
+        return fail(j, "Assembly imports must come through the Media Lab inbox.")
+    expected = str(r.get("sha256") or "").lower().strip()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected):
+        return fail(j, "Assembly import requires an exact SHA-256 receipt.")
+    boards = _load(BOARDS_FILE, [])
+    matches = [b for b in boards if b.get("id") == board_id]
+    if len(matches) != 1:
+        return fail(j, "Assembly import requires exactly one existing storyboard.")
+    if not source.is_file() or source.suffix.lower() not in (".mp4", ".mov", ".m4v", ".webm"):
+        return fail(j, "The queued assembly source is missing or is not a video.")
+    actual = _sha256_file(source)
+    if actual != expected:
+        return fail(j, f"Assembly SHA-256 mismatch: expected {expected}, got {actual}.")
+    meta = ffprobe_meta(source)
+    if not meta.get("duration") or not meta.get("width") or not meta.get("height"):
+        return fail(j, "The queued assembly did not pass video decode metadata checks.")
+    j["stage"] = "registering storyboard"
+    safe_board = re.sub(r"[^A-Za-z0-9_.-]+", "-", board_id).strip("-.") or "storyboard"
+    final = MEDIA / f"board_{safe_board}_{actual[:12]}.mp4"
+    if not final.exists() or _sha256_file(final) != actual:
+        temp = final.with_suffix(final.suffix + ".tmp")
+        shutil.copy2(source, temp)
+        if _sha256_file(temp) != actual:
+            temp.unlink(missing_ok=True)
+            return fail(j, "Assembly copy verification failed.")
+        os.replace(temp, final)
+    poster_path = final.with_suffix(".jpg")
+    subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", "1", "-i", str(final),
+                    "-frames:v", "1", str(poster_path)], check=False)
+    url = f"/media/{final.name}"
+    poster = f"/media/{poster_path.name}" if _nonempty(poster_path) else ""
+    board = matches[0]
+    board["status"] = "private_review_candidate"
+    if not _commit_storyboard_assembly(board, boards, j, final, url, poster):
+        return
+    j["meta"] = meta
+    j["imported"] = True
+    j["title"] = str(r.get("title") or board.get("title") or "Storyboard film")[:120]
+    gallery_add(j["id"], f"🎞 {j['title']}", "boardfilm", url, poster, style="storyboard")
+
 
 def media_duration(p: Path):
     r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -6888,6 +7027,7 @@ RUNNERS = {"video": run_video, "maestro": run_maestro, "music": run_music,
            "screenshotsong": run_screenshot_song, "image": run_image,
            "charsheets": run_charsheets,
            "character": run_character, "storyboard": run_storyboard, "assemble": run_assemble,
+           "assembly_import": run_assembly_import,
            "musicvideo": run_musicvideo, "selfchar": run_selfchar, "charremix": run_charremix,
            "speak": run_speak, "say": run_say, "filmbeat": run_filmbeat,
            "enhance": run_enhance}
@@ -7247,6 +7387,38 @@ def inbox_watcher():
                 side = next((s for s in (f.with_suffix(".json"), Path(str(f) + ".json"))
                              if s.exists()), None)
                 sc = _load(side, {}) if side else {}
+                if sc.get("assembly") is True:
+                    # Externally stitched films are never imported as loose gallery
+                    # media. Move first, then create a real queue job whose runner
+                    # cannot finish until Storyboard persists and reads back the
+                    # exact final URL/hash/job receipt.
+                    token = uuid.uuid4().hex[:8]
+                    dest = INBOX_DONE / f"queued-{token}-{f.name}"
+                    if dest.exists():
+                        dest = dest.with_name(f"{dest.stem}-{int(time.time())}{dest.suffix}")
+                    f.rename(dest)
+                    if side:
+                        side_dest = INBOX_DONE / f"{dest.name}.json"
+                        side.rename(side_dest)
+                    try:
+                        board_id = str(sc.get("board_id") or "").strip()
+                        board = next((b for b in _load(BOARDS_FILE, []) if b.get("id") == board_id), None)
+                        j = submit_job("assembly_import", {
+                            "path": str(dest), "board_id": board_id,
+                            "sha256": str(sc.get("sha256") or "").lower().strip(),
+                            "title": str(sc.get("title") or (board or {}).get("title") or "Storyboard film"),
+                            "source": f"inbox:{f.name}", "private_internal_only": True,
+                            "candidate_not_final_until_steve_approves": True,
+                        }, extra={"board_id": board_id,
+                                  "board_title": str((board or {}).get("title") or "")[:90],
+                                  "prompt_label": f"🎞 Register assembly — {str((board or {}).get('title') or 'film')}"[:90]})
+                        print(f"[media-lab] inbox queued assembly {f.name} -> {j['id']} board={board_id}", flush=True)
+                    except Exception as e:
+                        print(f"[media-lab] inbox assembly queue FAILED {f.name}: {e}", flush=True)
+                        failed = dest.with_name(f"FAILED-{dest.name}")
+                        dest.rename(failed)
+                    seen.pop(f.name, None)
+                    continue
                 try:
                     j = import_media(f, str(sc.get("title") or ""), str(sc.get("kind") or ""),
                                      str(sc.get("prompt") or ""), source=f"inbox:{f.name}")
@@ -8502,15 +8674,37 @@ class BeatEditReq(BaseModel):
     characters: Optional[list] = None    # bible names present in this shot
     use_still: Optional[bool] = None     # film from the scene image, or prompt alone
     orientation: Optional[str] = None    # beat-level shape override
+    trim_in_seconds: Optional[float] = None
+    trim_out_seconds: Optional[float] = None
+    clear_trim: bool = False
 
 @app.post("/api/storyboard/{sid}/beat")
 def storyboard_beat_edit(sid: str, r: BeatEditReq):
-    """Edit a beat before (re)filming — text, prompt, and who's in the scene."""
+    """Edit a beat before (re)filming — text, prompt, cast, and assembly trims."""
     boards = _load(BOARDS_FILE, [])
     board = next((b for b in boards if b["id"] == sid), None)
     if not board or not (0 <= r.beat < len(board["beats"])):
         return JSONResponse({"error": "unknown board/beat"}, status_code=404)
     beat = board["beats"][r.beat]
+    if r.clear_trim:
+        beat.pop("trim_in_seconds", None)
+        beat.pop("trim_out_seconds", None)
+    elif r.trim_in_seconds is not None or r.trim_out_seconds is not None:
+        trial = dict(beat)
+        if r.trim_in_seconds is not None:
+            trial["trim_in_seconds"] = r.trim_in_seconds
+        if r.trim_out_seconds is not None:
+            trial["trim_out_seconds"] = r.trim_out_seconds
+        url = _beat_assembly_url(trial)
+        clip = MEDIA / Path(url).name if url else None
+        if not clip or not clip.exists():
+            return JSONResponse({"error": "Film the scene before setting trim points."}, status_code=422)
+        try:
+            trim_in, trim_out, _ = _beat_trim_window(trial, clip)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        beat["trim_in_seconds"] = trim_in
+        beat["trim_out_seconds"] = trim_out
     if r.title is not None:
         beat["title"] = str(r.title)[:200]
     if r.description is not None:
@@ -9065,6 +9259,7 @@ def brief(j):
                or r.get("prompt") or r.get("vibe") or r.get("name") or r.get("idea")
                or r.get("concept") or r.get("line") or r.get("text")
                or ("Assemble film" if j["kind"] == "assemble" else "")
+               or ("Register assembled film" if j["kind"] == "assembly_import" else "")
                or ("✨ Enhance video" if j["kind"] == "enhance" else ""))[:90]
     return {"id": j["id"], "kind": j["kind"], "status": j["status"], "stage": j.get("stage"),
             "progress": j.get("progress"),
@@ -9130,7 +9325,7 @@ def job(job_id: str, full: int = 0):
     if not j:
         return JSONResponse({"error": "unknown job"}, status_code=404)
     keys = ("id", "kind", "status", "stage", "url", "poster", "message",
-            "caption", "lyrics", "board_id", "character",
+            "caption", "lyrics", "board_id", "character", "sha256", "storyboard_registered",
             "song_url", "video_url", "video_poster", "timing", "screenshot_cues",
             # the painter that actually ran, so the UI can label the version
             # it just produced instead of leaving the user to guess
@@ -10329,6 +10524,7 @@ PUSH_TITLES = {"video": "Your video is ready 🎬", "music": "Your song is ready
                "selfchar": "Your character is ready 🧑‍🎤",
                "speak": "Your line is ready 🎙", "say": "They said it 🎬🎙",
                "storyboard": "Your storyboard is ready 🎞", "assemble": "Your film is ready 🎞",
+               "assembly_import": "Your assembled film is registered in Storyboard 🎞",
                "charremix": "Your remixed character is ready 🎭",
                "enhance": "Your enhanced video is ready ✨"}
 

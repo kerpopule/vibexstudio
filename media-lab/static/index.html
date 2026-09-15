@@ -1434,6 +1434,13 @@
       <div class="chip" data-v="10">10s</div>
       <div class="chip" data-v="12">12s</div>
     </div>
+    <div class="label">Assembly trim (seconds)</div>
+    <div class="row">
+      <input type="number" id="be_trim_in" min="0" step="0.01" placeholder="In · 0.00" inputmode="decimal">
+      <input type="number" id="be_trim_out" min="0" step="0.01" placeholder="Out · full clip" inputmode="decimal">
+      <div class="btn2" id="be_trim_clear">Use full clip</div>
+    </div>
+    <div class="hint" style="margin:6px 2px 0">Preview stays intact. Reassemble uses this range from the original source clip.</div>
     <div class="label">Who's in it (tap to cast)</div>
     <div class="castrow" id="be_cast"><div class="empty">No characters saved yet.</div></div>
     <div class="label">Shape for this scene</div>
@@ -4191,6 +4198,7 @@ async function editBeat(bid,i){
   const b=BOARDS.find(x=>x.id===bid);if(!b)return;
   BE.board=bid;BE.beat=i;
   const bt=b.beats[i];
+  BE.hadTrim=bt.trim_in_seconds!=null||bt.trim_out_seconds!=null;BE.clearTrim=false;
   BE.cast=new Set(bt.cast!=null?bt.cast:(b.cast||[]));
   $('#be_title').value=bt.title||'';$('#be_desc').value=bt.description||'';
   $('#be_prompt').value=bt.video_prompt||'';
@@ -4202,6 +4210,8 @@ async function editBeat(bid,i){
     el.textContent='Films as: '+cp;el.style.display='block';
   }else{el.style.display='none';}
   setChip('#be_dur',bt.duration||'5');
+  $('#be_trim_in').value=bt.trim_in_seconds!=null?Number(bt.trim_in_seconds).toFixed(2):'';
+  $('#be_trim_out').value=bt.trim_out_seconds!=null?Number(bt.trim_out_seconds).toFixed(2):'';
   setChip('#be_ors',bt.orientation||'');
   beStillShow(bt.still_url,bt.use_still!==false);
   /* polish row: only for a scene that has a filmed clip, and only when the
@@ -4318,13 +4328,24 @@ async function beSave(){
   const body={beat:BE.beat,title:$('#be_title').value,description:$('#be_desc').value,
       video_prompt:$('#be_prompt').value,duration:sel('#be_dur'),cast:[...BE.cast],
       orientation:sel('#be_ors')||''};
+  const tin=$('#be_trim_in').value.trim(),tout=$('#be_trim_out').value.trim();
+  if(BE.clearTrim||(!tin&&!tout&&BE.hadTrim))body.clear_trim=true;
+  else if(tin||tout){
+    const start=tin?Number(tin):0,end=tout?Number(tout):null;
+    if(!Number.isFinite(start)||start<0||end==null||!Number.isFinite(end)||end<=start){
+      $('#be_err').textContent='Trim out must be a number later than trim in.';$('#be_err').style.display='block';return false;
+    }
+    body.trim_in_seconds=start;body.trim_out_seconds=end;
+  }
   if(BE.stillUrl)body.use_still=$('#be_usestill').classList.contains('sel');
   const r=await fetch(`/api/storyboard/${BE.board}/beat`,{method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify(body)});
-  if(!r.ok){$('#be_err').textContent='Could not save — try again.';$('#be_err').style.display='block';}
+  if(!r.ok){let msg='Could not save — try again.';try{msg=(await r.json()).error||msg}catch(e){}
+    $('#be_err').textContent=msg;$('#be_err').style.display='block';}
   return r.ok;
 }
+$('#be_trim_clear').onclick=()=>{BE.clearTrim=true;$('#be_trim_in').value='';$('#be_trim_out').value='';};
 $('#be_save').onclick=async()=>{if(await beSave()){$('#bewrap').style.display='none';loadBoards();}};
 $('#be_savefilm').onclick=async()=>{if(await beSave()){$('#bewrap').style.display='none';
   await loadBoards();filmBeat(BE.board,BE.beat);}};
