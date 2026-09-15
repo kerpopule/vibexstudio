@@ -3547,6 +3547,12 @@ def run_music(j, finalize: bool = True):
         touch_engine("yue2")
     if engine == "yue2":
         j["cot"] = cot
+    # YuE2 plays the score through to its own ending; the requested length is a
+    # target, not a guillotine. The engine-side token cap is only a safety
+    # ceiling well above the target so a song is never cut off mid-verse.
+    yue2_cap = min(360, max(int(secs) + 90, int(secs * 1.75))) if engine == "yue2" else None
+    if engine == "yue2":
+        j["yue2_ceiling_seconds"] = yue2_cap
 
     # Screenshot songs receive a real post-render Director gate against exact
     # reviewed text; the legacy adaptation branch remains only for old jobs.
@@ -3569,7 +3575,7 @@ def run_music(j, finalize: bool = True):
         if engine == "yue2":
             body = {"style": style_line,
                     "lyrics": "[Instrumental]" if (instrumental or not lyrics.strip()) else lyrics,
-                    "cot": cot, "seed": seed, "max_seconds": secs,
+                    "cot": cot, "seed": seed, "max_seconds": yue2_cap,
                     "request_id": f"{j['id']}-a{attempt}"}
             if abc:
                 body["abc"] = abc
