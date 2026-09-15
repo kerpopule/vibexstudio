@@ -1,0 +1,96 @@
+"""Static contract for the promoted PPLX-priority LTX co-residency profile."""
+import json
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class PplxLtxCoResidencyContractTests(unittest.TestCase):
+    def test_idle_supervisor_does_not_resurrect_sam3(self):
+        supervisor = (ROOT / "runner/service_supervisor.py").read_text()
+        units = supervisor.split("UNITS = [", 1)[1].split("]", 1)[0]
+        self.assertNotIn('("media-lab-segment.service"', units)
+
+        image_service = (ROOT / "image-svc/image_service.py").read_text()
+        self.assertIn('SEG_UNIT   = "media-lab-segment.service"', image_service)
+        self.assertIn('["systemctl", "--user", "start", SEG_UNIT]', image_service)
+        self.assertIn('["systemctl", "--user", "stop", SEG_UNIT]', image_service)
+
+    def test_pplx_default_reserves_ltx_decode_floor(self):
+        starter = (ROOT / "runner/start_pplx27.sh").read_text()
+        policy = (ROOT / "config/model-residency-policy.json").read_text()
+
+        self.assertIn("PPLX_GPU_UTIL:-0.28", starter)
+        self.assertIn("PPLX_MAX_LEN:-65536", starter)
+        self.assertIn("--max-num-seqs 2", starter)
+        self.assertIn(
+            "--served-model-name pplx-computer-qwen-3-8-27b-dflash2-20260824 media-lab-text",
+            starter,
+        )
+        self.assertNotIn(" qwen3.8-27b-q4km", starter)
+        self.assertNotIn(" qwen38-27b", starter)
+        self.assertIn('"default_profile": "qwen-ltx-default"', policy)
+        self.assertIn('"decode": 46', policy)
+        self.assertIn('"operational_floor_gb": 24', policy)
+
+    def test_ltx_keeps_promoted_maestro_profile_and_pplx_is_not_evicted(self):
+        engine = (ROOT / "runner/engine_server.py").read_text()
+        app = (ROOT / "app.py").read_text()
+        policy = (ROOT / "config/model-residency-policy.json").read_text()
+
+        self.assertIn("pipe, profile_no=4, compile=False", engine)
+        self.assertIn(
+            'target = "qwen-h3" if name == "h3" else "qwen-ltx-default"', app
+        )
+        self.assertIn("retain-qwen", policy)
+
+    def test_duplicate_portable_engine_guard_is_exact_and_fail_closed(self):
+        guard = (ROOT / "runner/pplx_shared_runtime_guard.sh").read_text()
+        self.assertIn("com.perplexity.computer.local-engine=vllm-docker", guard)
+        self.assertIn('docker stop --time 10 "$id"', guard)
+        self.assertNotIn("docker kill", guard)
+        self.assertNotIn("pkill", guard)
+        self.assertNotIn("killall", guard)
+        self.assertNotIn("docker stop $(", guard)
+
+        unit = (ROOT / "config/pplx-shared-runtime-guard.service").read_text()
+        self.assertIn("pplx_shared_runtime_guard.sh", unit)
+        self.assertIn("Restart=always", unit)
+
+    def test_text_guard_enforces_pplx_and_stands_down_flash(self):
+        guard = (ROOT / "runner/text_runtime_guard.sh").read_text()
+        self.assertIn("mode=pplx", guard)
+        self.assertIn("name=qwen38-vllm", guard)
+        self.assertIn("docker stop --time 30 qwen38-flash-next", guard)
+        self.assertNotIn('mode=flash', guard)
+
+    def test_protected_pplx_has_exactly_one_general_companion_slot(self):
+        policy = json.loads((ROOT / "config/companion-residency-policy.json").read_text())
+        self.assertTrue(policy["protected_primary"]["always_resident"])
+        self.assertFalse(policy["protected_primary"]["evictable_by_media"])
+        self.assertEqual("ltx", policy["companion_slot"]["default"])
+        self.assertEqual("exactly_one_when_idle_or_rendering",
+                         policy["companion_slot"]["cardinality"])
+        self.assertEqual({"ltx", "h3", "qwen-image", "flux-kontext",
+                          "music3", "voicebox-tts"},
+                         set(policy["companion_slot"]["members"]))
+
+    def test_music_and_tts_use_the_shared_inference_transaction(self):
+        app = (ROOT / "app.py").read_text()
+        self.assertIn('COMPANION_JOB_KINDS = IMAGE_JOB_KINDS | {"music", "speak"}', app)
+        self.assertIn('stand_down_other_companions("voice", j)', app)
+        self.assertIn('release_voice_weights()', app)
+        for audio_fn in ("def vb_transcribe", "def _enhance_wav"):
+            audio = app.split(audio_fn, 1)[1].split("def ", 1)[0]
+            self.assertIn('media-lab-inference.lock', audio)
+            self.assertIn('stand_down_other_companions("voice")', audio)
+        self.assertIn('MEDIA_LAB_VOICE_PREWARM', app)
+        self.assertNotIn('\nthreading.Thread(target=preview_prewarm, daemon=True).start()\n', app)
+        music = app.split("def run_music(j):", 1)[1].split("def ", 1)[0]
+        self.assertIn('media-lab-inference.lock', music)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

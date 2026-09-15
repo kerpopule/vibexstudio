@@ -1843,40 +1843,48 @@ def pause_chat_for_video(j=None):
 
     The receipt makes this crash-safe: only containers recorded as running are
     restored, and the supervisor sees the maintenance marker and stands clear.
+    A pre-existing receipt is recovery state, not proof that Qwen is already
+    cold: reassert the marker, re-read the recorded containers, and verify the
+    live runtime is absent before admitting GPU work.
     """
+    names = []
     if CHAT_PAUSE_RECEIPT.exists():
-        return True
-    names = _chat_containers_running()
+        try:
+            prior = json.loads(CHAT_PAUSE_RECEIPT.read_text())
+            names = [str(x) for x in prior.get("containers", []) if str(x)]
+        except Exception as exc:
+            if j is not None:
+                j["detail"] = f"corrupt chat pause receipt: {exc}"
+            return False
     CHAT_MAINTENANCE.write_text("media-lab video transaction\n")
+    for name in _chat_containers_running():
+        if name not in names:
+            names.append(name)
     tmp = CHAT_PAUSE_RECEIPT.with_suffix(".tmp")
     tmp.write_text(json.dumps({"containers": names, "ts": time.time()}))
     tmp.replace(CHAT_PAUSE_RECEIPT)
     if j is not None:
         j["stage"] = "making safe memory for media…"
         save_state()
-    for name in names:
-        subprocess.run(["docker", "stop", "--time", "45", name],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # Close the snapshot race during vLLM/SGLang migrations: record and stop any
-    # qwen38-* container that appeared after the first listing.
     for _ in range(3):
-        newly = [n for n in _chat_containers_running() if n not in names]
-        if not newly:
-            break
-        names.extend(newly)
-        tmp = CHAT_PAUSE_RECEIPT.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"containers": names, "ts": time.time()}))
-        tmp.replace(CHAT_PAUSE_RECEIPT)
-        for name in newly:
+        running = _chat_containers_running()
+        newly = [name for name in running if name not in names]
+        if newly:
+            names.extend(newly)
+            tmp = CHAT_PAUSE_RECEIPT.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"containers": names, "ts": time.time()}))
+            tmp.replace(CHAT_PAUSE_RECEIPT)
+        for name in running:
             subprocess.run(["docker", "stop", "--time", "45", name],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    still = set(_chat_containers_running())
-    if still:
-        if j is not None:
-            j["detail"] = f"could not pause chat containers: {sorted(still)}"
-        restore_chat_after_video()
-        return False
-    return True
+        if not _chat_containers_running():
+            return True
+    still = sorted(set(_chat_containers_running()))
+    if j is not None:
+        j["detail"] = f"could not pause chat containers: {still}"
+    # Keep the receipt and maintenance marker: fail closed and let the normal
+    # post-transaction residency recovery restore the exact pre-state.
+    return False
 
 def restore_chat_after_video():
     """Restore exactly the chat containers paused by this app, then clear maintenance."""
@@ -6972,6 +6980,24 @@ def run_maestro(j):
                             capture_output=True, text=True)
         if cp.returncode:
             return fail(j, f"Could not stage Maestro job: {(cp.stderr or cp.stdout)[:220]}")
+
+    # Maestro's in-container H3/LTX loader is outside the warm-engine pool, so
+    # it must explicitly make the companion slot cold before loading. Pausing
+    # chat alone is insufficient: a warm LTX plus Maestro H3 exhausts unified
+    # GPU memory even when Qwen was paused correctly.
+    if not release_voice_weights():
+        return fail(j, "Could not unload Voicebox weights for Maestro.")
+    released_image = release_image_weights("Maestro render")
+    if released_image is None and engine_up("image"):
+        return fail(j, "Could not unload image weights for Maestro.")
+    if engine_up("music"):
+        if engine_busy("music"):
+            return fail(j, "Music is active; refusing to interrupt it for Maestro.")
+        stop_engine("music")
+    release_video_engines("Maestro render")
+    remaining = [name for name in VIDEO_ENGINE_NAMES if engine_up(name)]
+    if remaining:
+        return fail(j, f"Could not make the video slot cold for Maestro: {remaining}")
 
     # Maestro video gets the box. The ordinary post-job settle thread restores
     # the committed Qwen/LTX idle profile after this queue item finishes.
