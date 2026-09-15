@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+# deploy-spark.sh — ship media-lab/ from a git tag to the Spark, safely.
+#
+#   media-lab/tools/deploy-spark.sh v1.4.0                # deploy the tag
+#   media-lab/tools/deploy-spark.sh v1.4.0 --dry-run      # show the rsync plan only
+#   SPARK=user@host media-lab/tools/deploy-spark.sh v1.4.0
+#
+# The road (see docs/DEPLOY.md):
+#   1. `git archive` media-lab/ at the tag (nothing uncommitted can ship);
+#   2. copy it to a staging dir on the Spark next to the live tree;
+#   3. wait until /api/queue reports no active work;
+#   4. rsync staging -> live with an ALLOWLIST of what code owns and a PROTECT
+#      list of everything the box owns (state, media, credentials, local.env);
+#   5. py_compile the live tree with its own venv;
+#   6. restart media-lab-simple.service and verify /api/queue answers;
+#   7. write deployed-source.json (repo, branch, tag, commit, files) with a
+#      rollback pointer to the pre-deploy backup.
+# Every step is fail-closed: an error before step 4 leaves the live tree
+# untouched; an error after it prints the rollback command.
+set -Eeuo pipefail
+
+TAG="${1:?usage: deploy-spark.sh <tag> [--dry-run]}"
+DRY=0; [[ "${2:-}" == "--dry-run" ]] && DRY=1
+SPARK="${SPARK:-${MEDIA_LAB_SSH:-}}"
+REMOTE_HOME="${REMOTE_HOME:-media-lab-simple}"          # relative to the remote $HOME
+REMOTE_PORT="${REMOTE_PORT:-7863}"
+SERVICE="${SERVICE:-media-lab-simple.service}"
+QUEUE_WAIT_S="${QUEUE_WAIT_S:-3600}"
+SUBDIR=media-lab
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+if [[ -z "$SPARK" ]]; then
+  # Fall back to the checkout's local.env (MEDIA_LAB_SSH) when SPARK is unset.
+  if [[ -f "$SUBDIR/config/local.env" ]]; then
+    SPARK="$(sed -n 's/^MEDIA_LAB_SSH=//p' "$SUBDIR/config/local.env" | tr -d '"'"'" | head -1)"
+  fi
+fi
+[[ -n "$SPARK" ]] || { echo "set SPARK=user@host (or MEDIA_LAB_SSH in $SUBDIR/config/local.env)" >&2; exit 2; }
+
+say()  { printf '\033[1m==> %s\033[0m\n' "$*"; }
+die()  { echo "deploy-spark: $*" >&2; exit 1; }
+rssh() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$SPARK" "$@"; }
+
+# ---------------------------------------------------------------- 0. identity
+git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || die "no such tag: $TAG"
+COMMIT="$(git rev-list -n 1 "$TAG")"
+REPO_URL="$(git remote get-url origin 2>/dev/null || echo unknown)"
+BRANCH="$(git branch -r --contains "$COMMIT" 2>/dev/null | sed -n 's|^ *origin/||p' | grep -vx HEAD | head -1)"
+BRANCH="${BRANCH:-$(git branch --contains "$COMMIT" --format='%(refname:short)' | head -1)}"
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+STAGE="$REMOTE_HOME.deploy-$TAG-$STAMP"
+BACKUP="$REMOTE_HOME/.backups/deploy-$STAMP-$COMMIT"
+say "deploying $SUBDIR/ at $TAG ($COMMIT) to $SPARK:~/$REMOTE_HOME"
+
+# Guard: the tree must not carry private identity (the same check CI runs).
+python3 "$SUBDIR/tools/identity_guard.py" >/dev/null || die "identity_guard failed on the checkout"
+
+# ---------------------------------------------------------------- 1. archive
+WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
+git archive --format=tar "$TAG" "$SUBDIR" | tar -x -C "$WORK"
+[[ -f "$WORK/$SUBDIR/app.py" ]] || die "archive has no $SUBDIR/app.py"
+( cd "$WORK/$SUBDIR" && find . -type f | sed 's|^\./||' | sort ) > "$WORK/files.txt"
+say "archived $(wc -l < "$WORK/files.txt" | tr -d ' ') files"
+
+# What code owns on the box (rsync --include rules, evaluated in order).
+ALLOW=(
+  '+ /app.py'
+  '+ /chat-system-prompt.md'
+  '+ /chat_operator.py' '+ /qwen_activity.py' '+ /residency.py' '+ /screenshot_song.py'
+  '+ /image_template_context.py' '+ /local_studio.py' '+ /proxy7864.py'
+  '+ /coupled_av_trim.py' '+ /cinematography_continuity_gate.py' '+ /true_lipsync_gate.py'
+  '+ /vibex_prop_continuity_gate.py' '+ /check_collision.py'
+  '+ /pyproject.toml' '+ /uv.lock' '+ /requirements.txt' '+ /install.sh'
+  '+ /media_lab_core/***'
+  '+ /runner/***'
+  '+ /static/***'
+  '+ /tools/***'
+  '+ /tests/***'
+  '+ /docs/***'
+  '+ /prompt-templates/***'
+  '+ /systemd/***'
+  '+ /launchd/***'
+  '+ /config/'
+  '+ /config/*.example'
+  '+ /config/*.service' '+ /config/*.timer'
+  '+ /config/capacity-budget.json' '+ /config/capacity-policy.json'
+  '+ /config/companion-residency-policy.json' '+ /config/h3-known-characters.json'
+  '+ /config/model-manifests.json'
+  '- *'
+)
+# What the box owns: never written, never deleted (rsync --exclude, first wins).
+PROTECT=(
+  '/config/local.env' '/config/engine-installs.json' '/config/fal-catalog.json'
+  '/config/model-residency-policy.json'
+  '/productions' '/qa' '/research' '/reference' '/medialab-import' '/image-svc'
+  '/.artifacts' '/media' '/jobs' '/pool' '/inbox' '/cut/projects' '/backups' '/.backups'
+  '/gallery.json' '/jobs.json' '/jobs.db' '/characters.json*' '/storyboards.json*'
+  '/providers.json' '/pilot-status.json' '/supervisor-state.json' '/watchdog-state.json'
+  '/eta-stats.json' '/auth-attempts.json' '/lu-*.json' '/geo-*.json' '/voices.json'
+  '/admin-pin.txt' '/access-code.txt' '/access-secret.txt' '/vapid_private.pem'
+  '/push-subs.json' '/tunnel-config.yml' '/proxy7864.env' '/deployed-source.json'
+  '/.venv' '/.worktrees' '/app.py.*' '*.bak*' '/HANDOFF.md' '/V2-BUILD-REPORT.md'
+  '/QWEN38-CUTOVER.md' '/backfill-*.py' '/screenshot-songs' '/voices' '/uploads*'
+  '/runner/models' '/runner/wheels' '/static/templates' '/static/template-library/images'
+)
+RSYNC_RULES=()
+for p in "${PROTECT[@]}"; do RSYNC_RULES+=(--exclude "$p"); done
+for a in "${ALLOW[@]}";   do RSYNC_RULES+=(--filter "$a"); done
+
+# ---------------------------------------------------------------- 2. stage
+say "staging to $SPARK:~/$STAGE"
+rssh "mkdir -p '$STAGE' '$REMOTE_HOME/.backups'"
+tar -C "$WORK/$SUBDIR" -cf - . | rssh "tar -xf - -C '$STAGE'"
+rssh "test -f '$STAGE/app.py'" || die "staging failed"
+
+# ---------------------------------------------------------------- 3. idle
+say "waiting for the queue to go idle (up to ${QUEUE_WAIT_S}s)"
+deadline=$(( $(date +%s) + QUEUE_WAIT_S ))
+while :; do
+  active="$(rssh "curl -s -m 5 -H 'Host: localhost' http://127.0.0.1:$REMOTE_PORT/api/queue?hist=0" \
+            | python3 -c 'import json,sys
+try:
+    d=json.load(sys.stdin); print(d.get("active_total", len(d.get("active",[]))))
+except Exception: print(-1)')"
+  if [[ "$active" == "0" ]]; then break; fi
+  if [[ "$active" == "-1" ]]; then echo "  /api/queue not answering; treating as idle after a grace period"; sleep 15; break; fi
+  (( $(date +%s) < deadline )) || die "queue still busy ($active active) after ${QUEUE_WAIT_S}s; staging left at ~/$STAGE"
+  printf '  %s active job(s)… ' "$active"; sleep 30
+done
+echo "idle"
+
+if (( DRY )); then
+  say "dry run: rsync plan"
+  rssh "rsync -rlptD -n -iv --delete ${RSYNC_RULES[*]@Q} '$STAGE/' '$REMOTE_HOME/'" | sed 's/^/  /' | head -200
+  rssh "rm -rf '$STAGE'"
+  exit 0
+fi
+
+# ---------------------------------------------------------------- 4. backup + rsync
+say "backing up the live code files to ~/$BACKUP"
+rssh "mkdir -p '$BACKUP' && cd '$REMOTE_HOME' && \
+  rsync -rlptD ${RSYNC_RULES[*]@Q} ./ '$BACKUP/' >/dev/null"
+say "rsync staging -> live"
+rssh "rsync -rlptD --delete ${RSYNC_RULES[*]@Q} '$STAGE/' '$REMOTE_HOME/' && rm -rf '$STAGE'"
+
+# ---------------------------------------------------------------- 5. compile
+say "py_compile with the box's venv"
+if ! rssh "cd '$REMOTE_HOME' && PY=\$( [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3 ); \
+      \$PY -m py_compile app.py \$(ls *.py 2>/dev/null) && \
+      \$PY -m compileall -q media_lab_core runner tools >/dev/null"; then
+  echo "compile FAILED — roll back with:" >&2
+  echo "  ssh $SPARK 'rsync -rlptD --delete ${RSYNC_RULES[*]@Q} ~/$BACKUP/ ~/$REMOTE_HOME/ && systemctl --user restart $SERVICE'" >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------- 6. restart + verify
+say "restarting $SERVICE"
+rssh "systemctl --user restart '$SERVICE'"
+ok=0
+for _ in $(seq 1 60); do
+  if rssh "curl -sf -m 5 -H 'Host: localhost' http://127.0.0.1:$REMOTE_PORT/api/queue?hist=0 >/dev/null"; then ok=1; break; fi
+  sleep 3
+done
+if (( ! ok )); then
+  echo "service did not answer on :$REMOTE_PORT after restart — roll back with:" >&2
+  echo "  ssh $SPARK 'rsync -rlptD --delete ${RSYNC_RULES[*]@Q} ~/$BACKUP/ ~/$REMOTE_HOME/ && systemctl --user restart $SERVICE'" >&2
+  rssh "journalctl --user -u '$SERVICE' -n 40 --no-pager" >&2 || true
+  exit 1
+fi
+
+# ---------------------------------------------------------------- 7. receipt
+say "writing deployed-source.json"
+python3 - "$REPO_URL" "$BRANCH" "$TAG" "$COMMIT" "$SUBDIR" "$BACKUP" "$WORK/files.txt" > "$WORK/deployed-source.json" <<'PY'
+import json, sys, datetime
+repo, branch, tag, commit, subdir, backup, files = sys.argv[1:8]
+print(json.dumps({
+    "repository": repo, "branch": branch, "tag": tag, "commit": commit,
+    "source_subdir": subdir,
+    "deployed_at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+    "rollback": f"~/{backup}",
+    "files_list": [l.strip() for l in open(files) if l.strip()],
+}, indent=1))
+PY
+rssh "cat > '$REMOTE_HOME/deployed-source.json'" < "$WORK/deployed-source.json"
+say "deployed $TAG ($COMMIT). rollback: ~/$BACKUP"
