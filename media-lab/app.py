@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Media Lab v2 — video / music / images / characters / storyboard.
 Single-flight worker queue, persisted jobs, ETA stats, PIN admin, remix."""
-import asyncio, base64, fcntl, hashlib, hmac, json, math, os, posixpath, random, re, shutil, subprocess, tempfile, threading, time, urllib.error, urllib.request, uuid
+import asyncio, base64, fcntl, hashlib, hmac, json, math, mimetypes, os, posixpath, random, re, shutil, subprocess, tempfile, threading, time, urllib.error, urllib.request, uuid
 from pathlib import Path
 from functools import lru_cache
 from contextlib import asynccontextmanager
@@ -692,7 +692,9 @@ def _save(p: Path, data):
 # The key never leaves this box except in the Authorization header to fal.
 PROVIDERS_FILE = ROOT / "providers.json"
 FAL_QUEUE_BASE = "https://queue.fal.run"
-FAL_DEFAULT_MODELS = {"image": "fal-ai/flux/dev", "video": "fal-ai/veo3/fast"}
+FAL_DEFAULT_MODELS = {"image": "fal-ai/flux/dev", "video": "minimax/h3-max/image-to-video"}
+FAL_H3_MAX_ROOT = "minimax/h3-max"
+FAL_INLINE_IMAGE_MAX = 20 * 1024 * 1024
 
 def _providers_load() -> dict:
     d = _load(PROVIDERS_FILE, {})
@@ -762,6 +764,9 @@ def fal_queue_run(model_id: str, payload: dict, j=None,
         raise RuntimeError(f"could not reach fal.ai: {e}")
     status_url = str(sub.get("status_url") or "")
     response_url = str(sub.get("response_url") or "")
+    if j is not None:
+        j["fal_request_id"] = str(sub.get("request_id") or "") or None
+        j["fal_model_id"] = model_id
     if not (status_url.startswith("https://") and response_url.startswith("https://")):
         raise RuntimeError("fal.ai returned no queue urls")
     deadline = time.time() + timeout_s
@@ -812,6 +817,53 @@ def _fal_first_media(result: dict, kinds=("images", "image", "video")) -> str:
         if isinstance(v, str) and v.startswith("https://"):
             return v
     return ""
+
+
+def _fal_image_data_uri(source: str) -> str:
+    """Encode one validated Media Lab image for fal without exposing a public URL."""
+    path = media_path(source)
+    if not path or not path.is_file():
+        raise RuntimeError("the selected cloud start frame is no longer in Media Lab")
+    size = path.stat().st_size
+    if size <= 0 or size > FAL_INLINE_IMAGE_MAX:
+        raise RuntimeError("the selected cloud start frame is empty or larger than 20 MB")
+    mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    if mime not in {"image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"}:
+        raise RuntimeError("fal.ai needs a JPEG, PNG, WEBP, GIF, or AVIF start frame")
+    return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}"
+
+
+def fal_video_request(j: dict) -> tuple[str, dict]:
+    """Build a reproducible fal request, selecting H3 text or continuation mode."""
+    req = j.get("request") or {}
+    configured = str(fal_config()["models"]["video"]).strip().strip("/")
+    source = str(req.get("source") or "").strip()
+    try:
+        seconds = int(round(min(15.0, max(5.0, float(req.get("duration", "5"))))))
+    except (TypeError, ValueError):
+        seconds = 5
+    orientation = str(req.get("orientation") or "landscape")
+    aspect = {"portrait": "9:16", "square": "1:1"}.get(orientation, "16:9")
+
+    if configured.startswith(FAL_H3_MAX_ROOT):
+        model_id = f"{FAL_H3_MAX_ROOT}/image-to-video" if source else f"{FAL_H3_MAX_ROOT}/text-to-video"
+        payload = {
+            "prompt": j["full_prompt"], "duration": seconds, "resolution": "768P",
+            "prompt_expansion_mode": "quality", "enable_safety_checker": True,
+        }
+        if req.get("seed") is not None:
+            payload["seed"] = int(req["seed"])
+        if source:
+            payload["image_url"] = _fal_image_data_uri(source)
+        else:
+            payload["aspect_ratio"] = aspect
+        return model_id, payload
+
+    if source:
+        raise RuntimeError("the selected fal video model does not support Media Lab continuation frames")
+    return configured, {"prompt": j["full_prompt"], "aspect_ratio": aspect,
+                        "duration": f"{seconds}s"}
+
 
 def job_queue_lane(j: dict) -> str:
     """Stable execution lane; cloud work never enters the Spark GPU queue."""
@@ -3034,47 +3086,36 @@ def _h3_v2v_prepare_first_frame(j, first_frame, identity_ref):
 
 
 def _run_fal_video(j):
-    """Cloud text-to-video on fal.ai — skips the local pool entirely (no
-    engine_up, no memory accounting, no Qwen eviction). Prompt-only: start
-    frames, references and v2v stay with the local engines."""
+    """Cloud H3 generation/continuation, isolated from the local GPU pool."""
     req = j.get("request") or {}
     if not fal_ready():
         return fail(j, "fal.ai isn't set up — add your API key in Cloud providers.")
-    if req.get("source") or req.get("references") or req.get("video_references"):
-        return fail(j, "The fal.ai cloud crew films from a prompt only — "
-                       "use a local engine to animate a picture or clone an actor.")
-    model_id = fal_config()["models"]["video"]
-    w, h = int(j.get("w") or 1280), int(j.get("h") or 704)
-    ar = "16:9" if w > h else ("9:16" if h > w else "1:1")
-    try:
-        secs = int(round(min(20.0, max(3.0, float(req.get("duration", "5"))))))
-    except (TypeError, ValueError):
-        secs = 5
+    if req.get("references") or req.get("video_references"):
+        return fail(j, "Online actor and motion references are not enabled yet; use a start frame or a local H3 take.")
     j["stage"] = "generating"
     jd = JOBS_DIR / j["id"]
     jd.mkdir(parents=True, exist_ok=True)
     out = jd / "fal-result.mp4"
     try:
-        try:
-            result = fal_queue_run(model_id, {"prompt": j["full_prompt"],
-                                              "aspect_ratio": ar,
-                                              "duration": f"{secs}s"},
-                                   j, timeout_s=1800)
-        except RuntimeError as e:
-            # models disagree on the knobs (veo3 takes "8s", others take
-            # nothing) — fall back to the one field every t2v model accepts
-            if "rejected the request" not in str(e):
-                raise
-            result = fal_queue_run(model_id, {"prompt": j["full_prompt"]},
-                                   j, timeout_s=1800)
+        model_id, payload = fal_video_request(j)
+        j["fal_input"] = {
+            "duration": payload.get("duration"), "resolution": payload.get("resolution"),
+            "aspect_ratio": payload.get("aspect_ratio"), "prompt_expansion_mode": payload.get("prompt_expansion_mode"),
+            "source": req.get("source") or None, "seed": payload.get("seed"),
+        }
+        result = fal_queue_run(model_id, payload, j, timeout_s=1800)
         url = _fal_first_media(result, kinds=("video",))
         if not url:
             raise RuntimeError("fal.ai returned no video")
         fal_download(url, out)
+        if result.get("seed") is not None:
+            j["fal_seed"] = result.get("seed")
+        if result.get("prompt"):
+            j["fal_expanded_prompt"] = str(result.get("prompt"))[:4000]
     except RuntimeError as e:
-        return fail(j, f"The cloud film crew failed — {e}")
+        return fail(j, f"The online film crew failed — {e}")
     except Exception as e:
-        return fail(j, "The cloud film crew failed — try again.", e)
+        return fail(j, "The online film crew failed — try again.", e)
     j["stage"] = "encoding"
     _finish_video(j, out)
 
@@ -8997,7 +9038,10 @@ def providers_get():
     return {"fal": _fal_public_view(), "catalog": _fal_catalog()}
 
 @app.post("/api/providers")
-def providers_set(r: ProviderReq):
+def providers_set(r: ProviderReq, request: Request, x_lab_pin: Optional[str] = Header(None)):
+    bad = admin_guard(request, x_lab_pin)
+    if bad:
+        return bad
     if r.provider != "fal":
         return JSONResponse({"error": "unknown provider"}, status_code=400)
     cfg = _providers_load()
