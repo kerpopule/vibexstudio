@@ -41,6 +41,7 @@ fi
 say()  { printf '\033[1m==> %s\033[0m\n' "$*"; }
 die()  { echo "deploy-spark: $*" >&2; exit 1; }
 rssh() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$SPARK" "$@"; }
+REMOTE_ABS_HOME="$(rssh 'printf %s "$HOME"')"
 # Media Lab binds MEDIA_LAB_BIND_HOST (often the tailnet IP), not loopback: read it from the Spark's local.env.
 REMOTE_BIND="$(rssh "sed -n 's/^MEDIA_LAB_BIND_HOST=//p' ~/${REMOTE_HOME:-media-lab-simple}/config/local.env 2>/dev/null | tr -d '\"' | head -1" || true)"
 REMOTE_BIND="${REMOTE_BIND:-127.0.0.1}"
@@ -111,7 +112,6 @@ PROTECT=(
 # One rsync filter file on the Spark: protect lines first (first match wins, and
 # excluded receiver files are never deleted), then the allowlist, then "- *".
 # A merge file avoids shell quoting entirely (macOS bash 3.2 lacks ${arr[@]@Q}).
-REMOTE_ABS_HOME="$(rssh 'printf %s "$HOME"')"
 RULES_FILE="$REMOTE_ABS_HOME/$REMOTE_HOME/.backups/deploy-rules-$STAMP"   # absolute: later steps cd into the live tree
 { for p in "${PROTECT[@]}"; do printf '%s\n' "- $p"; done
   for a in "${ALLOW[@]}";   do printf '%s\n' "$a"; done; } > "$WORK/deploy-rules"
