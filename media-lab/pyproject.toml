@@ -40,3 +40,7 @@ target-version = "py311"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+markers = [
+  "spark: needs the Spark host's private trees (productions/, image-svc/, research/); deselect with -k 'not spark'",
+  "gpu: needs a resident GPU engine",
+]

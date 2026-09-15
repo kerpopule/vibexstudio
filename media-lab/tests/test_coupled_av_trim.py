@@ -1,6 +1,7 @@
 import json
 import subprocess
 import tempfile
+import pytest
 import unittest
 from pathlib import Path
 
@@ -24,6 +25,7 @@ class CoupledAvTrimTests(unittest.TestCase):
             self.assertLess(abs(receipt["duration_seconds"] - 0.8), 0.08)
             self.assertTrue(receipt["has_audio"])
 
+    @pytest.mark.spark  # needs the Spark's private productions/ or image-svc/ tree
     def test_unsafe_vibex_legacy_recut_is_disabled(self):
         source = (Path(__file__).parents[1] / "productions/vibexstudio-founder-explainer-2026-08-30/smart_trim_recut.py").read_text()
         self.assertIn("UNSAFE_INDEPENDENT_DIALOGUE_REMUX_DISABLED = True", source)
@@ -33,6 +35,7 @@ class CoupledAvTrimTests(unittest.TestCase):
             legacy_source = (prod / legacy).read_text()
             self.assertIn("UNSAFE_INDEPENDENT_DIALOGUE_REMUX_DISABLED = True", legacy_source, legacy)
 
+    @pytest.mark.spark  # needs the Spark's private productions/ or image-svc/ tree
     def test_aas_visible_dialogue_uses_shared_coupled_trim(self):
         source = (Path(__file__).parents[1] / "productions/aas-founder-performance-nightmare-2026-08-30/smart_trim_recut_aas.py").read_text()
         self.assertIn("from coupled_av_trim import coupled_av_trim", source)

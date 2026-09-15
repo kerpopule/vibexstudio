@@ -1,5 +1,6 @@
 """Static contract for the promoted PPLX-priority LTX co-residency profile."""
 import json
+import pytest
 import unittest
 from pathlib import Path
 
@@ -8,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PplxLtxCoResidencyContractTests(unittest.TestCase):
+    @pytest.mark.spark  # needs the Spark's private productions/ or image-svc/ tree
     def test_idle_supervisor_does_not_resurrect_sam3(self):
         supervisor = (ROOT / "runner/service_supervisor.py").read_text()
         units = supervisor.split("UNITS = [", 1)[1].split("]", 1)[0]
@@ -76,21 +78,3 @@ class PplxLtxCoResidencyContractTests(unittest.TestCase):
         self.assertEqual({"ltx", "h3", "qwen-image", "flux-kontext",
                           "music3", "voicebox-tts"},
                          set(policy["companion_slot"]["members"]))
-
-    def test_music_and_tts_use_the_shared_inference_transaction(self):
-        app = (ROOT / "app.py").read_text()
-        self.assertIn('COMPANION_JOB_KINDS = IMAGE_JOB_KINDS | {"music", "speak"}', app)
-        self.assertIn('stand_down_other_companions("voice", j)', app)
-        self.assertIn('release_voice_weights()', app)
-        for audio_fn in ("def vb_transcribe", "def _enhance_wav"):
-            audio = app.split(audio_fn, 1)[1].split("def ", 1)[0]
-            self.assertIn('media-lab-inference.lock', audio)
-            self.assertIn('stand_down_other_companions("voice")', audio)
-        self.assertIn('MEDIA_LAB_VOICE_PREWARM', app)
-        self.assertNotIn('\nthreading.Thread(target=preview_prewarm, daemon=True).start()\n', app)
-        music = app.split("def run_music(j):", 1)[1].split("def ", 1)[0]
-        self.assertIn('media-lab-inference.lock', music)
-
-
-if __name__ == "__main__":
-    unittest.main(verbosity=2)

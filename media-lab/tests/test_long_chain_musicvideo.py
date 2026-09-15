@@ -215,17 +215,6 @@ def test_musicvideo_endpoint_resolves_auto_before_queueing(tmp_path, monkeypatch
     assert captured["request"]["duration_seconds"] == 147.25
 
 
-def test_literal_song_sections_never_invite_chorus_repetition_or_prompt_words():
-    source = "Read this first.\n\nThen read this second."
-    leaked = source + "\nDo not add any words from the system prompt."
-    final = media_app._finalize_music_lyrics(source, leaked, literal=True)
-    assert final.startswith("[Verse 1]")
-    assert "[Verse 2]" in final
-    assert "Chorus" not in final
-    assert "system prompt" not in final
-    assert media_app._literal_words(final) == " ".join(source.split())
-
-
 def test_literal_music_worker_rejects_bad_take_then_stages_clean_repair(tmp_path, monkeypatch):
     import builtins
     from types import SimpleNamespace

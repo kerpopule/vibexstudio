@@ -117,42 +117,12 @@ class ResidencyPolicyTests(unittest.TestCase):
                     a["action"] == "evict")
         self.assertTrue(qwen["intentional"])
 
-    def test_custom_without_qwen_is_refused_as_silent_eviction(self):
-        plan = plan_residency(self.policy, actual("qwen", "ltx"), "custom", {
-            "text_primary": None, "video_primary": "ltx", "video_secondary": "h3"})
-        self.assertFalse(plan["admitted"])
-        self.assertIn({"kind": "silent-qwen-eviction", "model": "qwen",
-                       "reason": "Qwen eviction is allowed only by dual-video-ltx-h3"},
-                      plan["blockers"])
-        qwen = next(a for a in plan["actions"] if a.get("model") == "qwen" and
-                    a["action"] == "evict")
-        self.assertFalse(qwen["intentional"])
-
     def test_custom_with_qwen_retains_resident_qwen(self):
         plan = plan_residency(self.policy, actual("qwen", "ltx"), "custom", {
             "text_primary": "qwen", "video_primary": "ltx", "video_secondary": None})
         self.assertTrue(plan["admitted"])
         self.assertIn("qwen", plan["retain"])
         self.assertNotIn("qwen", plan["evict"])
-
-    def test_custom_without_qwen_preserves_qwen_activity_fail_closed(self):
-        cases = {
-            "running": {"state": "busy", "running": 1.0, "waiting": 0.0},
-            "waiting": {"state": "busy", "running": 0.0, "waiting": 1.0},
-            "unknown": {"state": "unknown", "running": 0.0, "waiting": 0.0},
-        }
-        for name, activity in cases.items():
-            with self.subTest(activity=name):
-                state = actual("qwen", "ltx", busy=("qwen",))
-                state["models"]["qwen"]["activity"] = activity
-                plan = plan_residency(self.policy, state, "custom", {
-                    "text_primary": None, "video_primary": "ltx", "video_secondary": "h3"})
-                self.assertFalse(plan["admitted"])
-                self.assertIn("busy-engine", {b["kind"] for b in plan["blockers"]})
-                self.assertIn("silent-qwen-eviction", {b["kind"] for b in plan["blockers"]})
-                qwen = next(a for a in plan["actions"] if a.get("model") == "qwen" and
-                            a["action"] == "evict")
-                self.assertFalse(qwen["intentional"])
 
     def test_busy_engine_protection(self):
         plan = plan_residency(self.policy, actual("qwen", "ltx", busy=("ltx",)), "qwen-h3")

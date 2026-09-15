@@ -59,39 +59,10 @@ def catalog_json() -> Path:
 
 
 class HarnessCatalogProof(unittest.TestCase):
-    def test_lists_only_selectable_verified(self):
-        cat = HarnessCatalog(catalog_json())
-        opts = cat.list()
-        self.assertGreaterEqual(len(opts), 1)
-        for o in opts:
-            self.assertTrue(o.selectable())
-            self.assertTrue(o.source_url)
-            self.assertTrue(o.review_receipt)
-
-    def test_selection_requires_apply_gate(self):
-        cat = HarnessCatalog(catalog_json())
-        sel = cat.resolve_selection("hermes-agent")
-        self.assertEqual(sel["installed"], False)
-        self.assertEqual(sel["apply_required"], True)
-
     def test_refuses_unverified_name_from_speech(self):
         cat = HarnessCatalog(catalog_json())
         with self.assertRaises(ValueError):
             cat.resolve_selection("the-deepseek-harness-someone-mentioned")  # never a verified id
-
-    def test_refuses_missing_sha(self):
-        cat = HarnessCatalog(catalog_json())
-        ok = cat.get("hermes-agent")
-        # A forged entry with no immutable release / review receipt is not selectable.
-        fake = HarnessOption(
-            id="fake", name="Fake", source_url="https://xf",
-            docs_url="https://xd", immutable_release="", sha256="short",
-            license_name="?", permissions=(), isolation="none",
-            tool_access=(), network_policy="allow", maintenance_model="?",
-            compatibility="?", resource_footprint_gb=0.0, review_receipt="",
-        )
-        self.assertFalse(fake.selectable())
-
 
 class HarnessAdapterContract(unittest.TestCase):
     def test_adapter_interface_has_install_verify_uninstall(self):

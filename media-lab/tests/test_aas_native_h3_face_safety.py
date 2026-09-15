@@ -1,8 +1,13 @@
 from pathlib import Path
+import pytest
 import unittest
 
 ROOT = Path(__file__).parents[1]
 PROD = ROOT / "productions/aas-founder-performance-nightmare-2026-08-30"
+
+
+# needs the Spark's private productions/ or image-svc/ tree
+pytestmark = pytest.mark.spark
 
 
 class AASNativeH3FaceSafetyTests(unittest.TestCase):

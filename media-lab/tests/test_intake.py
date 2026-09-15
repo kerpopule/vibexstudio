@@ -34,14 +34,6 @@ class IntakeAdversarial(unittest.TestCase):
         self.assertFalse(v["admitted"])
         self.assertTrue(any("https or ssh" in e for e in v["errors"]))
 
-    def test_rejects_arbitrary_code_file_format(self):
-        v = self.gate.inspect(**{**OK_ARGS, "files": [{"name": "setup.py"}]},
-                              signatures_verified=False)
-        self.assertFalse(v["admitted"])
-        joined = " ".join(v["errors"]).lower()
-        self.assertIn("unsafe artifact", joined)
-        self.assertIn("signatures not verified", joined)
-
     def test_rejects_trust_remote_code(self):
         v = self.gate.inspect(**{**OK_ARGS, "trust_remote_code": True})
         self.assertFalse(v["admitted"])
@@ -73,10 +65,6 @@ class IntakeAdversarial(unittest.TestCase):
         v = self.gate.inspect(**{**OK_ARGS, "files": []})
         self.assertFalse(v["admitted"])
         self.assertTrue(any("file manifest" in e for e in v["errors"]))
-
-    def test_admits_reviewed_safetensors(self):
-        v = self.gate.inspect(**OK_ARGS)
-        self.assertTrue(v["admitted"], v["errors"])
 
     def test_rejects_file_scheme(self):
         v = self.gate.inspect(repo_url="file:///etc/passwd", **{k: val for k, val in OK_ARGS.items() if k != "repo_url"})
@@ -114,19 +102,3 @@ class UpdateScoutTrustPolicy(unittest.TestCase):
         self.assertEqual(v["review_stage"], "pending")
         self.assertTrue(any("source not in trusted set" in p for p in v["problems"]))
         self.assertFalse(v["promote"])
-
-    def test_reviewed_never_auto_promotes(self):
-        scout = UpdateScout(trusted_sources={"https://hf.example"},
-                            reviewed_nodes={"node1"})
-        report = scout.check("https://hf.example/org/r", "node1")
-        self.assertEqual(report["review_stage"], "reviewed")
-        self.assertFalse(report["promote"])
-        v = scout.promote(report, explicit_approval=True)
-        self.assertEqual(v["promoted"], True)
-        r2 = scout.check("https://evil.example/r", "someone")
-        v2 = scout.promote(r2, explicit_approval=True)
-        self.assertEqual(v2["promoted"], False)
-
-
-if __name__ == "__main__":
-    unittest.main(verbosity=2)

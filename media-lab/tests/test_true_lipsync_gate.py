@@ -1,6 +1,7 @@
 import hashlib
 import json
 import tempfile
+import pytest
 import unittest
 from pathlib import Path
 
@@ -12,6 +13,7 @@ class TrueLipSyncGateTests(unittest.TestCase):
         self.assertEqual(AAS_VISIBLE_IDS, [f"N{i:02d}" for i in range(19)])
         self.assertIn("N10", AAS_VISIBLE_IDS)
 
+    @pytest.mark.spark  # needs the Spark's private productions/ or image-svc/ tree
     def test_batch_includes_moving_n10_and_no_still_exception(self):
         source = (Path(__file__).parents[1] / "productions/aas-founder-performance-nightmare-2026-08-30/submit_aas_source_lipsync_batch.py").read_text()
         self.assertIn('VISIBLE_BATCH = [f"N{i:02d}" for i in range(1, 19) if i != 4]', source)

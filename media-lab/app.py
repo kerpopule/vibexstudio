@@ -49,6 +49,10 @@ JOBS_FILE = ROOT / "jobs.json"
 ETA_FILE = ROOT / "eta-stats.json"
 CHARS_FILE = ROOT / "characters.json"
 KNOWN_CHARS_FILE = ROOT / "config/h3-known-characters.json"
+
+def _known_chars_file() -> Path:
+    """A data root that only holds state has no registry: use the checkout's."""
+    return KNOWN_CHARS_FILE if KNOWN_CHARS_FILE.exists() else SOURCE_DIR / "config/h3-known-characters.json"
 BOARDS_FILE = ROOT / "storyboards.json"
 PIN_FILE = ROOT / "admin-pin.txt"
 QWEN_URL = "http://127.0.0.1:8003/v1/chat/completions"
@@ -2773,7 +2777,7 @@ def media_path(ref: str):
 
 def known_characters():
     """Return prompt-only H3 catalog identities as safe virtual cast records."""
-    payload = _load(KNOWN_CHARS_FILE, {})
+    payload = _load(_known_chars_file(), {})
     records = payload.get("characters", []) if isinstance(payload, dict) else []
     out = []
     for row in records:
