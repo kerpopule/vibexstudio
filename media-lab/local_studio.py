@@ -7,7 +7,7 @@ live Media Lab on the Spark, cookies and all. That means the new UI runs
 locally while jobs, galleries, characters and Sparky chat are the real thing.
 
     python3 local_studio.py            # http://127.0.0.1:7899
-    UPSTREAM=https://media.source4ai.com python3 local_studio.py
+    UPSTREAM=https://your-studio.example python3 local_studio.py
 """
 import http.server
 import os

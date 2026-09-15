@@ -53,7 +53,7 @@ after you review and accept the in-app notice.
   **on-device studio** generates images (Gemini / GPT Image / Grok Imagine —
   API key or your Grok subscription) and video (Veo) straight into a
   persistent gallery, no server needed. Pair a full
-  [Media Lab](https://github.com/kerpopule/media-lab-studio) (the desktop app
+  [Media Lab](../media-lab/) (the desktop app
   can host one, or your own GPU box — scan its QR and you're paired) and the
   tab also hosts its complete web UI — image, video, music, characters, and
   **✂️ Cut**, the built-in editor: trim, split, dissolve, caption, mix, and
@@ -75,9 +75,11 @@ flowchart LR
 
 | Repo | What it is |
 |---|---|
-| **[vibexstudio](https://github.com/kerpopule/vibexstudio)** (this one) | The app — Expo/React Native for iOS, Android, and the web build the desktop app wraps |
-| **[vibexstudio-desktop](https://github.com/kerpopule/vibexstudio-desktop)** | Tauri shell for Mac/Windows/Linux + the Media Lab sidecar |
-| **[media-lab-studio](https://github.com/kerpopule/media-lab-studio)** | The media studio server — run it on your own hardware, or cloud-only with your fal.ai key |
+| **[`app/`](../app/)** (this directory) | The app — Expo/React Native for iOS, Android, and the web build the desktop app wraps |
+| **[`desktop/`](../desktop/)** | Tauri shell for Mac/Windows/Linux + the Media Lab sidecar |
+| **[`media-lab/`](../media-lab/)** | The media studio server — run it on your own hardware, or cloud-only with your fal.ai key |
+
+All three live in the one [kerpopule/vibexstudio](https://github.com/kerpopule/vibexstudio) repository; `main` is the only branch that ships.
 
 ## Build from source
 

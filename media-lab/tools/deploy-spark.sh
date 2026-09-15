@@ -74,7 +74,7 @@ ALLOW=(
   '+ /chat_operator.py' '+ /qwen_activity.py' '+ /residency.py' '+ /screenshot_song.py'
   '+ /image_template_context.py' '+ /local_studio.py' '+ /proxy7864.py'
   '+ /coupled_av_trim.py' '+ /cinematography_continuity_gate.py' '+ /true_lipsync_gate.py'
-  '+ /vibex_prop_continuity_gate.py' '+ /check_collision.py'
+  '+ /vibex_prop_continuity_gate.py' '+ /README.md' '+ /LICENSE' '+ /AGENTS.md' '+ /CREDITS.md'
   '+ /pyproject.toml' '+ /uv.lock' '+ /requirements.txt' '+ /install.sh'
   '+ /media_lab_core/***'
   '+ /runner/***'

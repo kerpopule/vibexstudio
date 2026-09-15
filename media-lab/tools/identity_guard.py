@@ -36,6 +36,11 @@ PRIVATE_PATTERNS = [
     r"steves-macbook-pro",
     r"spark-d16e",
     r"spark-8fb9",
+    # operator machines, homes and public hostnames
+    r"/Users/vibex\b",
+    r"hermes-team",
+    r"media\.autoedu\.ai",
+    r"media\.source4ai\.com",
     r"[a-z0-9-]+\.tail[0-9a-f]{5,6}\.ts\.net",
     # leftovers of the retired rewrite step
     r"YOUR_TAILNET_IP",

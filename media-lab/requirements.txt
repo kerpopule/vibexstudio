@@ -11,3 +11,7 @@ qrcode>=7.4
 Pillow>=10.0
 # Monitor only the isolated CPU worker and its descendants.
 psutil>=7.2,<8
+# Web push (the 🔔 queue notifications): VAPID keys + encrypted payloads.
+cryptography>=43
+py-vapid>=1.9
+pywebpush>=2

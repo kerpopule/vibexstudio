@@ -18,6 +18,7 @@ from media_lab_core import installer as engine_installer
 from media_lab_core import cut as cut_core
 from runner.audio_signal_gate import audio_signal_metrics
 from runner import h3_reference as _h3ref   # H3 Ref2VA / Qwen quality contract
+from runner.maestro_safety import admission_error as maestro_admission_error, reap_orphan_runners as reap_orphan_maestro_runners
 from residency import ResidencyController, ResidencyError
 from qwen_activity import probe_text_activity
 from chat_operator import (MUTATION_TOOLS, StudioOperator, ToolError,
@@ -55,7 +56,8 @@ def _known_chars_file() -> Path:
     return KNOWN_CHARS_FILE if KNOWN_CHARS_FILE.exists() else SOURCE_DIR / "config/h3-known-characters.json"
 BOARDS_FILE = ROOT / "storyboards.json"
 PIN_FILE = ROOT / "admin-pin.txt"
-QWEN_URL = "http://127.0.0.1:8003/v1/chat/completions"
+# Chat completions endpoint for Sparky (thinking-off shim by default; MEDIA_LAB_CHAT_URL overrides).
+QWEN_URL = local_config.get("MEDIA_LAB_CHAT_URL", "http://127.0.0.1:8003/v1/chat/completions")
 QWEN_MODEL = os.getenv(
     "MEDIA_LAB_TEXT_MODEL",
     "media-lab-text",
@@ -882,6 +884,12 @@ def job_queue_lane(j: dict) -> str:
 
 @asynccontextmanager
 async def _studio_lifespan(application):
+    # Queue-owned Maestro runners that outlived a previous API process would
+    # keep the GPU: reap them before anything else is admitted.
+    try:
+        print(f"[media-lab] maestro orphan reaper: {reap_orphan_maestro_runners()}", flush=True)
+    except Exception as exc:  # never block startup on the reaper
+        print(f"[media-lab] maestro orphan reaper failed: {exc}", flush=True)
     _start_studio_background_host()
     try:
         yield
@@ -951,7 +959,7 @@ def save_state():
                       "online_queue": list(online_queue)})
 
 # ---------- public access gate ----------
-# The app is public via Cloudflare tunnel (media.autoedu.ai / media.source4ai.com).
+# The app may be public via a tunnel / reverse proxy (MEDIA_LAB_PUBLIC_HOSTS).
 # FLEET RULE: behind the tunnel every request looks like localhost — NEVER trust
 # client IPs for auth. Trust is decided by (a) the Host header — the tunnel only
 # forwards the two public hostnames, so a tailnet/localhost Host can only arrive
@@ -1783,7 +1791,7 @@ COMFY_MUSIC_DIR = Path.home() / "runtime/music3-iso/ComfyUI"
 COMFY_IMAGE_DIR = Path.home() / "runtime/comfy-ltx25/ComfyUI"
 SOL_H3_PORT = 8291
 # Cross-process inference mutex (shared with the engine shims and image_service).
-INFERENCE_LOCK = "/run/user/1000/media-lab-inference.lock"
+INFERENCE_LOCK = os.environ.get("MEDIA_LAB_INFERENCE_LOCK") or local_config.inference_lock()   # MEDIA_LAB_INFERENCE_LOCK
 
 # ---------- music engines ----------
 # YuE2 is the PRIMARY music engine (Steve, 2026-09-14): the default for every
@@ -2227,7 +2235,7 @@ def ensure_h3_variant(j=None):
             j["detail"] = f"H3 {current} is busy; refusing runtime swap to {target}"
         return "busy"
 
-    gate = open("/run/user/1000/media-lab-inference.lock", "a+")
+    gate = open(INFERENCE_LOCK, "a+")
     try:
         try:
             fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -2453,7 +2461,7 @@ class _ResidencyRuntime:
     @staticmethod
     def begin_residency_transaction():
         """Claim scheduling without confusing it with pool ownership."""
-        gate = open("/run/user/1000/media-lab-inference.lock", "a+")
+        gate = open(INFERENCE_LOCK, "a+")
         try:
             fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
@@ -2530,7 +2538,7 @@ class _ResidencyRuntime:
             if r.returncode == 0:
                 pool_owner = unit
                 break
-        lock_users = subprocess.run(["fuser", "/run/user/1000/media-lab-inference.lock"],
+        lock_users = subprocess.run(["fuser", INFERENCE_LOCK],
                                     capture_output=True, text=True)
         return {"models": model_state,
                 "aux": {n: {"resident": engine_up(n), "busy": engine_busy(n)}
@@ -2538,7 +2546,7 @@ class _ResidencyRuntime:
                 "memory": {"available_gb": round(_mem_available_gb(), 2)},
                 "pool_lease": {"owner": pool_owner, "meaning": "model-pool ownership"},
                 "inference": {"locked": bool((lock_users.stdout or "").strip()),
-                              "lock": "/run/user/1000/media-lab-inference.lock"}}
+                              "lock": INFERENCE_LOCK}}
 
     def release_image_weights(self, why):
         released = release_image_weights(why)
@@ -3390,7 +3398,7 @@ def _yue2_generate(body: dict, j=None, timeout=3600):
     watcher = threading.Thread(target=watch, daemon=True)
     watcher.start()
     try:
-        with open("/run/user/1000/media-lab-inference.lock", "a+") as gate:
+        with open(INFERENCE_LOCK, "a+") as gate:
             fcntl.flock(gate, fcntl.LOCK_EX)
             return http_json(_yue2_url("/generate"), body, timeout=timeout)
     finally:
@@ -5902,7 +5910,7 @@ def vb_multipart(path, file_path: Path, fields: dict, timeout=180):
 def vb_transcribe(wav: Path) -> str:
     """Reference text for a clone sample — the lab's own faster-whisper."""
     try:
-        with open("/run/user/1000/media-lab-inference.lock", "a+") as gate:
+        with open(INFERENCE_LOCK, "a+") as gate:
             fcntl.flock(gate, fcntl.LOCK_EX)
             if stand_down_other_companions("voice") != "up":
                 return ""
@@ -5926,7 +5934,7 @@ def _enhance_wav(p: Path) -> Path:
         return p
     out = p.with_name(p.stem + "-enh.wav")
     try:
-        with open("/run/user/1000/media-lab-inference.lock", "a+") as gate:
+        with open(INFERENCE_LOCK, "a+") as gate:
             fcntl.flock(gate, fcntl.LOCK_EX)
             if stand_down_other_companions("voice") != "up":
                 return p
@@ -6053,7 +6061,7 @@ def _vb_generate_unlocked(text, out_dir: Path, *, profile_id="", engine="", adv=
 
 def vb_generate(text, out_dir: Path, *, profile_id="", engine="", adv=None, j=None):
     """Run TTS as the sole companion beside PPLX, then release its weights."""
-    with open("/run/user/1000/media-lab-inference.lock", "a+") as gate:
+    with open(INFERENCE_LOCK, "a+") as gate:
         fcntl.flock(gate, fcntl.LOCK_EX)
         if stand_down_other_companions("voice", j) != "up":
             return None
@@ -6230,7 +6238,7 @@ def engine_generate(eng, body, j=None, timeout=7200):
             # Cross-process inference mutex shared with image_service.py closes
             # the health-check -> render TOCTOU window. It is separate from the
             # canonical residency lock and is held only during actual inference.
-            with open("/run/user/1000/media-lab-inference.lock", "a+") as gate:
+            with open(INFERENCE_LOCK, "a+") as gate:
                 fcntl.flock(gate, fcntl.LOCK_EX)
                 return http_json(url, body, timeout=timeout)
         except Exception as e:
@@ -7234,6 +7242,9 @@ def run_maestro(j):
     settings = r.get("settings") or {}
     if not isinstance(settings, dict) or not settings.get("model_type"):
         return fail(j, "Maestro settings require a model_type.")
+    admission = maestro_admission_error(settings)
+    if admission:
+        return fail(j, admission)
     if not _docker_running("maestro-gui"):
         return fail(j, "Advanced mode is offline — start Maestro and retry.")
     if not MAESTRO_QUEUE_RUNNER.exists():
@@ -7992,6 +8003,9 @@ def maestro(r: MaestroReq):
     settings = dict(r.settings or {})
     if not settings.get("model_type"):
         return JSONResponse({"error": "model_type required"}, status_code=400)
+    admission = maestro_admission_error(settings)
+    if admission:
+        return JSONResponse({"error": admission}, status_code=422)
     prompt = str(settings.get("prompt") or r.title or "Maestro render").strip()
     j = submit_job("maestro", {"prompt": prompt, "title": r.title, "settings": settings})
     return {"id": j["id"], "eta_min": 15}
@@ -8009,6 +8023,9 @@ def maestro_model(r: MaestroModelReq):
         model, settings = maestro_model_settings(r.model_id, r.prompt, r.overrides)
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=404)
+    admission = maestro_admission_error(settings)
+    if admission:
+        return JSONResponse({"error": admission}, status_code=422)
     title = r.title.strip()[:120] or str(model.get("name") or r.model_id)[:120]
     req = {"prompt": str(settings.get("prompt") or title), "title": title,
            "model_id": r.model_id, "settings": settings}
@@ -10244,7 +10261,7 @@ def studio():
     """Also surfaces out-of-app pilot renders (Claude's direct ComfyUI runs)
     via pilot-status.json, so they show in the studio banner instead of being
     invisible work."""
-    held = subprocess.run(["flock", "-n", "/run/user/1000/spark-gpu.lock", "-c", "true"],
+    held = subprocess.run(["flock", "-n", local_config.gpu_lock(), "-c", "true"],
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0
     # Our own holders (warm pool / idle reservation) are not "filming".
     ours = _unit_active("media-lab-pool.service") or _unit_active("media-lab-gpu-reservation.service")
@@ -10588,7 +10605,7 @@ def chat(r: ChatReq, request: Request):
             # Status frames keep the person company while the operator thinks.
             # The old chat UI ignores unknown SSE keys, so this is additive.
             yield _sse({"status": "Sparky is thinking…"})
-            with open("/run/user/1000/media-lab-inference.lock", "a+") as gate:
+            with open(INFERENCE_LOCK, "a+") as gate:
                 fcntl.flock(gate, fcntl.LOCK_EX)
                 for _round in range(6):
                     if _round:

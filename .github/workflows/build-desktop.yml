@@ -1,10 +1,10 @@
 name: build-desktop
 
 # Two jobs share one matrix:
-#   build   — every push to main: artifacts only (no release, no upload).
+#   build   — workflow_dispatch with an empty tag: artifacts only (no release, no upload).
 #   release — tags `v*` (or workflow_dispatch with a tag): tauri-action
 #             builds, signs the updater bundles with TAURI_SIGNING_PRIVATE_KEY,
-#             creates/updates the GitHub release "VibeXStudio v1.2.0" with the
+#             creates/updates the GitHub release "VibeXStudio v<tag>" with the
 #             installers + latest.json (the auto-updater manifest).
 #
 # macOS stays in the matrix so a broken mac build is caught, but its artifact
@@ -14,14 +14,14 @@ name: build-desktop
 
 on:
   # Desktop builds are release artifacts: run on version tags and by hand only.
-  # (Every merge to main used to fan out to three OS builds; the Windows Store
-  # job fails for a pre-existing reason and mailed a failure per merge.)
+  # (Every merge to main used to fan out to four OS builds and mail a failure
+  # per superseded run; desktop code is compiled and released from tags.)
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to build + publish (e.g. v1.2.0). Empty = artifacts only.
+        description: Release tag to build + publish (e.g. v1.3.0). Empty = artifacts only.
         required: false
         default: ''
 

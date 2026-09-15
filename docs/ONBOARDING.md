@@ -29,14 +29,16 @@ server, is always available from Settings.
 
 ## Desktop: "it just includes it"
 
-Installing the Mac/Windows/Linux desktop app IS installing Media Lab:
+The Mac/Linux desktop app can host Media Lab, but installing and starting
+it are separate, explicit actions (Media Lab menu → Install, then Start):
 
-- First launch asks one question: **"Make media on this computer?"**
-  Yes → the sidecar sets itself up (Python env, data dir) and starts; the
-  window gets a **"Pair your phone"** button showing the QR.
-- The sidecar binds the LAN/tailnet interface (not just localhost) when
-  pairing is enabled, so phones can reach it. The QR encodes the deep link
-  with the machine's address; the phone app auto-pairs on scan.
+- Local install is offered on Apple-silicon Macs and arm64 Linux (Intel Mac
+  is a development preview). Windows and x86_64 Linux connect to a Media Lab
+  you run elsewhere instead.
+- The local controller listens on localhost only. To let phones reach it,
+  set `bind` (and `origins`) in `medialab.json` — see `desktop/README.md`;
+  the **Pair your phone** QR is only offered once the address it encodes is
+  actually reachable.
 - No GPU? The sidecar runs cloud-only and the fal.ai door (3) is offered
   inside it.
 

@@ -1,6 +1,6 @@
 # Project storage and portability
 
-VibeXStudio 1.1.0 build 26 is local-first. It does not provide first-party
+VibeXStudio 1.3.0 build 29 is local-first. It does not provide first-party
 account storage or Apple-device project sync in this release.
 
 ## Apple devices

@@ -1254,7 +1254,7 @@
     <div class="row" style="margin-top:8px">
       <div class="btn2" onclick="openVoicePick(null)">🗣 Voice: <span id="c_voice_lbl">pick one (optional)</span></div>
     </div>
-    <div class="tooltipnote">Camera needs the secure link (media.autoedu.ai). Photos become your reference sheet — sheets are public in this studio and anyone can remove one.</div>
+    <div class="tooltipnote">Camera needs the secure (https) link to this studio. Photos become your reference sheet — sheets are public in this studio and anyone can remove one.</div>
     <button class="go" id="c_go">🧑‍🎤 Create character</button>
     <div class="err" id="c_err"></div>
   </div>
@@ -3835,7 +3835,7 @@ const CAM={stream:null,shots:[]};
 $('#c_cam').onclick=async()=>{
   if(!$('#c_name').value.trim()){$('#c_name').focus();$('#c_err').textContent='Give your character a name first.';$('#c_err').style.display='block';return}
   if(!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)){
-    alert('The camera needs the secure link — open https://media.autoedu.ai and try there.');return}
+    alert('The camera needs the secure (https) link to this studio — open it there and try again.');return}
   try{CAM.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:1024}}});}
   catch(e){alert('Camera permission was declined.');return}
   CAM.shots=[];camSync();
@@ -4050,7 +4050,7 @@ $('#v_rec').onclick=async()=>{
   if(VC.rec&&VC.rec.state==='recording'){VC.rec.stop();return}
   if(!$('#v_consent').checked){$('#v_err').textContent='Please confirm this is your own voice.';$('#v_err').style.display='block';return}
   $('#v_err').style.display='none';
-  if(!(navigator.mediaDevices&&window.MediaRecorder)){alert('The microphone needs the secure link — open https://media.autoedu.ai');return}
+  if(!(navigator.mediaDevices&&window.MediaRecorder)){alert('The microphone needs the secure (https) link to this studio — open it there and try again.');return}
   let stream;try{stream=await navigator.mediaDevices.getUserMedia({audio:true});}catch(e){alert('Microphone permission was declined.');return}
   VC.chunks=[];VC.rec=new MediaRecorder(stream);
   VC.rec.ondataavailable=e=>VC.chunks.push(e.data);

@@ -56,10 +56,11 @@ flowchart LR
 
 ## The one-stop-shop idea
 
-- **A one-minute setup, not a settings hunt.** First launch asks four
-  questions — *which AI do you already have · where should media get
-  made · is there a computer nearby · want to publish?* — every one
-  skippable, every one revisitable from the **Setup** tab's checklist.
+- **A one-minute setup, not a settings hunt.** First launch walks four
+  short steps — *where your files live · which AI you already have · where
+  media gets made · is there a computer nearby (GitHub publishing lives
+  there too)* — every one skippable, every one revisitable from the
+  **Setup** tab's checklist.
 - **Build**: chat → files → live preview → publish to your GitHub Pages.
 - **Make media, three ways** — the Media Lab tab uses whichever you have:
   1. **Connected providers**: request images and video through your

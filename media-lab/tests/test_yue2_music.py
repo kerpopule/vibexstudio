@@ -259,7 +259,9 @@ def test_run_music_yue2_records_through_the_shim(studio, shim):
     assert path == "/generate"
     assert body["style"] == "Slow rainy-night jazz, brushed drums, late-night mood"
     assert body["lyrics"] == LYRICS.strip() and body["cot"] == "full" and body["seed"] == 7
-    assert body["max_seconds"] == 30.0 and body["request_id"] == f"{j['id']}-a1" and "abc" not in body
+    # The requested length is a target; the engine gets a safety ceiling
+    # (max(secs + 90, 1.75 * secs), at most 360 s) so songs end naturally.
+    assert body["max_seconds"] == 120 and body["request_id"] == f"{j['id']}-a1" and "abc" not in body
     assert j["engine"] == "yue2" and j["license"] == "CC-BY-NC-4.0" and j["abc"].startswith("X:1")
     assert j["style_line"] == body["style"] and j["yue2"]["sample_rate"] == 48000
     jd = studio.JOBS_DIR / j["id"]

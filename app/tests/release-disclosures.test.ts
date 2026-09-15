@@ -170,7 +170,7 @@ describe('iOS release disclosure contract', () => {
   });
 
   it('keeps source guidance aligned with the optional disclosed broker and resolved store URL', () => {
-    const guidance = readFileSync(resolve(repoRoot, 'HANDOFF.md'), 'utf8');
+    const guidance = readFileSync(resolve(repoRoot, 'CLAUDE.md'), 'utf8');
 
     expect(guidance).not.toContain('APP_STORE_URL still a dummy id');
     expect(guidance).not.toContain('No backend, ever');

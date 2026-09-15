@@ -2,8 +2,25 @@
 
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+# Tests that read the Spark host's private trees (productions/, image-svc/,
+# research/) carry the `spark` marker or import from those paths; on any other
+# checkout they skip instead of failing on a FileNotFoundError.
+_SPARK_ONLY_TESTS = {"test_aas_native_h3_face_safety.py", "test_coupled_av_trim.py",
+                     "test_true_lipsync_gate.py", "test_pplx_ltx_co_residency.py"}
+
+
+def pytest_collection_modifyitems(config, items):
+    if (ROOT / "productions").is_dir():
+        return
+    skip = pytest.mark.skip(reason="needs the Spark host's private productions/ tree")
+    for item in items:
+        if item.get_closest_marker("spark") or Path(str(item.fspath)).name in _SPARK_ONLY_TESTS:
+            item.add_marker(skip)
 
 FFMPEG = shutil.which("ffmpeg") and shutil.which("ffprobe")
 

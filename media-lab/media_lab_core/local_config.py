@@ -32,6 +32,8 @@ DEFAULTS: dict[str, str] = {
     # carrying one of these are treated as public-edge traffic.
     "MEDIA_LAB_PUBLIC_HOSTS": "",
     "MEDIA_LAB_BROWSER_ORIGINS": "",
+    "MEDIA_LAB_INFERENCE_LOCK": "",
+    "MEDIA_LAB_GPU_LOCK": "",
     # Where engine weights live (HunyuanVideo-Avatar, MuseTalk, ...).
     "MEDIA_LAB_MODELS_ROOT": "~/.local/share/media-lab-p2-models",
     # Where engine runtimes are checked out (LatentSync.stage, comfy-*, ...).
@@ -173,6 +175,31 @@ def browser_origins() -> list[str]:
         if o not in out:
             out.append(o)
     return out
+
+
+def runtime_dir() -> str:
+    """The per-user runtime directory (systemd's XDG_RUNTIME_DIR, else /run/user/<uid>)."""
+    xdg = os.environ.get("XDG_RUNTIME_DIR", "").strip()
+    if xdg and os.path.isdir(xdg):
+        return xdg.rstrip("/")
+    try:
+        candidate = f"/run/user/{os.getuid()}"
+    except AttributeError:  # non-POSIX
+        candidate = ""
+    if candidate and os.path.isdir(candidate):
+        return candidate
+    import tempfile  # a Mac or a container without a per-user runtime dir
+    return tempfile.gettempdir().rstrip("/")
+
+
+def inference_lock() -> str:
+    """One inference at a time on the GPU: every engine and the chat loop flock this."""
+    return get("MEDIA_LAB_INFERENCE_LOCK") or f"{runtime_dir()}/media-lab-inference.lock"
+
+
+def gpu_lock() -> str:
+    """The residency pool lease (held by the pool service; the supervisor re-takes it at boot)."""
+    return get("MEDIA_LAB_GPU_LOCK") or f"{runtime_dir()}/spark-gpu.lock"
 
 
 def trusted_hosts() -> set[str]:

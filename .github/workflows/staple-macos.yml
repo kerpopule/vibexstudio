@@ -9,7 +9,7 @@ on:
       tag:
         description: Release tag holding the DMG
         required: true
-        default: v0.1.0
+        default: v1.3.0
 
 permissions:
   contents: write

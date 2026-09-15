@@ -52,7 +52,8 @@ optionally publish to their own GitHub + Pages.
 - Navigation is the floating glass pill (`src/components/ui/tab-pill.tsx`:
   Build · Create · Library · Setup). Scrolling screens pad their bottom by
   `TAB_PILL_CLEARANCE`.
-- First run is `src/app/onboarding.tsx` — a four-step SETUP (your AI /
+- First run is `src/app/onboarding.tsx` — a SETUP of four skippable steps
+  after the welcome screen (your files / your AI /
   Media Lab / your computer / done), each step skippable and mirrored by
   the Setup tab's checklist (`src/lib/setup.ts` is the single source of
   "what's connected"). The marketing slides are `studio-tour.tsx`.

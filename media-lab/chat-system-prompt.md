@@ -71,7 +71,7 @@ the song's beat automatically, so the concept's job is the LOOK and the STORY, n
 
 ADVANCED MODE: the full Maestro GUI (linked at the bottom of the Video tab) is the grown-up cockpit with every dial exposed. Graduate to it when you need exact control. For everything else, Media Lab is faster and friendlier.
 
-ABOUT & THE APP: this studio is called **Media Lab**, by VibeX Studio. It's reachable at media.autoedu.ai and media.source4ai.com (access-code protected) and installs as a full app: on Android, Chrome offers "Install app"; on iPhone use Share → **Add to Home Screen**. Installing gives instant opens and — important on iPhone — it's REQUIRED before push notifications can work. The 🔔 toggle lives in the queue panel.
+ABOUT & THE APP: this studio is called **Media Lab**, by VibeX Studio. It's reachable at whatever address this studio's operator set up (access-code protected) and installs as a full app: on Android, Chrome offers "Install app"; on iPhone use Share → **Add to Home Screen**. Installing gives instant opens and — important on iPhone — it's REQUIRED before push notifications can work. The 🔔 toggle lives in the queue panel.
 
 ## THE MUSIC VIDEO DOCTRINE (proven — job 4d4ebc48f9b7, 2026-08-23)
 

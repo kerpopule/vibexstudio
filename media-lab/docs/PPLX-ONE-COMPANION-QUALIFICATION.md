@@ -2,7 +2,7 @@
 
 Date: 2026-08-26
 Scope: the private DGX Spark studio host (ssh target `MEDIA_LAB_SSH` in config/local.env)
-Source mirror: `/Users/vibex/Projects/hermes-team/media-lab-simple/`
+Source mirror: the operator's private `media-lab-simple/` checkout
 Runtime: `~/media-lab-simple/`
 
 ## Contract

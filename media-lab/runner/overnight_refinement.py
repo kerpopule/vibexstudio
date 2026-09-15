@@ -28,7 +28,7 @@ PLAN = ROOT / "runner" / "overnight_refinement_plan_2026_08_20.json"
 STATE = ROOT / "pool" / "overnight-refinement-2026-08-20-state.json"
 EVENTS = ROOT / "pool" / "overnight-refinement-2026-08-20-events.jsonl"
 RUN_LOCK = Path("/run/user/1000/media-lab-overnight-refinement.lock")
-GPU_LOCK = Path("/run/user/1000/spark-gpu.lock")
+GPU_LOCK = Path(os.environ.get("MEDIA_LAB_GPU_LOCK") or f"{os.environ.get('XDG_RUNTIME_DIR', '/run/user/' + str(os.getuid()))}/spark-gpu.lock")
 BASE = local_config.studio_url()
 QUEUE_URL = BASE + "/api/queue?limit=1000"
 TIMER = "media-lab-overnight-refinement.timer"

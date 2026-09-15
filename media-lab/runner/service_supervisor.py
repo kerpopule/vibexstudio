@@ -233,7 +233,7 @@ def main():
     # that died), so every attempt to stand an engine up concluded "someone else
     # owns the GPU" and gave up — H3 takes failed indefinitely with no error
     # anywhere. Nothing else cleans these up.
-    LOCK = "/run/user/1000/spark-gpu.lock"
+    LOCK = os.environ.get("MEDIA_LAB_GPU_LOCK") or f"{os.environ.get('XDG_RUNTIME_DIR', '/run/user/' + str(os.getuid()))}/spark-gpu.lock"
     try:
         pids = subprocess.run(["fuser", LOCK], capture_output=True, text=True).stdout.split()
         orphans = []
