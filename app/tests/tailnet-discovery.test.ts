@@ -7,12 +7,12 @@ it('requires the desktop bridge without issuing browser network requests', async
 });
 it('returns private tailnet addresses and discards malformed or public entries', async () => {
   const invoke = vi.fn().mockResolvedValue([
-    { name: 'Spark', address: 'YOUR_TAILNET_IP', online: true },
+    { name: 'Spark', address: '100.64.0.10', online: true },
     { name: 'Public', address: '100.200.1.1', online: true },
     { name: 'Bad', address: '100.64.1.999', online: true },
   ]);
   vi.stubGlobal('__TAURI_INTERNALS__', { invoke });
-  expect(await discoverTailnetDevices()).toEqual([{ name: 'Spark', address: 'YOUR_TAILNET_IP', online: true }]);
+  expect(await discoverTailnetDevices()).toEqual([{ name: 'Spark', address: '100.64.0.10', online: true }]);
   expect(invoke).toHaveBeenCalledWith('tailscale_devices');
 });
 
@@ -45,12 +45,12 @@ it('reports installation limitations without exposing unrelated desktop state', 
 });
 
 it('checks only the selected peer and returns explicit origins instead of a guessed port',async()=>{
- const invoke=vi.fn().mockResolvedValue(['https://spark.example.ts.net:8450','http://YOUR_TAILNET_IP:7864']);
+ const invoke=vi.fn().mockResolvedValue(['https://spark.example.ts.net:8450','http://100.64.0.10:7864']);
  vi.stubGlobal('__TAURI_INTERNALS__',{invoke});
- expect(await discoverTailnetMediaServices('YOUR_TAILNET_IP')).toEqual(['https://spark.example.ts.net:8450','http://YOUR_TAILNET_IP:7864']);
- expect(invoke).toHaveBeenCalledWith('tailscale_media_services',{address:'YOUR_TAILNET_IP'});
- invoke.mockResolvedValue([]);expect(await discoverTailnetMediaServices('YOUR_TAILNET_IP')).toEqual([]);
+ expect(await discoverTailnetMediaServices('100.64.0.10')).toEqual(['https://spark.example.ts.net:8450','http://100.64.0.10:7864']);
+ expect(invoke).toHaveBeenCalledWith('tailscale_media_services',{address:'100.64.0.10'});
+ invoke.mockResolvedValue([]);expect(await discoverTailnetMediaServices('100.64.0.10')).toEqual([]);
  for(const url of ['https://user:secret@host','https://host/path','https://host?key=secret','file:///tmp/file']){
-  invoke.mockResolvedValue([url]);await expect(discoverTailnetMediaServices('YOUR_TAILNET_IP')).rejects.toThrow();
+  invoke.mockResolvedValue([url]);await expect(discoverTailnetMediaServices('100.64.0.10')).rejects.toThrow();
  }
 });

@@ -128,23 +128,23 @@ mod tests {
     use super::*;
     use serde_json::json;
     fn status() -> Value {
-        json!({"Peer":{"peer":{"TailscaleIPs":["YOUR_TAILNET_IP"],"Online":true,"DNSName":"spark.example.ts.net."}}})
+        json!({"Peer":{"peer":{"TailscaleIPs":["100.64.0.10"],"Online":true,"DNSName":"spark.example.ts.net."}}})
     }
     #[test]
     fn selected_peer_candidates_are_bounded_and_https_first() {
-        let values = candidates(&status(), "YOUR_TAILNET_IP").unwrap();
+        let values = candidates(&status(), "100.64.0.10").unwrap();
         assert_eq!(
             values.iter().map(|x| x.url.as_str()).collect::<Vec<_>>(),
             vec![
                 "https://spark.example.ts.net",
                 "https://spark.example.ts.net:8450",
-                "http://YOUR_TAILNET_IP:7864",
-                "http://YOUR_TAILNET_IP:7863"
+                "http://100.64.0.10:7864",
+                "http://100.64.0.10:7863"
             ]
         );
         assert!(values
             .iter()
-            .all(|x| x.address.ip().to_string() == "YOUR_TAILNET_IP"));
+            .all(|x| x.address.ip().to_string() == "100.64.0.10"));
     }
     #[test]
     fn rejects_unknown_public_offline_or_malformed_targets() {
@@ -152,16 +152,16 @@ mod tests {
             "127.0.0.1",
             "100.200.0.1",
             "100.66.238.98",
-            "YOUR_TAILNET_IP:80",
+            "100.64.0.10:80",
         ] {
             assert!(candidates(&status(), address).is_err());
         }
         let mut value = status();
         value["Peer"]["peer"]["Online"] = json!(false);
-        assert!(candidates(&value, "YOUR_TAILNET_IP").is_err());
+        assert!(candidates(&value, "100.64.0.10").is_err());
         let mut value = status();
         value["Peer"]["peer"]["DNSName"] = json!("evil.example/path.ts.net");
-        assert_eq!(candidates(&value, "YOUR_TAILNET_IP").unwrap().len(), 2);
+        assert_eq!(candidates(&value, "100.64.0.10").unwrap().len(), 2);
     }
     #[test]
     fn ordinary_http_success_is_not_media_lab() {
