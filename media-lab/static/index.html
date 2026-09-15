@@ -337,6 +337,17 @@
   .qrow .qs .bad{color:var(--red)}
   .qrow .qs .ok{color:var(--green)}
   .qtools{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+  /* YuE2 weights are CC BY-NC 4.0: the same notice on hover (title) and on tap (popover) */
+  .nc{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:5px;
+    border-radius:50%;border:1px solid #e0a75e;color:#e0a75e;font-size:11px;line-height:1;cursor:help;
+    position:relative;vertical-align:middle;background:transparent;font-family:inherit;padding:0}
+  .nc.on{background:#e0a75e;color:#160d06}
+  /* appended to <body> and positioned fixed: cards clip overflow, a chip cannot host it */
+  .ncpop{position:fixed;z-index:120;background:#1b1510;border:1px solid #e0a75e;color:#f4ead9;
+    border-radius:10px;padding:8px 10px;font-size:12px;line-height:1.35;white-space:normal;width:230px;
+    text-align:left;box-shadow:0 8px 24px rgba(0,0,0,.35);cursor:default;font-family:var(--body,inherit)}
+  .m_edit textarea.abc{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;min-height:220px;white-space:pre}
+  .m_edit .row{margin-top:10px}
   .qbtn{border:1px solid var(--line);background:var(--field);color:var(--t-2);
      border-radius:9px;padding:5px 11px;font-size:.72rem;letter-spacing:.06em;cursor:pointer;font-family:var(--body)}
   .qbtn.gold{color:var(--gold-hi);border-color:color-mix(in srgb,var(--gold) 45%,transparent)}
@@ -1016,6 +1027,14 @@
     <div class="ccount" id="m_count"></div>
     <div class="fold" id="m_fold">＋ Add your own lyrics (optional)</div>
     <textarea id="m_lyrics" style="display:none;margin-top:10px" placeholder="Write or paste lyrics — or leave blank and we'll write them for you"></textarea>
+    <div class="label">Engine</div>
+    <div class="chips" id="m_engine">
+      <div class="chip sel" data-v="yue2">YuE2 <span class="nc" role="button" tabindex="0" aria-label="Non-commercial use only (YuE2 weights are CC BY-NC 4.0)" title="Non-commercial use only (YuE2 weights are CC BY-NC 4.0)" onclick="ncPop(event)" onkeydown="if(event.key==='Enter'||event.key===' ')ncPop(event)">⚠︎</span></div>
+      <div class="chip" data-v="music3">Music 3</div>
+    </div>
+    <div class="hint" id="m_enginehint">YuE2 writes a score first, so you can edit it, re-arrange it or cover another song. Music 3 renders straight from the description.</div>
+    <input type="text" id="m_style" maxlength="300" style="margin-top:10px" placeholder="Style line (optional) — genre, mood, instruments, voice · e.g. dreamy indie pop, female vocal, warm synths">
+    <div class="togglechip" id="m_inst" style="margin-top:10px">🎹 Instrumental — no vocals</div>
     <div class="label">Song length</div>
     <div class="durrow">
       <div class="chip sel" id="mDurAuto">✨ Auto</div>
@@ -1055,6 +1074,7 @@
   </div>
 
   <div class="card" id="m_result" style="display:none">
+    <div class="hint" id="m_resultmeta" style="margin-bottom:8px"></div>
     <audio id="m_audio" controls></audio>
     <div class="lyr" id="m_lyrshow"></div>
     <div class="row">
@@ -1064,6 +1084,20 @@
     <div class="row">
       <div class="btn2" id="m_sb">🎞 Storyboard from this song</div>
     </div>
+  </div>
+  <div class="card m_edit" id="m_edit" style="display:none">
+    <div class="label" style="margin-top:0" id="m_edit_title">✏️ Edit score</div>
+    <div class="hint" id="m_edit_hint"></div>
+    <input type="text" id="m_edit_style" maxlength="300" style="margin-top:10px" placeholder="Style line — genre, mood, instruments, voice">
+    <textarea id="m_edit_lyrics" style="margin-top:10px" placeholder="Lyrics (leave as they are, or change them)"></textarea>
+    <textarea id="m_edit_abc" class="abc" style="margin-top:10px" placeholder="ABC score"></textarea>
+    <div class="row"><div class="btn2 gold" id="m_edit_go">💾 Save &amp; re-record</div><div class="btn2" id="m_edit_cancel">Cancel</div></div>
+    <div class="err" id="m_edit_err"></div>
+  </div>
+  <div class="card prog" id="m_toolprog" style="display:none">
+    <div class="aperture"></div>
+    <div class="stage" id="m_toolstage">Working…</div>
+    <div class="hint" id="m_toolhint">It stays in the studio queue if you close this.</div>
   </div>
   <div class="libcol">
   <div class="label" style="margin-left:6px">Your songs <span class="plus" id="m_plus" title="Pick from the library or upload your own song">＋</span></div>
@@ -3011,22 +3045,111 @@ $('#ss_storyboard').onclick=()=>{if(SS.job)openSBSheet(SS.job)};
 $('#m_fold').onclick=()=>{const b=$('#m_lyrics');const open=b.style.display!=='none';
   b.style.display=open?'none':'block';$('#m_fold').textContent=(open?'＋':'－')+' Add your own lyrics (optional)';};
 const M_STAGES={queued:'Taking a number…',writing:'Writing your song…',starting:'Warming up the studio…',
+  'warming up':'Warming up the studio…',transcribing:'Listening to the reference song…',
   generating:'Recording…',encoding:'Mixing…','director qa':'Director checking every sung word…',
   'repairing take 2':'Director rejected take 1 · recording a repair…',
-  'repairing take 3':'Director rejected take 2 · recording one final repair…'};
+  'repairing take 3':'Director rejected take 2 · recording one final repair…',
+  preparing:'Preparing the song…',separating:'Splitting vocals from the band…',filing:'Filing the stems…'};
+/* YuE2 is the primary music engine; its weights are CC BY-NC 4.0. The exact
+   notice is shown on hover (title) and on click (this popover). */
+const NC_NOTICE='Non-commercial use only (YuE2 weights are CC BY-NC 4.0)';
+function ncBadge(){return `<span class="nc" role="button" tabindex="0" aria-label="${NC_NOTICE}" title="${NC_NOTICE}" onclick="ncPop(event)" onkeydown="if(event.key==='Enter'||event.key===' ')ncPop(event)">⚠︎</span>`}
+let NC_OPEN=null;
+function ncClose(){if(NC_OPEN){NC_OPEN.pop.remove();NC_OPEN.icon.classList.remove('on');NC_OPEN=null}}
+function ncPop(ev){
+  ev.preventDefault();ev.stopPropagation();
+  const icon=ev.currentTarget;const again=NC_OPEN&&NC_OPEN.icon===icon;
+  ncClose();if(again)return;
+  const pop=document.createElement('div');pop.className='ncpop';pop.textContent=NC_NOTICE;pop.onclick=e=>e.stopPropagation();
+  document.body.appendChild(pop);
+  const r=icon.getBoundingClientRect(),w=230;
+  pop.style.left=Math.max(8,Math.min(window.innerWidth-w-8,r.left+r.width/2-w/2))+'px';
+  pop.style.top=Math.min(window.innerHeight-pop.offsetHeight-8,r.bottom+8)+'px';
+  icon.classList.add('on');NC_OPEN={icon,pop};
+}
+document.addEventListener('click',ncClose);
+document.addEventListener('scroll',ncClose,true);
+document.addEventListener('keydown',e=>{if(e.key==='Escape')ncClose()});
+chips('#m_engine');
+$('#m_engine').addEventListener('click',()=>{
+  const y=sel('#m_engine')==='yue2';
+  $('#m_enginehint').textContent=y?'YuE2 writes a score first, so you can edit it, re-arrange it or cover another song. Music 3 renders straight from the description.':'Music 3 renders straight from the description. Score editing, re-arranging and covers are YuE2 tools.';
+});
+$('#m_inst').onclick=()=>$('#m_inst').classList.toggle('sel');
 $('#m_go').onclick=async()=>{
   const v=$('#m_vibe').value.trim();if(!v){$('#m_vibe').focus();return}
   $('#m_go').disabled=true;$('#m_err').style.display='none';$('#m_result').style.display='none';
   const duration=M_DUR.payload();
   const r=await fetch('/api/music',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({vibe:v,lyrics:$('#m_lyrics').value.trim(),...duration})});
-  if(!r.ok){err($('#m_err'),$('#m_go'))('Could not start — try again.');return}
+    body:JSON.stringify({vibe:v,lyrics:$('#m_lyrics').value.trim(),engine:sel('#m_engine')||'yue2',
+      style:$('#m_style').value.trim(),instrumental:$('#m_inst').classList.contains('sel'),...duration})});
+  if(!r.ok){const d=await r.json().catch(()=>({}));err($('#m_err'),$('#m_go'))(d.error||'Could not start — try again.');return}
   const {id,eta_min,duration_seconds}=await r.json();
   $('#m_prog').style.display='block';$('#m_hint').textContent=`Planned ${Math.round(duration_seconds)} sec · about ${eta_min} min — you can close this, it keeps recording ☕`;
   pollJob(id,{stageMap:M_STAGES,progCard:$('#m_prog'),stageEl:$('#m_stage'),
-    onDone:j=>{$('#m_go').disabled=false;LAST_SONG=j.id;$('#m_audio').src=j.url;$('#m_dl').href=j.url;
-      $('#m_lyrshow').textContent=j.lyrics||'';$('#m_result').style.display='block';$('#m_audio').play().catch(()=>{});},
+    onDone:j=>{$('#m_go').disabled=false;musicShowResult(j);loadMusicLib();},
     onErr:err($('#m_err'),$('#m_go'))});
+};
+function musicShowResult(j){
+  LAST_SONG=j.id;$('#m_audio').src=j.url;$('#m_dl').href=j.url;
+  $('#m_resultmeta').innerHTML=(j.engine==='yue2'?'Recorded by <b>YuE2</b>'+ncBadge():'Recorded by <b>Music 3</b>')+(j.style_line?` · ${esc(j.style_line)}`:'');
+  $('#m_lyrshow').textContent=j.lyrics||'';$('#m_result').style.display='block';$('#m_audio').play().catch(()=>{});
+}
+/* ---- music edit tools (YuE2): edit score, re-arrange, cover, stems ---- */
+const M_EDIT={id:null,mode:null};
+function musicFollow(id,label){
+  $('#m_toolprog').style.display='block';$('#m_toolstage').textContent=label||'Working…';
+  $('#m_toolprog').scrollIntoView({behavior:'smooth',block:'center'});
+  pollJob(id,{stageMap:M_STAGES,progCard:$('#m_toolprog'),stageEl:$('#m_toolstage'),
+    onDone:j=>{if(j.kind==='music')musicShowResult(j);loadMusicLib();},
+    onErr:m=>alert(m)});
+}
+async function musicToolPost(url,body){
+  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(d.error||'Could not start.');
+  return d;
+}
+async function musicEditScore(id){
+  let d;try{d=await(await fetch(`/api/music/${id}/abc`)).json();}catch(e){d={}}
+  if(!d.abc){alert('That song has no score to edit — try 🎤 Cover instead.');return}
+  M_EDIT.id=id;M_EDIT.mode='score';
+  $('#m_edit_title').innerHTML='✏️ Edit score'+ncBadge();
+  $('#m_edit_hint').textContent='Change the ABC score, the style line or the lyrics, then re-record. The original song stays in the library.';
+  $('#m_edit_style').value=d.style||'';$('#m_edit_lyrics').value=d.lyrics||'';$('#m_edit_abc').value=d.abc||'';
+  $('#m_edit_abc').style.display='block';$('#m_edit_err').style.display='none';
+  $('#m_edit').style.display='block';$('#m_edit').scrollIntoView({behavior:'smooth',block:'start'});
+}
+async function musicRearrange(id){
+  let d;try{d=await(await fetch(`/api/music/${id}/abc`)).json();}catch(e){d={}}
+  if(!d.abc){alert('That song has no score to re-arrange — try 🎤 Cover instead.');return}
+  M_EDIT.id=id;M_EDIT.mode='rearrange';
+  $('#m_edit_title').innerHTML='↺ Re-arrange'+ncBadge();
+  $('#m_edit_hint').textContent='Same score, new style and/or lyrics. YuE2 records it again.';
+  $('#m_edit_style').value=d.style||'';$('#m_edit_lyrics').value=d.lyrics||'';$('#m_edit_abc').value=d.abc||'';
+  $('#m_edit_abc').style.display='none';$('#m_edit_err').style.display='none';
+  $('#m_edit').style.display='block';$('#m_edit').scrollIntoView({behavior:'smooth',block:'start'});
+}
+async function musicCover(id){
+  const style=prompt('Style for the cover — genre, mood, instruments, voice.\nThe melody is transcribed from the song and re-harmonised by YuE2 ('+NC_NOTICE+').','');
+  if(style===null)return;
+  try{const d=await musicToolPost(`/api/music/${id}/cover`,{style:style.trim()});musicFollow(d.id,'Listening to the song…');}
+  catch(e){alert(e.message)}
+}
+async function musicStems(id){
+  try{const d=await musicToolPost(`/api/music/${id}/stems`,{});musicFollow(d.id,'Splitting vocals from the band…');}
+  catch(e){alert(e.message)}
+}
+$('#m_edit_cancel').onclick=()=>{$('#m_edit').style.display='none';M_EDIT.id=null};
+$('#m_edit_go').onclick=async()=>{
+  if(!M_EDIT.id)return;
+  const body={style:$('#m_edit_style').value.trim(),lyrics:$('#m_edit_lyrics').value.trim()};
+  if(M_EDIT.mode==='score')body.abc=$('#m_edit_abc').value;
+  $('#m_edit_go').classList.add('busy');$('#m_edit_err').style.display='none';
+  try{const d=await musicToolPost(`/api/music/${M_EDIT.id}/rearrange`,body);
+    $('#m_edit').style.display='none';musicFollow(d.id,'Recording the new arrangement…');}
+  catch(e){$('#m_edit_err').textContent=e.message;$('#m_edit_err').style.display='block'}
+  $('#m_edit_go').classList.remove('busy');
 };
 let LAST_SONG=null;
 $('#m_mv').onclick=()=>{if(LAST_SONG)openMVSheet(LAST_SONG);else alert('Make a song first 🎵');};
@@ -3066,11 +3189,13 @@ async function loadMusicLib(){
   preserveMedia($('#m_songs'),()=>{
   $('#m_songs').innerHTML=songs.length?songs.map(s=>`
     <div class="songrow">
-      <div class="qp">${esc(s.prompt||s.title||'Untitled song')}${s.uploaded?' <span class="upb">uploaded</span>':s.imported?' <span class="imp">imported</span>':''}</div>
+      <div class="qp">${esc(s.prompt||s.title||'Untitled song')}${s.uploaded?' <span class="upb">uploaded</span>':(s.imported&&!s.stem)?' <span class="imp">imported</span>':''}${s.engine==='yue2'||s.license?ncBadge():''}</div>
       <audio controls preload="none" src="${s.url}"></audio>
       <div class="qtools">
         <button class="qbtn gold" onclick="openMVSheet('${s.id}')">🎬 Music video</button>
         <button class="qbtn gold" onclick="openSBSheet('${s.id}')">🎞 Storyboard</button>
+        ${s.engine==='yue2'&&!s.stem?`<button class="qbtn" onclick="musicEditScore('${s.id}')">✏️ Edit score</button><button class="qbtn" onclick="musicRearrange('${s.id}')">↺ Re-arrange</button>`:''}
+        ${s.stem?'':`<button class="qbtn" onclick="musicCover('${s.id}')">🎤 Cover</button><button class="qbtn" onclick="musicStems('${s.id}')">🎚 Stems</button>`}
         <a class="qbtn" style="text-decoration:none" href="${s.url}" download onclick="return saveHref(event,this)">Save</a>
         ${isAdmin?`<button class="qbtn" onclick="delItem('${s.id}')">🗑 Delete</button>`:''}
       </div>
