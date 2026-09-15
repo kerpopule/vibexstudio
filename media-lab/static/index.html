@@ -319,6 +319,14 @@
      padding:max(18px,env(safe-area-inset-top)) 16px 40px;animation:slidein .22s ease}
   @keyframes slidein{from{transform:translateX(40px);opacity:0}to{transform:none;opacity:1}}
   .qh{font-family:var(--display);font-size:1.5rem;margin:6px 0 4px}
+  .qlanes{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:12px 0 16px;padding:4px;
+     border:1px solid var(--line);border-radius:13px;background:var(--field)}
+  .qlane{border:0;border-radius:9px;padding:9px 8px;background:transparent;color:var(--t-3);
+     cursor:pointer;font-family:var(--body);font-size:.78rem;letter-spacing:.04em}
+  .qlane.on{background:var(--glass-strong);color:var(--gold-hi);box-shadow:var(--lift1)}
+  .qlane b{display:inline-flex;align-items:center;justify-content:center;min-width:19px;height:19px;
+     margin-left:5px;padding:0 5px;border-radius:10px;background:color-mix(in srgb,var(--gold) 18%,transparent);
+     font-size:.66rem}
   .qrow{background:var(--glass);border:1px solid var(--line);border-radius:14px;
      padding:11px 12px;margin-top:10px;position:relative}
   .qrow .k{font-size:1.05rem;margin-right:8px}
@@ -1663,6 +1671,10 @@
   <div id="qshade"></div>
   <div id="qpanel">
     <div class="kicker">Studio queue</div>
+    <div class="qlanes" role="tablist" aria-label="Queue lane">
+      <button class="qlane on" id="queue-local" data-queue-lane="local" role="tab" aria-selected="true">💻 Local <b>0</b></button>
+      <button class="qlane" id="queue-online" data-queue-lane="online" role="tab" aria-selected="false">☁️ Online <b>0</b></button>
+    </div>
     <div class="qrow" id="pushRow" style="display:none">
       <div class="qp"><span class="k">🔔</span>Notify me when my creations finish</div>
       <div class="qtools"><button class="qbtn gold" id="pushToggle">Turn on</button></div>
@@ -4468,10 +4480,23 @@ async function assemble(bid){
 /* ---- status orb + queue panel + studio banner ---- */
 const KIND_ICON={video:'🎬',music:'🎵',screenshotsong:'📱',musicvideo:'🎬',screenshotmusicvideo:'📱',image:'🖼',character:'🧑‍🎤',selfchar:'📸',charremix:'🎭',
   storyboard:'🎞',assemble:'🎞',filmbeat:'🎞',speak:'🎙',say:'🎙',enhance:'✨'};
-let QD={active:[],history:[]},SD={filming:false,scene:0,total:20},hadWork=false;
+let QD={active:[],history:[],active_counts:{local:0,online:0}},SD={filming:false,scene:0,total:20},hadWork=false;
+let QLANE=localStorage.getItem('media-lab-queue-lane')==='online'?'online':'local';
+function paintQueueLane(){
+  document.querySelectorAll('[data-queue-lane]').forEach(btn=>{
+    const on=btn.dataset.queueLane===QLANE;
+    btn.classList.toggle('on',on);btn.setAttribute('aria-selected',on?'true':'false');
+    const count=((QD.active_counts||{})[btn.dataset.queueLane]||0);
+    const badge=btn.querySelector('b');if(badge)badge.textContent=String(count);
+  });
+}
+document.querySelectorAll('[data-queue-lane]').forEach(btn=>btn.addEventListener('click',()=>{
+  QLANE=btn.dataset.queueLane;localStorage.setItem('media-lab-queue-lane',QLANE);
+  HIST_LIMIT=HIST_PAGE;QSIG='';paintQueueLane();pollQueue();
+}));
 function orbSync(){
   const orb=$('#orb');
-  const working=QD.active.length>0||SD.filming||!!SD.pilot;
+  const working=(QD.active_total||QD.active.length)>0||SD.filming||!!SD.pilot;
   orb.classList.toggle('working',working);
   if(!working&&hadWork)orb.classList.add('done');
   if(working)orb.classList.remove('done');
@@ -4491,7 +4516,8 @@ function orbSync(){
 const HIST_PAGE=40;
 let HIST_LIMIT=HIST_PAGE;
 async function pollQueue(){
-  try{QD=await(await fetch('/api/queue?limit='+HIST_LIMIT)).json();}catch(e){return}
+  try{QD=await(await fetch('/api/queue?lane='+QLANE+'&limit='+HIST_LIMIT)).json();}catch(e){return}
+  paintQueueLane();
   orbSync();
   if($('#qwrap').classList.contains('on'))renderQueue();
 }
@@ -4584,7 +4610,7 @@ function queueTicker(){
 }
 function renderQueue(force){
   const sig=JSON.stringify([QD.active.map(j=>[j.id,j.status,j.stage,j.eta_min,(j.scenes||[]).length,j.cancel]),
-    QD.history.map(j=>[j.id,j.status,j.url]),QD.history_total,SD.filming,SD.scene,SD.total,isAdmin,
+    QD.history.map(j=>[j.id,j.status,j.url]),QD.history_total,QLANE,QD.active_counts,SD.filming,SD.scene,SD.total,isAdmin,
     [...QOPEN]]);
   if(!force&&sig===QSIG)return;
   QSIG=sig;
@@ -4613,7 +4639,7 @@ function setHTML(el,html){if(el&&el.innerHTML!==html)el.innerHTML=html}
    actually measures (H3 runs about twice as long as LTX, so one shared number
    was wrong for both). Waiting: how long until its turn. */
 function qTime(j,i){
-  const eng=(j.engine==='h3')?' · H3':'';
+  const eng=j.queue_lane==='online'?' · online':(j.engine==='h3'?' · H3':'');
   if(j.status==='running'&&j.started){
     const total=(j.eta_total||j.eta_self||5)*60;
     const left=Math.max(0,Math.round(total-(Date.now()/1000-j.started)));
@@ -4621,7 +4647,10 @@ function qTime(j,i){
     return left>0?`▶ ${m}:${String(sec).padStart(2,'0')} left${eng}`
                  :`▶ finishing up${eng}`;
   }
-  return `#${i+1} · starts in ~${j.eta_min} min${eng}`;
+  /* The drawer shows newest submissions first so work cannot disappear below
+     an older backlog. Preserve the real execution position from the original
+     API order instead of relabelling the visually sorted rows. */
+  return `#${j._linePosition||i+1} · starts in ~${j.eta_min} min${eng}`;
 }
 const QROWS=new Map();                       // key -> node, survives every poll
 function keyed(key,build){
@@ -4632,7 +4661,7 @@ function keyed(key,build){
 function renderQueueNow(){
   /* --- in the studio --- */
   const act=[];
-  if(SD.filming){
+  if(SD.filming&&QLANE==='local'){
     const el=keyed('film',()=>{const d=document.createElement('div');d.className='qrow';
       d.innerHTML='<div class="qp"><span class="k">🎬</span><span class="t"></span></div><div class="qs"></div>';return d});
     setHTML(el.querySelector('.t'),`Music-video production — scene ${SD.scene} of ${SD.total}`);
@@ -4642,7 +4671,13 @@ function renderQueueNow(){
   /* film jobs for one storyboard collapse into ONE expandable row; a music
      video is one job already — it expands into its finished scenes */
   const rows=[];const grouped={};
-  QD.active.forEach(j=>{
+  /* Running work stays first. Waiting work is displayed newest-first so a job
+     submitted by an agent or production script is immediately visible when
+     Steve opens the drawer. `_linePosition` retains the true FIFO position. */
+  const visibleActive=(QD.active||[]).map((j,i)=>({...j,_linePosition:i+1}))
+    .sort((a,b)=>a.status==='running'?-1:b.status==='running'?1:
+      ((b.added||b.ts||0)-(a.added||a.ts||0)));
+  visibleActive.forEach(j=>{
     if(j.kind==='filmbeat'&&j.board_id){
       if(!grouped[j.board_id]){grouped[j.board_id]={group:true,board_id:j.board_id,
         title:j.board_title||'Storyboard',jobs:[]};rows.push(grouped[j.board_id]);}
@@ -4671,12 +4706,17 @@ function renderQueueNow(){
       if(open){
         const html=
           doneScenes.slice(0,12).map(h=>`<video src="${h.url}" poster="${h.poster||''}" controls playsinline preload="none" style="width:100%;border-radius:10px;margin-top:8px"></video>`).join('')
-          +j.jobs.map(x=>`<div class="qs" style="margin-top:6px">${x.status==='running'?'🎬':'⏳'} ${esc(x.beat_title||'scene')} — ${x.status==='running'?esc(x.stage):'waiting'}</div>`).join('');
+          +j.jobs.map(x=>`<div class="qs" style="margin-top:6px;display:flex;gap:8px;align-items:center">`
+            +`<span style="flex:1">${x.status==='running'?'🎬':'⏳'} ${esc(x.beat_title||'scene')} — ${x.status==='running'?esc(x.stage):'waiting'}</span>`
+            +copyIdButton(x.id)+`</div>`).join('');
         if(!mediaEls(gx).some(mediaInUse))setHTML(gx,html);
       }else releaseMedia(gx);
       const queued=j.jobs.filter(x=>x.status!=='running');
-      setHTML(el.querySelector('.qtools'),queued.length
-        ?`<button class="qbtn" onclick="event.stopPropagation();stopGroup('${bid}')">⏹ Stop after this scene</button>`:'');
+      const groupTools=[];
+      if(run&&!run.cancel)groupTools.push(`<button class="qbtn" onclick="event.stopPropagation();cancelJob('${run.id}',this)">✕ Cancel current scene now</button>`);
+      if(run)groupTools.push(copyIdButton(run.id));
+      if(queued.length)groupTools.push(`<button class="qbtn" onclick="event.stopPropagation();stopGroup('${bid}')">⏹ Cancel queued scenes</button>`);
+      setHTML(el.querySelector('.qtools'),groupTools.join('\n'));
       act.push(el);
       return;
     }
@@ -4703,22 +4743,21 @@ function renderQueueNow(){
           ||'<div class="qs" style="margin-top:6px">First scene is still filming…</div>');
     }else releaseMedia(gx);
     const tools=el.querySelector('.qtools');
-    const parts=[];
+    const parts=[copyIdButton(j.id)];
     if(isAdmin&&j.status!=='running')parts.push(
       `<button class="qbtn" onclick="adm('move',{id:'${j.id}',dir:'up'})">↑</button>`,
       `<button class="qbtn" onclick="adm('move',{id:'${j.id}',dir:'down'})">↓</button>`,
       `<button class="qbtn" onclick="adm('delete',{id:'${j.id}'})">✕ Remove</button>`);
     if(j.status==='running'&&!j.cancel)parts.push(
-      j.kind==='musicvideo'
-        ?`<button class="qbtn" onclick="event.stopPropagation();stopJob('${j.id}')">⏹ Finish this scene &amp; stop</button>`
-        :`<button class="qbtn" onclick="event.stopPropagation();stopJob('${j.id}')">⏹ Stop</button>`);
+      `<button class="qbtn" onclick="event.stopPropagation();cancelJob('${j.id}',this)">✕ Cancel now</button>`);
     tools.style.display=parts.length?'':'none';
     setHTML(tools,parts.join('\n'));
     act.push(el);
   });
   if(!act.length){
     const el=keyed('a_empty',()=>{const d=document.createElement('div');d.className='empty';
-      d.textContent='The studio is quiet.';return d});
+      return d});
+    el.textContent=QLANE==='online'?'The online queue is quiet.':'The local studio is quiet.';
     act.push(el);
   }
   reorder($('#q_active'),act);
@@ -4727,14 +4766,16 @@ function renderQueueNow(){
   (QD.history||[]).forEach(j=>{
     const el=keyed('h_'+j.id,()=>{const d=document.createElement('div');d.className='qrow click';
       d.innerHTML='<div class="qp"><span class="k"></span><span class="t"></span></div><div class="qs"></div>'
-        +`<div class="qx" id="qx_${j.id}" style="display:none"></div>`;
-      d.addEventListener('click',()=>toggleRow(j.id));
+        +'<div class="qtools"></div>'+`<div class="qx" id="qx_${j.id}" style="display:none"></div>`;
+      d.addEventListener('click',e=>{if(e.target.closest('.qbtn'))return;toggleRow(j.id)});
       d.querySelector('.qx').addEventListener('click',e=>e.stopPropagation());
       return d});
     setHTML(el.querySelector('.k'),KIND_ICON[j.kind]||'✨');
     setHTML(el.querySelector('.t'),(esc(j.prompt)||'untitled')+(j.uploaded?' <span class="upb">uploaded</span>':j.imported?' <span class="imp">imported</span>':''));
     setHTML(el.querySelector('.qs'),(j.imported?'<span class="ok">Imported</span>'
-      :(j.status==='done'?'<span class="ok">Finished</span>':`<span class="bad">${esc(j.message||'Failed')}</span>`))+' · tap to open');
+      :(j.status==='done'?'<span class="ok">Finished</span>':j.status==='cancelled'
+        ?'<span class="bad">Cancelled</span>':`<span class="bad">${esc(j.message||'Failed')}</span>`))+' · tap to open');
+    setHTML(el.querySelector('.qtools'),copyIdButton(j.id));
     /* the detail panel belongs to the user: refresh it only when it is closed,
        or open but holding no player that could be interrupted */
     if(OPEN_ROWS.has(j.id)){
@@ -4755,9 +4796,28 @@ function renderQueueNow(){
 /* ---- media browser rows ---- */
 let OPEN_ROWS=new Set();
 const QOPEN=new Set();     // expanded active rows (music videos + board groups)
-async function stopJob(id){
-  await fetch(`/api/jobs/${id}/stop`,{method:'POST'});
-  pollQueue().then(()=>renderQueue(true));
+function copyIdButton(id){
+  return `<button class="qbtn" onclick="event.stopPropagation();copyJobId('${id}',this)">⧉ Copy ID</button>`;
+}
+async function copyJobId(id,btn){
+  try{
+    if(navigator.clipboard&&window.isSecureContext)await navigator.clipboard.writeText(id);
+    else{
+      const t=document.createElement('textarea');t.value=id;t.style.position='fixed';t.style.opacity='0';
+      document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();
+    }
+    if(btn){const old=btn.textContent;btn.textContent='✓ Copied';setTimeout(()=>btn.textContent=old,1200)}
+  }catch(_){prompt('Copy job ID',id)}
+}
+async function cancelJob(id,btn){
+  if(btn){btn.disabled=true;btn.textContent='Cancelling…'}
+  const r=await fetch(`/api/jobs/${id}/cancel`,{method:'POST'});
+  if(!r.ok){
+    const body=await r.json().catch(()=>({}));
+    if(btn){btn.disabled=false;btn.textContent='✕ Cancel now'}
+    alert(body.error||'Could not cancel this job.');
+  }
+  await pollQueue();renderQueue(true);
 }
 async function stopGroup(bid){
   const members=QD.active.filter(x=>x.kind==='filmbeat'&&x.board_id===bid&&x.status!=='running');
@@ -4817,6 +4877,7 @@ function rowDetail(id){
     <div class="qs" style="margin-top:8px">${esc(j.imported?importedLine(j):settingsLine(j))}</div>
     <div class="qs" style="text-transform:none;letter-spacing:.02em;margin-top:5px">${esc(j.imported?(r.prompt||j.prompt):j.prompt)}</div>
     <div class="qtools" style="flex-wrap:wrap">
+      ${copyIdButton(j.id)}
       ${remixable?`<button class="qbtn gold" onclick="remixHist('${j.id}')">↺ Remix</button>`:''}
       ${j.status==='done'&&j.url&&(isVideoOut||IMG_KINDS[mkind]||AUDIO_KINDS[mkind])?`<button class="qbtn gold" onclick="cutFromJob('${j.id}')">✂️ Cut</button>`:''}
       ${j.kind==='music'&&j.status==='done'?`<button class="qbtn gold" onclick="$('#qwrap').classList.remove('on');openMVSheet('${j.id}')">🎬 Music video</button>

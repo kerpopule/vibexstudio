@@ -813,6 +813,17 @@ def _fal_first_media(result: dict, kinds=("images", "image", "video")) -> str:
             return v
     return ""
 
+def job_queue_lane(j: dict) -> str:
+    """Stable execution lane; cloud work never enters the Spark GPU queue."""
+    if not isinstance(j, dict):
+        return "local"
+    saved = str(j.get("queue_lane") or "").lower()
+    if saved in {"local", "online"}:
+        return saved
+    req = j.get("request") or {}
+    engine = str(j.get("engine") or req.get("engine") or req.get("model") or "").lower()
+    return "online" if engine.startswith("fal-") or str(j.get("provider") or "").lower() == "fal" else "local"
+
 @asynccontextmanager
 async def _studio_lifespan(application):
     _start_studio_background_host()
@@ -824,6 +835,7 @@ async def _studio_lifespan(application):
 
 app = FastAPI(lifespan=_studio_lifespan)
 cv = threading.Condition()
+online_cv = threading.Condition()
 _state = _load(JOBS_FILE, {})
 jobs: dict = _state.get("jobs", {})
 # A take interrupted by a restart is RESUMED, not abandoned. Steve's rule for a
@@ -836,10 +848,10 @@ for _jid, _j in jobs.items():
         # that was running at shutdown, cancel flag and all — so a take stopped
         # through the app came straight back on the next restart, and stopping a
         # wedged render meant killing it twice (2026-08-18, twice in one hour).
-        # /api/jobs/{id}/stop sets cancel; honour it here.
+        # /api/jobs/{id}/cancel sets cancel; honour it here.
         if _j.get("cancel"):
-            _j["status"] = "error"; _j["stage"] = "error"
-            _j["message"] = _j.get("message") or "Stopped by the studio."
+            _j["status"] = "cancelled"; _j["stage"] = "cancelled"
+            _j["message"] = _j.get("message") or "Cancelled by you."
             continue
         _j["status"] = "queued"; _j["stage"] = "queued"
         _j["message"] = None
@@ -849,20 +861,30 @@ for _jid, _j in jobs.items():
         else:
             _j["status"] = "error"; _j["stage"] = "error"
             _j["message"] = "This take failed repeatedly — something about it needs a change."
-queue: list = [i for i in _state.get("queue", []) if i in jobs and jobs[i].get("status") == "queued"]
+queue: list = [i for i in _state.get("queue", [])
+               if i in jobs and jobs[i].get("status") == "queued" and job_queue_lane(jobs[i]) == "local"]
+online_queue: list = [i for i in _state.get("online_queue", [])
+                      if i in jobs and jobs[i].get("status") == "queued" and job_queue_lane(jobs[i]) == "online"]
+# Migrate cloud jobs persisted by the original single-queue prototype.
+for _jid in _state.get("queue", []):
+    if (_jid in jobs and jobs[_jid].get("status") == "queued"
+            and job_queue_lane(jobs[_jid]) == "online" and _jid not in online_queue):
+        online_queue.append(_jid)
 for _jid in _resumed:
-    if _jid not in queue:
-        queue.append(_jid)
+    _target = online_queue if job_queue_lane(jobs.get(_jid, {})) == "online" else queue
+    if _jid not in _target:
+        _target.append(_jid)
 if _resumed:
     print(f"[recovery] resuming {len(_resumed)} take(s) interrupted by the restart", flush=True)
 
 def save_state():
     # never trim queued jobs, and never trim imported items (they are the Lab's
     # record of work rendered outside the app — there is no way to re-run them)
-    ids = (set(list(jobs)[-300:]) | {i for i in queue if i in jobs}
+    ids = (set(list(jobs)[-300:]) | {i for i in queue + online_queue if i in jobs}
            | {i for i, j in jobs.items() if j.get("imported")})
     keep = {i: j for i, j in jobs.items() if i in ids}
-    _save(JOBS_FILE, {"jobs": keep, "queue": list(queue)})
+    _save(JOBS_FILE, {"jobs": keep, "queue": list(queue),
+                      "online_queue": list(online_queue)})
 
 # ---------- public access gate ----------
 # The app is public via Cloudflare tunnel (media.autoedu.ai / media.source4ai.com).
@@ -1474,10 +1496,12 @@ def submit_job(kind, request, extra=None):
          "ts": time.time(), "request": request}
     if extra:
         j.update(extra)
+    j["queue_lane"] = job_queue_lane(j)
     jobs[job_id] = j
-    with cv:
-        queue.append(job_id)
-        cv.notify()
+    target, condition = (online_queue, online_cv) if j["queue_lane"] == "online" else (queue, cv)
+    with condition:
+        target.append(job_id)
+        condition.notify()
     save_state()
     return j
 
@@ -1614,10 +1638,15 @@ def _tracked_wait(jid, popen):
 
 def kill_job_procs(jid):
     p = RUNNING_PROCS.get(jid)
-    if not p:
+    if not p or p.poll() is not None:
         return False
     try:
         os.killpg(os.getpgid(p.pid), 15)
+        deadline = time.monotonic() + 3.0
+        while p.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if p.poll() is None:
+            os.killpg(os.getpgid(p.pid), 9)
         return True
     except Exception:
         try:
@@ -1652,7 +1681,19 @@ INFRA_FAILURE_MARKS = (
     "film crew is down",
 )
 
+def mark_cancelled(j):
+    """Make cancellation an immediate, durable terminal state."""
+    j["cancel"] = True
+    j["status"] = "cancelled"; j["stage"] = "cancelled"
+    j["message"] = "Cancelled by you."
+    j["retryable"] = False
+    j["finished"] = time.time()
+
+
 def fail(j, message, detail=""):
+    if j.get("cancel"):
+        mark_cancelled(j)
+        return
     j["status"] = "error"; j["stage"] = "error"; j["message"] = message
     if detail:
         j["detail"] = str(detail)[:400]
@@ -6866,6 +6907,8 @@ def job_engine(j):
     # Looking at only `engine` made the exact-job stop endpoint mistake active H3
     # video work for LTX and leave the H3 container running.
     selected = str(r.get("engine") or r.get("model") or j.get("engine") or "").lower()
+    if selected.startswith("fal-"):
+        return None
     return "h3" if selected == "h3" else "ltx"
 
 def pick_next_job():
@@ -6896,6 +6939,7 @@ def video_work_pending():
     settle thread resurrect LTX in the middle of a non-video companion job.
     """
     return any(j.get("status") in ("running", "queued") and
+               job_queue_lane(j) == "local" and
                (job_engine(j) or j.get("kind") in COMPANION_JOB_KINDS)
                for j in jobs.values())
 
@@ -6964,9 +7008,7 @@ def run_queued_job(job_id):
         if not j or j.get("status") != "queued":
             return False
         if j.get("cancel"):
-            j["status"] = "error"; j["stage"] = "error"
-            j["message"] = "Stopped by the studio."
-            j["finished"] = time.time()
+            mark_cancelled(j)
             save_state()
             return False
         j["status"] = "running"; j["stage"] = "starting"; j["started"] = time.time()
@@ -6977,6 +7019,10 @@ def run_queued_job(job_id):
             # Unknown code defects are deliberately NOT retried. A broad retry
             # loop turned one missing-directory bug into 18 immediate failures.
             fail(j, "Something went wrong — the studio stopped this job safely.", e)
+        if j.get("cancel"):
+            # A runner may unwind through packaging after its engine has already
+            # been killed. Cancellation wins over any late success/error write.
+            mark_cancelled(j)
         j["finished"] = time.time()
         if j["status"] == "done":
             try:
@@ -6990,6 +7036,45 @@ def run_queued_job(job_id):
         save_state()
     threading.Thread(target=settle_video_transaction, daemon=True).start()
     return True
+
+def online_worker():
+    """Run fal jobs independently; never acquire the Spark inference/GPU mutex."""
+    while True:
+        with online_cv:
+            while not online_queue:
+                online_cv.wait()
+            job_id = online_queue.pop(0)
+        run_online_job(job_id)
+
+
+def run_online_job(job_id):
+    j = jobs.get(job_id)
+    if not j or j.get("status") != "queued" or job_queue_lane(j) != "online":
+        return False
+    if j.get("cancel"):
+        mark_cancelled(j)
+        save_state()
+        return False
+    j["status"] = "running"; j["stage"] = "starting"; j["started"] = time.time()
+    save_state()
+    try:
+        RUNNERS[j["kind"]](j)
+    except Exception as e:
+        fail(j, "Something went wrong — the online queue stopped this job safely.", str(e))
+    if j.get("cancel"):
+        mark_cancelled(j)
+    j["finished"] = time.time()
+    if j["status"] == "done":
+        try:
+            ensure_multi_scene_storyboard(j)
+        except Exception as exc:
+            fail(j, "The media finished, but its Storyboard record could not be created.", str(exc))
+    if j["status"] == "done":
+        eta_record(j)
+        notify_done(j)
+    save_state()
+    return True
+
 
 def worker():
     while True:
@@ -7013,6 +7098,7 @@ except Exception as _recovery_error:
 # under a disposable HOME: the routes stay up, nothing renders or reconciles.
 if os.getenv("MEDIA_LAB_DISABLE_BACKGROUND_WORKERS") != "1":
     threading.Thread(target=worker, daemon=True).start()
+    threading.Thread(target=online_worker, daemon=True).start()
     threading.Thread(target=reaper, daemon=True).start()
     # Reconcile the committed profile after startup. This is idempotent and refuses
     # to touch a live media batch; qwen-ltx-default self-heals its video slot.
@@ -8993,13 +9079,19 @@ def brief(j):
             # which painter actually rendered it — recorded since the image
             # service existed, never shown until now
             "engine_used": j.get("engine_used") or None,
+            "queue_lane": job_queue_lane(j),
+            "fal_model_id": j.get("fal_model_id") or None,
+            "fal_request_id": j.get("fal_request_id") or None,
             "masked": bool(j.get("masked")) or None,
             "meta": j.get("meta"), "request": brief_request(j.get("request"))}
 
 @app.get("/api/queue")
-def queue_view(offset: int = 0, limit: int = 40, hist: int = 1):
-    items = [j for j in jobs.values() if j["status"] == "running"] + \
-            [jobs[i] for i in list(queue) if i in jobs]
+def queue_view(offset: int = 0, limit: int = 40, hist: int = 1, lane: str = "local"):
+    lane = lane if lane in {"local", "online"} else "local"
+    selected_queue = online_queue if lane == "online" else queue
+    items = [j for j in jobs.values()
+             if j["status"] == "running" and job_queue_lane(j) == lane] + \
+            [jobs[i] for i in list(selected_queue) if i in jobs]
     out, cum = [], 0
     for j in items:
         est = eta_estimate(j)
@@ -9011,22 +9103,25 @@ def queue_view(offset: int = 0, limit: int = 40, hist: int = 1):
                                "eta_total": eta_estimate(j),
                                "engine": (j.get("request") or {}).get("engine")
                                          or j.get("engine") or ""})
-    # Newest-first by ARRIVAL (`added`), falling back to the render time for
-    # native jobs, which arrive the moment they are made. Sorting on `ts` alone
-    # meant an import carrying an old mtime was filed under its original render
-    # date and dropped straight off the bottom of the list. `ts` still rides
-    # along in the payload as the honest "made on" date for display.
-    done = sorted((j for j in jobs.values()
-                   if j["status"] in ("done", "error") and not j.get("archived")),
+    all_done = [j for j in jobs.values()
+                if j["status"] in ("done", "error", "cancelled") and not j.get("archived")]
+    done = sorted((j for j in all_done if job_queue_lane(j) == lane),
                   key=lambda x: (x.get("added") or x.get("ts") or 0), reverse=True)
-    # ...and the list is pageable, because a hard cap of 40 is the same bug.
     limit = max(1, min(500, int(limit)))
     offset = max(0, int(offset))
-    # `hist=0`: the caller only wants to know whether anything is working. The
-    # background poll that drives the status orb runs every 4s whether or not
-    # the Past-runs panel is even open, and it has no use for the list.
     rows = [] if not int(hist or 0) else [brief(j) for j in done[offset:offset + limit]]
-    return {"active": out, "history": rows, "history_total": len(done),
+    active_counts = {
+        name: sum(1 for j in jobs.values()
+                  if j.get("status") in ("running", "queued") and job_queue_lane(j) == name)
+        for name in ("local", "online")
+    }
+    history_counts = {
+        name: sum(1 for j in all_done if job_queue_lane(j) == name)
+        for name in ("local", "online")
+    }
+    return {"lane": lane, "active": out, "active_counts": active_counts,
+            "active_total": sum(active_counts.values()), "history": rows,
+            "history_total": len(done), "history_counts": history_counts,
             "history_offset": offset, "history_limit": limit}
 
 @app.get("/api/jobs/{job_id}")
@@ -9039,9 +9134,11 @@ def job(job_id: str, full: int = 0):
             "song_url", "video_url", "video_poster", "timing", "screenshot_cues",
             # the painter that actually ran, so the UI can label the version
             # it just produced instead of leaving the user to guess
-            "engine_used", "masked")
+            "engine_used", "masked", "queue_lane", "fal_request_id", "fal_model_id",
+            "fal_input", "fal_seed", "fal_expanded_prompt")
+    queued_in = online_queue if job_queue_lane(j) == "online" else queue
     result = {k: j.get(k) for k in keys} | {
-        "queue_position": queue.index(job_id) + 1 if job_id in queue else 0}
+        "queue_position": queued_in.index(job_id) + 1 if job_id in queued_in else 0}
     if int(full or 0):
         result["request"] = j.get("request")
     return result
@@ -9093,8 +9190,9 @@ def import_file(r: ImportReq, request: Request, x_lab_pin: Optional[str] = Heade
             "url": j["url"], "poster": j["poster"], "meta": j["meta"]}
 
 @app.post("/api/jobs/{job_id}/stop")
-def job_stop(job_id: str, request: Request, x_lab_pin: Optional[str] = Header(None)):
-    """Stop queued or running work and abort only its exact render engine."""
+@app.post("/api/jobs/{job_id}/cancel")
+def job_cancel(job_id: str, request: Request, x_lab_pin: Optional[str] = Header(None)):
+    """Cancel queued or running work and interrupt its exact active backend now."""
     bad = admin_guard(request, x_lab_pin)
     if bad:
         return bad
@@ -9102,14 +9200,22 @@ def job_stop(job_id: str, request: Request, x_lab_pin: Optional[str] = Header(No
     if not j or j.get("status") not in ("running", "queued"):
         return JSONResponse({"error": "not active"}, status_code=404)
     j["cancel"] = True
+    j["cancel_requested_at"] = time.time()
+    save_state()                              # crash-safe before touching a backend
     if j.get("status") == "queued":
-        with cv:
-            if job_id in queue:
-                queue.remove(job_id)
-        j["status"] = "error"; j["stage"] = "error"
-        j["message"] = "Stopped by the studio."
+        target, condition = (online_queue, online_cv) if job_queue_lane(j) == "online" else (queue, cv)
+        with condition:
+            if job_id in target:
+                target.remove(job_id)
+        mark_cancelled(j)
         save_state()
-        return {"ok": True, "killed_process": False}
+        return {"ok": True, "status": "cancelled", "interrupted": False}
+    if job_queue_lane(j) == "online":
+        # fal_queue_run observes this flag between polls. Never interrupt Comfy or
+        # stop a local video engine for an unrelated online request.
+        mark_cancelled(j)
+        save_state()
+        return {"ok": True, "status": "cancelled", "interrupted": False}
     killed = kill_job_procs(job_id)          # runner/enhance subprocess, if any
     for port in (8195, 8196):                # comfy renders: interrupt in place
         try:
@@ -9119,11 +9225,15 @@ def job_stop(job_id: str, request: Request, x_lab_pin: Optional[str] = Header(No
         except Exception:
             pass
     eng = job_engine(j)
+    engine_stopped = False
     if eng in ENGINES and engine_up(eng):
         stop_engine(eng)                     # exact conflicting engine only
         killed = True
+        engine_stopped = not engine_up(eng)
+    mark_cancelled(j)
     save_state()
-    return {"ok": True, "killed_process": killed}
+    return {"ok": True, "status": "cancelled", "interrupted": killed,
+            "engine_stopped": engine_stopped}
 
 def cancel_queued_filmbeats(board_id):
     """Beat indexes are list positions: any queued film job for this board is
@@ -9394,14 +9504,16 @@ def admin_move(r: AdminId, request: Request, x_lab_pin: Optional[str] = Header(N
     bad = admin_guard(request, x_lab_pin)
     if bad:
         return bad
-    with cv:
-        if r.id not in queue:
+    j = jobs.get(r.id) or {}
+    target, condition = (online_queue, online_cv) if job_queue_lane(j) == "online" else (queue, cv)
+    with condition:
+        if r.id not in target:
             return JSONResponse({"error": "not queued"}, status_code=404)
-        i = queue.index(r.id)
-        ni = max(0, i - 1) if r.dir == "up" else min(len(queue) - 1, i + 1)
-        queue[i], queue[ni] = queue[ni], queue[i]
+        i = target.index(r.id)
+        ni = max(0, i - 1) if r.dir == "up" else min(len(target) - 1, i + 1)
+        target[i], target[ni] = target[ni], target[i]
     save_state()
-    return {"ok": True, "queue": list(queue)}
+    return {"ok": True, "queue": list(target), "lane": job_queue_lane(j)}
 
 ARCHIVE_DIR = ROOT / "archive"
 ARCHIVE_DIR.mkdir(exist_ok=True)
@@ -9432,10 +9544,12 @@ def admin_delete(r: AdminId, request: Request, x_lab_pin: Optional[str] = Header
     bad = admin_guard(request, x_lab_pin)
     if bad:
         return bad
-    with cv:
-        if r.id in queue:
+    j = jobs.get(r.id) or {}
+    target, condition = (online_queue, online_cv) if job_queue_lane(j) == "online" else (queue, cv)
+    with condition:
+        if r.id in target:
             # deleted means GONE — not a lingering "cancelled" row in history
-            queue.remove(r.id)
+            target.remove(r.id)
             jobs.pop(r.id, None)
             for f in _artifact_files(r.id):
                 f.unlink(missing_ok=True)
