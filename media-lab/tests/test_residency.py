@@ -7,7 +7,11 @@ from residency import ResidencyController, ResidencyError, load_policy, plan_res
 
 
 ROOT = Path(__file__).resolve().parents[1]
-POLICY_PATH = ROOT / "config" / "model-residency-policy.json"
+# Planner semantics are exercised against the classic single-box budgets
+# (resident Qwen 32 GB, H3 40 GB, floor 24). The live config/model-residency-
+# policy.json describes Sol-H3-Spark, which takes the whole pool and never
+# co-resides with anything, so it cannot drive these co-residency cases.
+POLICY_PATH = ROOT / "tests" / "fixtures" / "model-residency-policy.classic.json"
 
 
 def actual(*resident, available=58, busy=(), unhealthy=()):

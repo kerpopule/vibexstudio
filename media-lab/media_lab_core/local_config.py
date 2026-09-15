@@ -43,6 +43,10 @@ DEFAULTS: dict[str, str] = {
     # Optional: ssh target of the studio host for Mac-side helpers
     # (local_studio.py, tools/topaz_worker.py). Empty disables them.
     "MEDIA_LAB_SSH": "",
+    # Resident text-model budget (GB) and the unified-memory ceiling app.py
+    # plans against. 0 = the chat model is served remotely, nothing resident.
+    "MEDIA_LAB_QWEN_GB": "0",
+    "MEDIA_LAB_MEM_CAP_GB": "120",
     # Sol-H3-Spark (the whole-box H3 video engine). Empty SOL_PKG = not installed.
     "SOL_PKG": "",
     "SOL_ROOT": "~/.local/share/sol-h3-spark",

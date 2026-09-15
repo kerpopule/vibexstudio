@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Media Lab v2 — video / music / images / characters / storyboard.
 Single-flight worker queue, persisted jobs, ETA stats, PIN admin, remix."""
-import asyncio, base64, fcntl, hashlib, hmac, json, math, mimetypes, os, posixpath, random, re, shutil, subprocess, tempfile, threading, time, urllib.error, urllib.request, uuid
+import asyncio, base64, fcntl, hashlib, hmac, json, math, mimetypes, os, posixpath, random, re, shlex, shutil, subprocess, tempfile, threading, time, urllib.error, urllib.request, uuid
 from pathlib import Path
 from functools import lru_cache
 from contextlib import asynccontextmanager
@@ -1769,17 +1769,47 @@ H3_VARIANT_RECEIPT = POOL_DIR / "residency" / "h3-variant-active.json"
 H3_VARIANT_RECEIPT.parent.mkdir(parents=True, exist_ok=True)
 COMFY_MUSIC_DIR = Path.home() / "runtime/music3-iso/ComfyUI"
 COMFY_IMAGE_DIR = Path.home() / "runtime/comfy-ltx25/ComfyUI"
+SOL_H3_PORT = 8291
+
+
+def _sol_h3_command() -> str:
+    """The shell line systemd-run executes for the Sol-H3-Spark engine.
+
+    Everything host-specific is a SOL_* key from config/local.env: the model
+    package, its install root (whose envs/stage2 interpreter runs the server),
+    the runtime scratch root and the Qwen sidecar image/weights. The server
+    script itself ships in this checkout's runner/.
+    """
+    sol = local_config.sol()
+    if not sol.get("SOL_PKG"):
+        return "echo 'Sol-H3-Spark is not configured: set SOL_PKG in config/local.env' >&2; exit 78"
+    runtime_root = sol.get("SOL_H3_SPARK_RUNTIME_ROOT") or f"{sol['SOL_ROOT']}/runtime"
+    exports = " ".join(f"{k}={shlex.quote(v)}" for k, v in (
+        ("SOL_PKG", sol["SOL_PKG"]),
+        ("SOL_ROOT", sol["SOL_ROOT"]),
+        ("SOL_H3_SPARK_RUNTIME_ROOT", runtime_root),
+        ("SOL_H3_SPARK_QWEN_IMAGE", sol["SOL_H3_SPARK_QWEN_IMAGE"]),
+        ("SOL_H3_SPARK_QWEN_WEIGHTS_ROOT", sol["SOL_H3_SPARK_QWEN_WEIGHTS_ROOT"]),
+        ("SOL_PORT", str(SOL_H3_PORT)),
+    ))
+    python = f"{sol['SOL_ROOT']}/envs/stage2/bin/python"
+    server = ROOT / "runner/sol_engine_server.py"
+    return (f"export {exports}; cd \"$SOL_PKG\" && exec {shlex.quote(python)} "
+            f"{shlex.quote(str(server))}")
+
+
 ENGINES = {
     "ltx":   {"port": 8290, "kind": "docker", "start": "start_ltx_engine.sh",
               "container": "media-lab-ltx-engine", "health": "/health", "gb": 40,
               "boot_wait": 420},
-    # 40 GB was measured when H3 rendered at 1344x768. At the 1024x768 canvas the
-    # box can actually carry (see engine_server.H3_MAX_PIXELS) the container tops
-    # out around 35 GB — reserving 40 made the guard refuse to boot it at all once
-    # the chat model migration took ~28 GB of the box.
-    "h3":    {"port": 8291, "kind": "docker", "start": "start_h3_engine.sh",
-              "container": "media-lab-h3-engine", "health": "/health", "gb": 35,
-              "boot_wait": 600},
+    # Sol-H3-Spark: the whole-box H3 engine (runner/sol_engine_server.py) run as
+    # a transient user unit. It takes ~110 GB of the 121 GiB unified pool, so it
+    # never co-resides with Qwen (QWEN_GB is 0 while Qwen is served remotely)
+    # and the first boot can spend most of half an hour loading. Paths come from
+    # the SOL_* keys in config/local.env; an unset SOL_PKG means "not installed".
+    "h3":    {"port": 8291, "kind": "unit", "unit": "media-lab-sol-h3.service",
+              "cmd": _sol_h3_command(), "health": "/health", "gb": 110,
+              "boot_wait": 1800},
     "music": {"port": 8196, "kind": "unit", "unit": "media-lab-comfy-music.service",
               "health": "/system_stats", "gb": 15, "boot_wait": 150,
               "cmd": f"cd {COMFY_MUSIC_DIR} && exec .venv/bin/python main.py --disable-api-nodes --listen 127.0.0.1 --port 8196 --disable-auto-launch --extra-model-paths-config extra_model_paths.yaml"},
@@ -1794,8 +1824,11 @@ ENGINES = {
 COMPANION_ENGINE_NAMES = tuple(ENGINES)
 COMPANION_NAMES = frozenset((*COMPANION_ENGINE_NAMES, "voice"))
 PPLX_MODELS_URL = local_config.text_upstream() + "/v1/models"   # MEDIA_LAB_TEXT_UPSTREAM
-QWEN_GB = 32        # measured qwen38-vllm residency, 2026-08-18 (not the old 20G llama.cpp)
-MEM_CAP_GB = 105    # leave an explicit operational margin on the 121 GiB unified pool
+# Resident text-model budget and the pool ceiling are per-host (config/local.env).
+# QWEN_GB defaults to 0: on the Spark the chat model is served remotely through
+# the bridge, so the whole 121 GiB pool minus a margin belongs to video.
+QWEN_GB = local_config.int_value("MEDIA_LAB_QWEN_GB", 0)
+MEM_CAP_GB = local_config.int_value("MEDIA_LAB_MEM_CAP_GB", 120)
 IDLE_REAP_S = 3600  # 60-minute keep-warm for h3 / music / image; LTX is the idle default
 _pool_mutex = threading.Lock()
 _idle_restore_mutex = threading.Lock()
@@ -2110,7 +2143,14 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None):
     else:
         subprocess.run(["systemctl", "--user", "reset-failed", e["unit"]],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["systemd-run", "--user", f"--unit={e['unit']}",
+        setenv = []
+        if name == "h3" and variant is not None:
+            # The Sol server reads its task family and Turbo preset from the
+            # unit's environment; systemd-run's --setenv is the only way in.
+            setenv.append(f"--setenv=H3_VARIANT={variant}")
+            if turbo_preset is not None:
+                setenv.append(f"--setenv=H3_TURBO_PRESET={turbo_preset}")
+        subprocess.run(["systemd-run", "--user", f"--unit={e['unit']}", *setenv,
                         "bash", "-lc", e["cmd"]],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     deadline = time.time() + e["boot_wait"]

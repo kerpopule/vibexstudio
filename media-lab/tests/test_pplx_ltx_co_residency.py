@@ -35,7 +35,10 @@ class PplxLtxCoResidencyContractTests(unittest.TestCase):
         self.assertNotIn(" qwen38-27b", starter)
         self.assertIn('"default_profile": "qwen-ltx-default"', policy)
         self.assertIn('"decode": 46', policy)
-        self.assertIn('"operational_floor_gb": 24', policy)
+        # Sol-H3-Spark: the text model is remote (1 GB placeholder), so the
+        # operational floor dropped from 24 to 3 and H3 owns the pool.
+        self.assertIn('"operational_floor_gb": 3', policy)
+        self.assertIn('"display_name": "Sol-H3-Spark"', policy)
 
     def test_ltx_keeps_promoted_maestro_profile_and_pplx_is_not_evicted(self):
         engine = (ROOT / "runner/engine_server.py").read_text()
