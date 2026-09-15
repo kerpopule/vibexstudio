@@ -41,12 +41,15 @@ pub async fn device_pairing_manage(app:AppHandle,window:WebviewWindow,operation:
   "issue"=>{
    let cfg=super::workbench_config(&app).filter(|v|v["enabled"].as_bool()==Some(true));
    let ml=super::medialab_config(&app);
-   let media_port=ml.as_ref().filter(|v|v["enabled"].as_bool()==Some(true)&&v["runtime"].as_str()!=Some("independent-studio")).map(|v|v["port"].as_u64().unwrap_or(super::MEDIALAB_PORT as u64));
    let ip=match network.as_deref().unwrap_or("local"){
     "local"=>local_ip_address::local_ip().map_err(|_|"Connect this computer to your network first.")?.to_string(),
     "tailscale"=>tailnet_address(&super::read_tailscale_status()?)?,
     _=>return Err("Choose the same network or Tailscale.".into())
    };
+   // Both runtimes pair the same way: the QR carries the address, the phone
+   // enters the Media Lab code afterwards. What differs is whether the scanning
+   // device can reach this address at all, which pairable_medialab_port decides.
+   let media_port=ml.as_ref().and_then(|cfg|super::pairable_medialab_port(cfg,&ip));
    let invite=if cfg.is_some(){Some(request(&app,"/pairing/invites",Some(json!({})))?)}else{None};
    let workbench=if let Some(ref value)=invite{
     let code=value["code"].as_str().filter(|v|v.len()==43&&v.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-'||b==b'_')).ok_or("Invalid invitation response.")?;

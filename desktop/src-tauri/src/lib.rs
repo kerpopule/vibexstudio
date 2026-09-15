@@ -14,7 +14,9 @@
 //!
 //! Config files live in `app.path().app_data_dir()` — on macOS
 //! `~/Library/Application Support/studio.vibex.desktop/`:
-//!   medialab.json  {enabled, dir, python, port}
+//!   medialab.json  {enabled, dir, python, port}; an independent controller
+//!                  adds {runtime, installation, desktopOriginAllowed} and the
+//!                  optional {bind, origins} that open it to other devices
 //!   workbench.json {enabled, port, token, projectsRoot}
 //!   desktop.json   {mediaLabAsked, mediaLabChoice}   (first-launch memory)
 //!
@@ -546,6 +548,135 @@ fn desktop_controller_origin() -> &'static str {
     if cfg!(windows) { "http://tauri.localhost" } else { "tauri://localhost" }
 }
 
+/// medialab.json `bind`: the address the local controller listens on.
+///
+/// Absent means loopback, so an installation is private to this computer until
+/// its owner writes an address here — reaching it from a phone is opt-in, never
+/// a side effect of installing. Only IP literals are accepted: the value is what
+/// the listener binds to (a hostname would be resolved to something we never
+/// checked), and anything beginning with "-" would otherwise be read as a flag
+/// by the controller's own argument parser. The controller's pairing gate still
+/// guards every route past `/manifest.json` on whichever address it binds.
+fn independent_bind(cfg: &Value) -> Result<std::net::IpAddr, String> {
+    let Some(value) = cfg.get("bind").filter(|value| !value.is_null()) else {
+        return Ok(std::net::Ipv4Addr::LOCALHOST.into());
+    };
+    let invalid = || "Media Lab \"bind\" must be an IP address on this computer, such as 127.0.0.1 or 0.0.0.0".to_string();
+    value.as_str().ok_or_else(invalid)?.parse().map_err(|_| invalid())
+}
+
+/// medialab.json `origins`: extra browser origins, on top of the desktop's own.
+///
+/// The controller refuses to start on anything but an exact `scheme://host[:port]`,
+/// so check the same shape here and name the offending entry — otherwise a stray
+/// trailing slash stops the controller with nothing to read but "could not serve".
+/// Entries are returned in the serialization a browser actually sends in `Origin`,
+/// which is what the controller compares against.
+fn independent_origins(cfg: &Value) -> Result<Vec<String>, String> {
+    let Some(value) = cfg.get("origins").filter(|value| !value.is_null()) else { return Ok(Vec::new()) };
+    let entries = value.as_array().ok_or("Media Lab \"origins\" must be a list of browser origins")?;
+    entries
+        .iter()
+        .map(|entry| {
+            let text = entry.as_str().unwrap_or_default();
+            let url = tauri::Url::parse(text).ok().filter(|url| {
+                matches!(url.scheme(), "http" | "https")
+                    && url.host_str().is_some()
+                    && url.username().is_empty()
+                    && url.password().is_none()
+                    // The url crate normalizes an empty path to "/", so this
+                    // rejects real paths without rejecting "http://host".
+                    && url.path() == "/"
+                    && url.query().is_none()
+                    && url.fragment().is_none()
+                    && !text.contains('*')
+            });
+            url.map(|url| url.origin().ascii_serialization()).ok_or_else(|| {
+                format!("Media Lab \"origins\" needs exact browser origins like http://192.168.1.20:8081, not {text:?}")
+            })
+        })
+        .collect()
+}
+
+/// Has `admin-init` enrolled an administrator for this host?
+///
+/// Mirrors the controller's own checks on the enrolment file — a private,
+/// regular, bounded file owned by this user — instead of only asking whether it
+/// exists. The controller refuses to serve *at all* on a file it dislikes, so a
+/// restored or re-permissioned admin.json would otherwise turn "model setup is
+/// available" into "the controller stopped starting", with nothing to read.
+fn administrator_enrolled(host: &Path) -> bool {
+    let Ok(info) = std::fs::symlink_metadata(host.join("admin.json")) else { return false };
+    if !info.is_file() || info.len() > 4096 {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if info.mode() & 0o077 != 0 || info.uid() != unsafe { libc::getuid() } {
+            return false;
+        }
+    }
+    true
+}
+
+/// Model setup installs and qualifies generation engines, which is what makes a
+/// fresh installation more than a media library. The controller gates it behind
+/// an enrolled administrator and refuses to serve at all without one, so the flag
+/// is passed only once `admin-init` has written the enrolment file.
+///
+/// The installation receipt (installation.json) records the source digest, the
+/// platform and the stage — not the interpreters the installer used — so there is
+/// no recorded Python to hand back. `--setup-python` is left off deliberately: the
+/// model runtime needs Python 3.12, and the interpreter this installation was built
+/// with is 3.12 only on the Linux target, where the controller's own `sys.executable`
+/// already supplies it. Naming the macOS 3.14 interpreter there would be a wrong
+/// answer instead of the controller's accurate "install Python 3.12" notice. `uv` is
+/// different: it is found on PATH, and a GUI-launched app inherits a PATH that rarely
+/// contains ~/.local/bin, so pass the one this shell can actually locate.
+fn model_setup_args(installation: &Path) -> Vec<String> {
+    if !administrator_enrolled(&installation.join("host")) {
+        return Vec::new();
+    }
+    let mut args = vec!["--model-setup".to_string()];
+    if let Some(uv) = find_uv() {
+        args.push("--setup-uv".into());
+        args.push(uv.to_string_lossy().into_owned());
+    }
+    args
+}
+
+/// Everything this configuration hands to the controller's own `serve`.
+/// Separate from the spawn so the exact argument list is testable.
+fn independent_serve_args(cfg: &Value, installation: &Path) -> Result<Vec<String>, String> {
+    let port = cfg["port"].as_u64().unwrap_or(7864);
+    if !(1..=65535).contains(&port) {
+        return Err("Independent Media Lab port must be between 1 and 65535".into());
+    }
+    let bind = independent_bind(cfg)?;
+    let origins = independent_origins(cfg)?;
+    // Only pass --bind when it differs from the controller's own default, so a
+    // default installation receives exactly the arguments it did before this
+    // flag existed. An installation staged before `serve --bind` (the "Choose
+    // installation folder…" door accepts any self-consistent receipt) would
+    // otherwise abort on an unrecognised argument.
+    let mut args = vec!["--port".to_string(), port.to_string()];
+    if bind != std::net::IpAddr::from(std::net::Ipv4Addr::LOCALHOST) {
+        args.push("--bind".to_string());
+        args.push(bind.to_string());
+    }
+    if cfg["desktopOriginAllowed"].as_bool() == Some(true) {
+        args.push("--origin".into());
+        args.push(desktop_controller_origin().into());
+    }
+    for origin in origins {
+        args.push("--origin".into());
+        args.push(origin);
+    }
+    args.extend(model_setup_args(installation));
+    Ok(args)
+}
+
 fn spawn_independent_medialab(cfg: &Value) -> Result<Child, String> {
     let installation = cfg["installation"].as_str()
         .map(PathBuf::from).filter(|path| path.is_absolute())
@@ -554,24 +685,147 @@ fn spawn_independent_medialab(cfg: &Value) -> Result<Child, String> {
     if !python.is_file() {
         return Err("Independent Media Lab's installed Python is missing".into());
     }
-    let port = cfg["port"].as_u64().unwrap_or(7864);
-    if !(1..=65535).contains(&port) {
-        return Err("Independent Media Lab port must be between 1 and 65535".into());
-    }
-    let mut command = Command::new(&python);
-    command
+    let serve = independent_serve_args(cfg, &installation)?;
+    Command::new(&python)
         .arg("-I").arg("-c").arg(MEDIALAB_SUPERVISOR)
         .args(["-I", "-c", include_str!("independent_bootstrap.py")])
         .arg(include_str!("../../scripts/install-independent-controller.py"))
         .arg(&installation).arg("serve")
-        .args(["--port", &port.to_string()])
+        .args(&serve)
         .env("PYTHONDONTWRITEBYTECODE", "1")
-        .stdin(Stdio::piped());
-    if cfg["desktopOriginAllowed"].as_bool() == Some(true) {
-        command.args(["--origin", desktop_controller_origin()]);
-    }
-    command.spawn()
+        .stdin(Stdio::piped())
+        .spawn()
         .map_err(|error| format!("Independent Media Lab failed to start: {error}"))
+}
+
+/// The Media Lab port to advertise in a QR for `address`, or None when nothing
+/// another device could reach is configured there.
+///
+/// The legacy sidecar always listens on 0.0.0.0, so it pairs whenever it is
+/// enabled. The independent controller listens where `bind` says: on loopback it
+/// is unreachable from any phone, and bound to one exact address it is reachable
+/// only on that network — encoding the other one produces a QR that scans
+/// cleanly and then fails to connect, which is harder to debug than no QR.
+fn pairable_medialab_port(cfg: &Value, address: &str) -> Option<u64> {
+    if cfg["enabled"].as_bool() != Some(true) {
+        return None;
+    }
+    let port = cfg["port"].as_u64().unwrap_or(MEDIALAB_PORT as u64);
+    if cfg["runtime"].as_str() != Some("independent-studio") {
+        return Some(port);
+    }
+    let bind = independent_bind(cfg).ok()?;
+    let reachable = !bind.is_loopback()
+        && (bind.is_unspecified() || address.parse::<std::net::IpAddr>().map(|chosen| chosen == bind).unwrap_or(false));
+    reachable.then_some(port)
+}
+
+#[cfg(test)]
+mod independent_controller_tests {
+    use super::*;
+
+    #[test]
+    fn bind_defaults_to_loopback_and_refuses_anything_but_an_address() {
+        assert_eq!(independent_bind(&json!({})).unwrap().to_string(), "127.0.0.1");
+        assert_eq!(independent_bind(&json!({"bind": "0.0.0.0"})).unwrap().to_string(), "0.0.0.0");
+        assert_eq!(independent_bind(&json!({"bind": "::1"})).unwrap().to_string(), "::1");
+        for value in [json!("localhost"), json!("--model-setup"), json!("0.0.0.0 --origin *"), json!(""), json!(0)] {
+            assert!(independent_bind(&json!({"bind": value})).is_err(), "accepted {value}");
+        }
+    }
+
+    #[test]
+    fn origins_are_absent_by_default_and_exact_when_present() {
+        assert!(independent_origins(&json!({})).unwrap().is_empty());
+        assert!(independent_origins(&json!({"origins": []})).unwrap().is_empty());
+        assert_eq!(
+            independent_origins(&json!({"origins": ["http://192.168.1.20:8081", "https://studio.example"]})).unwrap(),
+            ["http://192.168.1.20:8081", "https://studio.example"]
+        );
+        for value in [json!(["http://host/app"]), json!(["http://*.example"]), json!(["ftp://host"]),
+                      json!(["http://user:pw@host"]), json!(["not a url"]), json!(["http://host?x=1"]), json!("http://host")] {
+            assert!(independent_origins(&json!({"origins": value})).is_err(), "accepted {value}");
+        }
+    }
+
+    #[test]
+    fn only_a_controller_that_left_loopback_is_offered_for_pairing() {
+        let lan = "192.168.1.4";
+        let independent = json!({"enabled": true, "runtime": "independent-studio", "port": 7864});
+        assert_eq!(pairable_medialab_port(&independent, lan), None);
+        let mut reachable = independent.clone();
+        reachable["bind"] = json!("0.0.0.0");
+        assert_eq!(pairable_medialab_port(&reachable, lan), Some(7864));
+        let mut loopback = independent.clone();
+        loopback["bind"] = json!("127.0.0.1");
+        assert_eq!(pairable_medialab_port(&loopback, lan), None);
+        let mut stopped = reachable.clone();
+        stopped["enabled"] = json!(false);
+        assert_eq!(pairable_medialab_port(&stopped, lan), None);
+        // Bound to one address: pairs on that network, not on the other one.
+        let mut tailnet = independent.clone();
+        tailnet["bind"] = json!("100.64.1.2");
+        assert_eq!(pairable_medialab_port(&tailnet, "100.64.1.2"), Some(7864));
+        assert_eq!(pairable_medialab_port(&tailnet, lan), None);
+        // The legacy sidecar binds 0.0.0.0 itself and carries no "bind".
+        assert_eq!(pairable_medialab_port(&json!({"enabled": true}), lan), Some(MEDIALAB_PORT as u64));
+    }
+
+    #[test]
+    fn model_setup_waits_for_an_enrolled_administrator() {
+        let root = installation_fixture("model-setup");
+        let enrolment = root.join("host").join("admin.json");
+        assert!(model_setup_args(&root).is_empty());
+        std::fs::write(&enrolment, "{}").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            // A file the controller would refuse must not be read as enrolled:
+            // it would stop the controller starting instead of adding setup.
+            std::fs::set_permissions(&enrolment, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(model_setup_args(&root).is_empty());
+            std::fs::set_permissions(&enrolment, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        assert_eq!(model_setup_args(&root).first().map(String::as_str), Some("--model-setup"));
+        // Nothing claims an interpreter the receipt never recorded.
+        assert!(!model_setup_args(&root).iter().any(|arg| arg == "--setup-python"));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_configuration_without_the_new_fields_serves_exactly_as_before() {
+        let installation = installation_fixture("serve-default");
+        let cfg = json!({"enabled": true, "runtime": "independent-studio", "port": 7864, "desktopOriginAllowed": true});
+        assert_eq!(
+            independent_serve_args(&cfg, &installation).unwrap(),
+            ["--port", "7864", "--origin", desktop_controller_origin()]
+        );
+        std::fs::remove_dir_all(&installation).unwrap();
+    }
+
+    #[test]
+    fn bind_and_origins_are_added_to_the_desktop_origin_never_instead_of_it() {
+        let installation = installation_fixture("serve-open");
+        let mut cfg = json!({"enabled": true, "runtime": "independent-studio", "port": 7864, "desktopOriginAllowed": true,
+                             "bind": "0.0.0.0", "origins": ["http://192.168.1.20:8081"]});
+        assert_eq!(
+            independent_serve_args(&cfg, &installation).unwrap(),
+            ["--port", "7864", "--bind", "0.0.0.0", "--origin", desktop_controller_origin(), "--origin", "http://192.168.1.20:8081"]
+        );
+        // A value the controller would reject stops the start here, with
+        // something the Media Lab window can actually show.
+        cfg["bind"] = json!("my-mac.local");
+        assert!(independent_serve_args(&cfg, &installation).unwrap_err().contains("bind"));
+        std::fs::remove_dir_all(&installation).unwrap();
+    }
+
+    /// An empty private installation directory: enough for the argument builders.
+    fn installation_fixture(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("vibex-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("host")).unwrap();
+        root
+    }
 }
 
 fn start_sidecars(app: &AppHandle) {
@@ -1144,6 +1398,35 @@ fn show_pair_window(app: AppHandle) {
     }
 }
 
+/// Studio's local Media Lab setup screen, resolved against whatever page the
+/// main window is on: the packaged `tauri://localhost` asset origin, or the dev
+/// server. Anchored at the origin's root because the user may be several routes
+/// deep by the time they open the Media Lab menu. The packaged asset protocol
+/// falls back to `<path>.html`, which is how the exported route is named.
+fn local_setup_url(current: &tauri::Url) -> Option<tauri::Url> {
+    current.join("/connect-media-lab?method=local").ok()
+}
+
+/// "Set up Media Lab here" on the first-launch page. This window still runs no
+/// installer: it hands the user to the Studio screen that does, which is also
+/// where the platform support notice and the progress live.
+#[tauri::command]
+fn medialab_local_setup(app: AppHandle) -> Result<(), String> {
+    let main = app.get_webview_window("main").ok_or("Studio's main window is not open")?;
+    let url = main.url().ok().as_ref().and_then(local_setup_url)
+        .ok_or("Could not work out where Studio's Media Lab setup screen is")?;
+    main.navigate(url).map_err(|_| "Studio could not open the Media Lab setup screen".to_string())?;
+    let _ = main.show();
+    let _ = main.set_focus();
+    // Answering the first-launch question, like the other two buttons: the
+    // Media Lab menu reopens this window if setup is abandoned.
+    remember_choice(&app, "local-setup");
+    if let Some(w) = app.get_webview_window("welcome") {
+        let _ = w.close();
+    }
+    Ok(())
+}
+
 /// "Not now" on the first-launch page: remember it, close the window.
 #[tauri::command]
 fn medialab_not_now(app: AppHandle) {
@@ -1518,6 +1801,7 @@ pub fn run() {
             medialab_status,
             medialab_enable,
             medialab_select_installation,
+            medialab_local_setup,
             medialab_local_connection,
             tailscale_devices,
             tailscale_media_services,
@@ -1641,7 +1925,19 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{controller_installation_unavailable, mint_token, valid_secret_key};
+    use super::{controller_installation_unavailable, local_setup_url, mint_token, valid_secret_key};
+
+    #[test]
+    fn local_setup_route_is_the_same_screen_from_any_page_or_build() {
+        for current in ["tauri://localhost/", "tauri://localhost/project/abc", "http://tauri.localhost/index.html", "http://localhost:8098/library"] {
+            let page = tauri::Url::parse(current).unwrap();
+            let url = local_setup_url(&page).unwrap();
+            assert_eq!(url.path(), "/connect-media-lab");
+            assert_eq!(url.query(), Some("method=local"));
+            // Same window, same origin — only the route changes.
+            assert_eq!((url.scheme(), url.host_str(), url.port()), (page.scheme(), page.host_str(), page.port()));
+        }
+    }
 
     #[test]
     fn accepts_only_vibex_secret_namespaces() {

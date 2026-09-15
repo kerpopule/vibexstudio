@@ -67,6 +67,16 @@ This handoff requires an installation with desktop-origin support. It does not
 put the access code in a URL or log. The independent controller defaults to
 loopback port 7864; it does not automatically expose a LAN or public endpoint.
 
+Reaching that controller from a phone is opt-in and edited by hand in
+`medialab.json`: `"bind"` is the address it listens on (an IP address on this
+computer, for example `0.0.0.0`) and `"origins"` is a list of extra exact browser
+origins, such as `"http://192.168.1.20:8081"`. Both are optional; absent means
+loopback and the desktop's own origin, exactly as before. A controller that has
+left loopback is offered in **Pair your device…**, whose QR carries its address
+only — the access code is still entered in Studio afterwards. Once `admin-init`
+has enrolled an administrator for that host, Start also exposes administrator
+model setup.
+
 The desktop-owned controller stops when the app exits. To keep Media Lab running
 without a Mac, install and supervise it on the user's server. A server service
 and its HTTPS routing must be configured and verified separately. A link hosted
