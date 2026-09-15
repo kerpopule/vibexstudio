@@ -1651,7 +1651,7 @@ def probe_media(path: str | Path) -> dict[str, Any]:
             "-v",
             "error",
             "-show_entries",
-            "format=duration,format_name,size:stream=index,codec_type,codec_name,width,height,r_frame_rate,sample_rate,channels",
+            "format=duration,format_name,size:stream=index,codec_type,codec_name,width,height,r_frame_rate,sample_rate,channels,duration,nb_frames",
             "-of",
             "json",
             str(Path(path)),
@@ -2428,7 +2428,8 @@ def plan_timeline_render(
     video_labels: list[str] = []
     audio_labels: list[str] = []
     for index, item in enumerate(items):
-        duration = _frames_to_seconds(int(item["duration_frames"]), fps)
+        duration_frames = int(item["duration_frames"])
+        duration = _frames_to_seconds(duration_frames, fps)
         if item["kind"] == "gap":
             filters.append(f"color=c=black:s={width}x{height}:r={fps}:d={duration:.6f},format=yuv420p[v{index}]")
             if include_audio:
@@ -2448,13 +2449,17 @@ def plan_timeline_render(
         grade = _color_filter(color.get(clip["id"]))
         if asset["kind"] == "image":
             source_index = add_input(["-loop", "1", "-framerate", str(fps), "-t", f"{duration:.6f}", "-i", str(path)])
-            filters.append(f"[{source_index}:v]{fit},trim=duration={duration:.6f},setpts=PTS-STARTPTS{grade}[v{index}]")
+            filters.append(f"[{source_index}:v]{fit},trim=end_frame={duration_frames},setpts=PTS-STARTPTS{grade}[v{index}]")
             if include_audio:
                 filters.append(f"anullsrc=r=48000:cl=stereo,atrim=duration={duration:.6f},asetpts=PTS-STARTPTS[a{index}]")
         else:
             seek = ["-ss", f"{trim_in:.6f}"] if trim_in > 0 else []
-            source_index = add_input(seek + ["-t", f"{duration:.6f}", "-i", str(path)])
-            filters.append(f"[{source_index}:v]{fit},trim=duration={duration:.6f},setpts=PTS-STARTPTS{grade}[v{index}]")
+            # Decode one guard frame beyond the requested duration. Fractional
+            # source timestamps can otherwise make input-scoped -t underfeed
+            # the exact frame trim below after fps conversion.
+            decode_duration = duration + (1.0 / fps)
+            source_index = add_input(seek + ["-t", f"{decode_duration:.6f}", "-i", str(path)])
+            filters.append(f"[{source_index}:v]{fit},trim=end_frame={duration_frames},setpts=PTS-STARTPTS{grade}[v{index}]")
             if include_audio:
                 audio = clip.get("audio") or {}
                 if asset.get("has_audio") and not audio.get("muted"):
@@ -2548,6 +2553,18 @@ def plan_timeline_render(
         captions_mode = "burned" if burn else "embedded"
     elif cues:
         captions_mode = "embedded"
+
+    # Input seeking and timestamp rounding can leave a frame short or long on
+    # some clips even after fps normalization. Extend the last decoded frame
+    # indefinitely, then trim the complete composition to the timeline's exact
+    # integer frame contract. This makes both underflow and overflow converge on
+    # the manifest count instead of allowing a frozen short tail or lost frame.
+    full_frame_count = render_duration_frames(project)
+    filters.append(
+        f"{current_v}tpad=stop_mode=clone:stop=-1,"
+        f"trim=end_frame={full_frame_count},setpts=N/({fps}*TB)[vframes]"
+    )
+    current_v = "[vframes]"
 
     # optional range
     range_mode = str(export_request.get("range_mode") or "full")
