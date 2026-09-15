@@ -15,6 +15,9 @@ from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+
+# The packaged desktop app's origin, which differs by platform.
+TAURI_DESKTOP_ORIGINS = ('tauri://localhost', 'http://tauri.localhost')
 from fastapi.responses import FileResponse
 
 from .background_host import BackgroundHost
@@ -210,17 +213,27 @@ def create_paired_app(*, state_root: Path, artifact_root: Path, credentials: Cre
     """
     if (admin is None) != (setup is None):
         raise ValueError('Model setup requires both an administrator gate and a setup controller.')
+    # Tauri's packaged desktop webview has a DIFFERENT origin per platform:
+    # tauri://localhost on macOS/Linux, http://tauri.localhost on Windows.
+    # They are the same logical caller -- the packaged app -- so allowing
+    # either one allows its platform twin. Without this, a Windows desktop
+    # app is refused by CORS before any request leaves the machine and the
+    # app can only report a generic "could not reach Media Lab" (found
+    # 2026-09-09: a host allowing only the macOS/Linux origin could not be
+    # paired from Windows at all).
+    allowed_origins = list(allowed_origins)
+    if any(origin in TAURI_DESKTOP_ORIGINS for origin in allowed_origins):
+        allowed_origins += [o for o in TAURI_DESKTOP_ORIGINS if o not in allowed_origins]
     for origin in allowed_origins:
-        # Tauri's packaged macOS/Linux webview has this exact custom origin.
-        # It is opt-in, like every HTTP origin; never accept arbitrary schemes
-        # or the opaque "null" origin shared by sandboxed/file documents.
-        if origin == 'tauri://localhost':
+        # These are opt-in, like every HTTP origin; never accept arbitrary
+        # schemes or the opaque "null" origin shared by sandboxed/file documents.
+        if origin in TAURI_DESKTOP_ORIGINS:
             continue
         parsed = urlsplit(origin)
         if (parsed.scheme not in ('http', 'https') or not parsed.hostname or
                 parsed.username or parsed.password or parsed.path or parsed.query or
                 parsed.fragment or '*' in origin or origin != f'{parsed.scheme}://{parsed.netloc}'):
-            raise ValueError('Allow exact HTTP(S) browser origins without paths or tauri://localhost.')
+            raise ValueError('Allow exact HTTP(S) browser origins without paths, or a Tauri desktop origin.')
     app = create_app(state_root=state_root, artifact_root=artifact_root,
                      authorize=credentials.authorize, qualification=qualification,
                      library=Library(media_root, load_rows, credentials.authorize_library, load_collections),
