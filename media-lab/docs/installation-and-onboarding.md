@@ -215,7 +215,7 @@ This qualifies that development controller check only. It does not establish mod
 
 ### Packaged desktop browser origin
 
-The independent controller accepts `--origin tauri://localhost` as an explicit allowed origin for the packaged desktop webview. The default allowed-origin list remains empty. Only this exact custom origin is accepted; arbitrary custom schemes, paths, ports and opaque `null` origins are refused. CORS permission does not replace the access code or scoped token checks. HTTP(S) origins still require their exact explicit entries. Previously staged installations must be rebuilt/reinstalled to include this change; desktop startup and in-app local pairing are not wired to enable it automatically yet.
+The independent controller accepts `--origin tauri://localhost` as an explicit allowed origin for the packaged desktop webview. The packaged webview's origin differs by platform -- `tauri://localhost` on macOS and Linux, `http://tauri.localhost` on Windows -- so allowing either one also allows its platform twin; a host configured only for the macOS/Linux origin cannot be paired from Windows at all. The default allowed-origin list remains empty. Only this exact custom origin is accepted; arbitrary custom schemes, paths, ports and opaque `null` origins are refused. CORS permission does not replace the access code or scoped token checks. HTTP(S) origins still require their exact explicit entries. Previously staged installations must be rebuilt/reinstalled to include this change; desktop startup and in-app local pairing are not wired to enable it automatically yet.
 
 
 ### Import your existing media into an independent host

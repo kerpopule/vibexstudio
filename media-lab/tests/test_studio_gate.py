@@ -121,6 +121,29 @@ def test_browser_can_read_verified_portable_asset_headers(tmp_path):
     assert 'Access-Control-Allow-Origin' not in denied.headers
 
 
+def test_windows_desktop_origin_is_allowed_alongside_the_mac_linux_one(tmp_path):
+    """Tauri's packaged webview has a different origin per platform: tauri://localhost on
+    macOS/Linux, http://tauri.localhost on Windows. A host configured with either must accept
+    both, or the desktop app is refused by CORS before any request leaves the machine and can
+    only report a generic failure (2026-09-09: Windows could not pair against such a host)."""
+    for configured in ('tauri://localhost', 'http://tauri.localhost'):
+        with TestClient(create_paired_app(state_root=tmp_path/('state-'+configured[:6]),
+                        artifact_root=tmp_path/'artifacts', media_root=tmp_path/'media',
+                        load_rows=lambda: [], credentials=CREDS,
+                        allowed_origins=(configured,))) as client:
+            for origin in ('tauri://localhost', 'http://tauri.localhost'):
+                headers={'Origin':origin,'Access-Control-Request-Method':'POST',
+                         'Access-Control-Request-Headers':'content-type'}
+                preflight=client.options('/api/gate',headers=headers)
+                assert preflight.status_code==200, (configured, origin)
+                assert preflight.headers['access-control-allow-origin']==origin
+            # Widening to the platform twin must not widen anything else.
+            for origin in ('null','tauri://evil','https://tauri.localhost','http://tauri.localhost:1'):
+                blocked=client.options('/api/gate',headers={'Origin':origin,
+                        'Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'content-type'})
+                assert blocked.status_code==400, (configured, origin)
+
+
 def test_explicit_packaged_desktop_origin_preserves_pairing_auth(tmp_path):
     with TestClient(create_paired_app(state_root=tmp_path/'state', artifact_root=tmp_path/'artifacts',
                     media_root=tmp_path/'media', load_rows=lambda: [], credentials=CREDS,
