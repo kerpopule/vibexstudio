@@ -20,7 +20,7 @@ $MEDIA_LAB_HOME/pool/music-out/job-<request_id>/.
 The pipeline stays resident between requests; the package itself moves the AR model to CPU
 while the VAE decodes and back (see yue2/pipeline.py decode()) - we do not add our own swap.
 Every render/plan holds the Media Lab inference transaction lock
-(/run/user/1000/media-lab-inference.lock, flock EX) for its whole duration, and returns 409 if
+the inference lock is held by the CALLER (app.py), never here; returns 409 only if
 it is already held - so app.py must NOT hold that lock while it calls this engine (it does
 for Sol/LTX, whose shims take no lock). Transcription runs in the separate SheetSage2 venv
 as a subprocess.
@@ -172,11 +172,11 @@ class H(BaseHTTPRequestHandler):
         if not LOCK.acquire(blocking=False): return self._send(409, {"ok": False, "error": "busy"})
         STATE["busy"] = True; STATE["cancel"] = False
         try:
-            with Gate():
-                log(self.path, json.dumps({k: v for k, v in req.items() if k not in ("lyrics", "abc")})[:300])
-                res = fn(req); log("done", self.path, res.get("elapsed"), res.get("seconds")); self._send(200, res)
-        except BlockingIOError:
-            self._send(409, {"ok": False, "error": "inference lock held by another engine"})
+            # The app holds /run/user/1000/media-lab-inference.lock around this call
+            # (same contract as the Sol/LTX engines). Taking it here too would deadlock
+            # against the caller, so the shim serialises only its own requests (LOCK).
+            log(self.path, json.dumps({k: v for k, v in req.items() if k not in ("lyrics", "abc")})[:300])
+            res = fn(req); log("done", self.path, res.get("elapsed"), res.get("seconds")); self._send(200, res)
         except InterruptedError as e:
             STATE["last_error"] = "interrupted"; self._send(499, {"ok": False, "error": f"interrupted: {e}"})
         except ValueError as e:

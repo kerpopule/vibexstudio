@@ -3365,9 +3365,10 @@ def _yue2_url(path: str) -> str:
 
 
 def _yue2_generate(body: dict, j=None, timeout=3600):
-    """POST /generate to the YuE2 shim. The shim holds the inference lock itself
-    (409 when another engine has it), so unlike Sol/LTX the app must NOT take the
-    lock here. A stop from the queue is forwarded as /interrupt."""
+    """POST /generate to the YuE2 shim under the canonical inference lock — the
+    same contract as engine_generate() for Sol/LTX. (The shim used to take the
+    lock itself; that collided with residency transactions and would deadlock
+    against this caller, so it no longer does.) A stop is forwarded as /interrupt."""
     stop = threading.Event()
 
     def watch():
@@ -3381,7 +3382,9 @@ def _yue2_generate(body: dict, j=None, timeout=3600):
     watcher = threading.Thread(target=watch, daemon=True)
     watcher.start()
     try:
-        return http_json(_yue2_url("/generate"), body, timeout=timeout)
+        with open("/run/user/1000/media-lab-inference.lock", "a+") as gate:
+            fcntl.flock(gate, fcntl.LOCK_EX)
+            return http_json(_yue2_url("/generate"), body, timeout=timeout)
     finally:
         stop.set()
 
