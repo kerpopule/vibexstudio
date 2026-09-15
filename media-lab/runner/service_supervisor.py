@@ -30,6 +30,7 @@ STATE = os.path.join(str(local_config.home()), "supervisor-state.json")
 ENV = dict(os.environ,
            XDG_RUNTIME_DIR="/run/user/1000",
            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/1000/bus")
+LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 # Restarting the same thing in a tight loop makes an outage worse, so each
 # target gets a cooldown and a strike count before we act.
@@ -99,7 +100,7 @@ def probe(url, timeout=10):
     if not url:
         return True
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as r:
+        with LOCAL_OPENER.open(url, timeout=timeout) as r:
             return 200 <= r.getcode() < 400
     except urllib.error.HTTPError as e:
         return e.code < 500          # a 4xx still proves the server is alive
@@ -136,6 +137,16 @@ def unit_active(unit):
     return r.stdout.strip() == "active"
 
 
+def maestro_queue_runner_active():
+    result = subprocess.run(
+        ["pgrep", "-f", r"docker exec .*media-lab-maestro-runner\.py"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 def restart_unit(unit):
     def fix():
         """restart the systemd unit"""
@@ -160,6 +171,9 @@ def main():
         key = f"unit:{unit}"
         if not unit_active(unit):
             strike(st, key, "systemd says not active", restart_unit(unit))
+        elif not probe(url) and unit == "media-lab-simple.service" and maestro_queue_runner_active():
+            log(f"{key} probe failed during a queue-owned Maestro render — standing clear")
+            clear(st, key)
         elif not probe(url):
             strike(st, key, "active but its port does not answer", restart_unit(unit))
         else:

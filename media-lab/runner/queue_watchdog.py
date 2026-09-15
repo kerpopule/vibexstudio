@@ -47,6 +47,7 @@ RESTART_COOLDOWN_MIN = 10
 ENV = dict(os.environ,
            XDG_RUNTIME_DIR="/run/user/1000",
            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/1000/bus")
+LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def log(msg):
@@ -102,12 +103,17 @@ def an_engine_is_working():
     """True when a video engine reports busy — real evidence of progress."""
     for url in ENGINE_HEALTH:
         try:
-            with urllib.request.urlopen(url, timeout=5) as r:
+            with LOCAL_OPENER.open(url, timeout=5) as r:
                 if json.load(r).get("busy"):
                     return True
         except Exception:
             continue
     return False
+
+
+def queue_request():
+    """Build the authenticated local queue probe without DNS or proxy routing."""
+    return urllib.request.Request(QUEUE_URL, headers={"Host": "localhost"})
 
 
 def public_tunnel_code():
@@ -133,7 +139,7 @@ def public_tunnel_code():
 def tunnel_ha_connections():
     """Return cloudflared's active connector count, or None if unobservable."""
     try:
-        with urllib.request.urlopen(TUNNEL_METRICS_URL, timeout=5) as resp:
+        with LOCAL_OPENER.open(TUNNEL_METRICS_URL, timeout=5) as resp:
             text = resp.read().decode("utf-8", "replace")
         prefix = "cloudflared_tunnel_ha_connections "
         for line in text.splitlines():
@@ -142,6 +148,22 @@ def tunnel_ha_connections():
     except Exception:
         pass
     return None
+
+
+def maestro_queue_runner_active():
+    """True while the API owns an in-container Maestro process.
+
+    A failed health probe must never restart the API around this process: doing
+    so orphans or kills an otherwise healthy render. Once the runner exits, the
+    normal next watchdog pass may repair a genuinely dead API.
+    """
+    result = subprocess.run(
+        ["pgrep", "-f", r"docker exec .*media-lab-maestro-runner\.py"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0
 
 
 def check_tunnel(st):
@@ -171,14 +193,16 @@ def main():
 
     # --- reach the app ---
     try:
-        with urllib.request.urlopen(QUEUE_URL, timeout=15) as resp:
+        with LOCAL_OPENER.open(queue_request(), timeout=15) as resp:
             d = json.load(resp)
     except Exception as e:
         active_state = subprocess.run(
             ["systemctl", "--user", "is-active", "media-lab-simple.service"],
             env=ENV, capture_output=True, text=True).stdout.strip()
         log(f"/api/queue unreachable ({e}); service is '{active_state}'")
-        if active_state == "active":
+        if active_state == "active" and maestro_queue_runner_active():
+            log("API probe failed while a queue-owned Maestro runner is active — standing clear")
+        elif active_state == "active":
             restart_app(st, "service active but API unreachable")
         else:
             subprocess.run(["systemctl", "--user", "restart",

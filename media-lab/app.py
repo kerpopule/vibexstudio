@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Media Lab v2 — video / music / images / characters / storyboard.
 Single-flight worker queue, persisted jobs, ETA stats, PIN admin, remix."""
-import asyncio, base64, fcntl, hashlib, hmac, json, math, os, posixpath, random, re, shutil, subprocess, tempfile, threading, time, urllib.error, urllib.request, uuid
+import asyncio, base64, fcntl, hashlib, hmac, json, math, mimetypes, os, posixpath, random, re, shutil, subprocess, tempfile, threading, time, urllib.error, urllib.request, uuid
 from pathlib import Path
 from functools import lru_cache
 from contextlib import asynccontextmanager
@@ -38,6 +38,8 @@ from screenshot_song import (EXACT_SONG_MAX_WORDS, aligned_starts,
 # Per-host settings (data root, bind/tailnet hosts, model and runtime roots)
 # come from config/local.env; see config/local.env.example.
 ROOT = local_config.home()
+SOURCE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = ROOT / "static" if (ROOT / "static").is_dir() else SOURCE_DIR / "static"
 JOBS_DIR = ROOT / "jobs"
 MEDIA = ROOT / "media"
 SCREENSHOT_SONGS_DIR = ROOT / "screenshot-songs"
@@ -47,6 +49,10 @@ JOBS_FILE = ROOT / "jobs.json"
 ETA_FILE = ROOT / "eta-stats.json"
 CHARS_FILE = ROOT / "characters.json"
 KNOWN_CHARS_FILE = ROOT / "config/h3-known-characters.json"
+
+def _known_chars_file() -> Path:
+    """A data root that only holds state has no registry: use the checkout's."""
+    return KNOWN_CHARS_FILE if KNOWN_CHARS_FILE.exists() else SOURCE_DIR / "config/h3-known-characters.json"
 BOARDS_FILE = ROOT / "storyboards.json"
 PIN_FILE = ROOT / "admin-pin.txt"
 QWEN_URL = "http://127.0.0.1:8003/v1/chat/completions"
@@ -196,6 +202,8 @@ for _grp, _entries in STYLE_LIB:
 # Each entry: (id, emoji, label, prompt_prefix, gif_path, blurb).
 def _load_prompt_template(template_id):
     path = ROOT / "prompt-templates" / f"{template_id}.json"
+    if not path.exists():
+        path = SOURCE_DIR / "prompt-templates" / f"{template_id}.json"
     spec = json.loads(path.read_text(encoding="utf-8"))
     if spec.get("template_id") != template_id or not isinstance(spec.get("prompt"), str):
         raise RuntimeError(f"Malformed prompt template: {path}")
@@ -688,7 +696,9 @@ def _save(p: Path, data):
 # The key never leaves this box except in the Authorization header to fal.
 PROVIDERS_FILE = ROOT / "providers.json"
 FAL_QUEUE_BASE = "https://queue.fal.run"
-FAL_DEFAULT_MODELS = {"image": "fal-ai/flux/dev", "video": "fal-ai/veo3/fast"}
+FAL_DEFAULT_MODELS = {"image": "fal-ai/flux/dev", "video": "minimax/h3-max/image-to-video"}
+FAL_H3_MAX_ROOT = "minimax/h3-max"
+FAL_INLINE_IMAGE_MAX = 20 * 1024 * 1024
 
 def _providers_load() -> dict:
     d = _load(PROVIDERS_FILE, {})
@@ -758,6 +768,9 @@ def fal_queue_run(model_id: str, payload: dict, j=None,
         raise RuntimeError(f"could not reach fal.ai: {e}")
     status_url = str(sub.get("status_url") or "")
     response_url = str(sub.get("response_url") or "")
+    if j is not None:
+        j["fal_request_id"] = str(sub.get("request_id") or "") or None
+        j["fal_model_id"] = model_id
     if not (status_url.startswith("https://") and response_url.startswith("https://")):
         raise RuntimeError("fal.ai returned no queue urls")
     deadline = time.time() + timeout_s
@@ -809,6 +822,64 @@ def _fal_first_media(result: dict, kinds=("images", "image", "video")) -> str:
             return v
     return ""
 
+
+def _fal_image_data_uri(source: str) -> str:
+    """Encode one validated Media Lab image for fal without exposing a public URL."""
+    path = media_path(source)
+    if not path or not path.is_file():
+        raise RuntimeError("the selected cloud start frame is no longer in Media Lab")
+    size = path.stat().st_size
+    if size <= 0 or size > FAL_INLINE_IMAGE_MAX:
+        raise RuntimeError("the selected cloud start frame is empty or larger than 20 MB")
+    mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    if mime not in {"image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"}:
+        raise RuntimeError("fal.ai needs a JPEG, PNG, WEBP, GIF, or AVIF start frame")
+    return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}"
+
+
+def fal_video_request(j: dict) -> tuple[str, dict]:
+    """Build a reproducible fal request, selecting H3 text or continuation mode."""
+    req = j.get("request") or {}
+    configured = str(fal_config()["models"]["video"]).strip().strip("/")
+    source = str(req.get("source") or "").strip()
+    try:
+        seconds = int(round(min(15.0, max(5.0, float(req.get("duration", "5"))))))
+    except (TypeError, ValueError):
+        seconds = 5
+    orientation = str(req.get("orientation") or "landscape")
+    aspect = {"portrait": "9:16", "square": "1:1"}.get(orientation, "16:9")
+
+    if configured.startswith(FAL_H3_MAX_ROOT):
+        model_id = f"{FAL_H3_MAX_ROOT}/image-to-video" if source else f"{FAL_H3_MAX_ROOT}/text-to-video"
+        payload = {
+            "prompt": j["full_prompt"], "duration": seconds, "resolution": "768P",
+            "prompt_expansion_mode": "quality", "enable_safety_checker": True,
+        }
+        if req.get("seed") is not None:
+            payload["seed"] = int(req["seed"])
+        if source:
+            payload["image_url"] = _fal_image_data_uri(source)
+        else:
+            payload["aspect_ratio"] = aspect
+        return model_id, payload
+
+    if source:
+        raise RuntimeError("the selected fal video model does not support Media Lab continuation frames")
+    return configured, {"prompt": j["full_prompt"], "aspect_ratio": aspect,
+                        "duration": f"{seconds}s"}
+
+
+def job_queue_lane(j: dict) -> str:
+    """Stable execution lane; cloud work never enters the Spark GPU queue."""
+    if not isinstance(j, dict):
+        return "local"
+    saved = str(j.get("queue_lane") or "").lower()
+    if saved in {"local", "online"}:
+        return saved
+    req = j.get("request") or {}
+    engine = str(j.get("engine") or req.get("engine") or req.get("model") or "").lower()
+    return "online" if engine.startswith("fal-") or str(j.get("provider") or "").lower() == "fal" else "local"
+
 @asynccontextmanager
 async def _studio_lifespan(application):
     _start_studio_background_host()
@@ -820,6 +891,7 @@ async def _studio_lifespan(application):
 
 app = FastAPI(lifespan=_studio_lifespan)
 cv = threading.Condition()
+online_cv = threading.Condition()
 _state = _load(JOBS_FILE, {})
 jobs: dict = _state.get("jobs", {})
 # A take interrupted by a restart is RESUMED, not abandoned. Steve's rule for a
@@ -832,10 +904,10 @@ for _jid, _j in jobs.items():
         # that was running at shutdown, cancel flag and all — so a take stopped
         # through the app came straight back on the next restart, and stopping a
         # wedged render meant killing it twice (2026-08-18, twice in one hour).
-        # /api/jobs/{id}/stop sets cancel; honour it here.
+        # /api/jobs/{id}/cancel sets cancel; honour it here.
         if _j.get("cancel"):
-            _j["status"] = "error"; _j["stage"] = "error"
-            _j["message"] = _j.get("message") or "Stopped by the studio."
+            _j["status"] = "cancelled"; _j["stage"] = "cancelled"
+            _j["message"] = _j.get("message") or "Cancelled by you."
             continue
         _j["status"] = "queued"; _j["stage"] = "queued"
         _j["message"] = None
@@ -845,20 +917,30 @@ for _jid, _j in jobs.items():
         else:
             _j["status"] = "error"; _j["stage"] = "error"
             _j["message"] = "This take failed repeatedly — something about it needs a change."
-queue: list = [i for i in _state.get("queue", []) if i in jobs and jobs[i].get("status") == "queued"]
+queue: list = [i for i in _state.get("queue", [])
+               if i in jobs and jobs[i].get("status") == "queued" and job_queue_lane(jobs[i]) == "local"]
+online_queue: list = [i for i in _state.get("online_queue", [])
+                      if i in jobs and jobs[i].get("status") == "queued" and job_queue_lane(jobs[i]) == "online"]
+# Migrate cloud jobs persisted by the original single-queue prototype.
+for _jid in _state.get("queue", []):
+    if (_jid in jobs and jobs[_jid].get("status") == "queued"
+            and job_queue_lane(jobs[_jid]) == "online" and _jid not in online_queue):
+        online_queue.append(_jid)
 for _jid in _resumed:
-    if _jid not in queue:
-        queue.append(_jid)
+    _target = online_queue if job_queue_lane(jobs.get(_jid, {})) == "online" else queue
+    if _jid not in _target:
+        _target.append(_jid)
 if _resumed:
     print(f"[recovery] resuming {len(_resumed)} take(s) interrupted by the restart", flush=True)
 
 def save_state():
     # never trim queued jobs, and never trim imported items (they are the Lab's
     # record of work rendered outside the app — there is no way to re-run them)
-    ids = (set(list(jobs)[-300:]) | {i for i in queue if i in jobs}
+    ids = (set(list(jobs)[-300:]) | {i for i in queue + online_queue if i in jobs}
            | {i for i, j in jobs.items() if j.get("imported")})
     keep = {i: j for i, j in jobs.items() if i in ids}
-    _save(JOBS_FILE, {"jobs": keep, "queue": list(queue)})
+    _save(JOBS_FILE, {"jobs": keep, "queue": list(queue),
+                      "online_queue": list(online_queue)})
 
 # ---------- public access gate ----------
 # The app is public via Cloudflare tunnel (media.autoedu.ai / media.source4ai.com).
@@ -1339,7 +1421,7 @@ def admin_guard(request: Request, pin: Optional[str]):
 
 # ---------- ETA stats ----------
 ETA_DEFAULT = {"video": 6, "music": 12, "screenshotsong": 14, "image": 3, "character": 9, "storyboard": 4, "assemble": 2,
-               "musicvideo": 18, "selfchar": 10, "speak": 2, "say": 8, "filmbeat": 6, "enhance": 6}
+               "assembly_import": 1, "musicvideo": 18, "selfchar": 10, "speak": 2, "say": 8, "filmbeat": 6, "enhance": 6}
 ETA_DEFAULT_WARM = {"video": 3, "music": 8, "screenshotsong": 10, "image": 1, "character": 4, "musicvideo": 10,
                     "selfchar": 5, "say": 5, "filmbeat": 3, "enhance": 5}
 def eta_key(j):
@@ -1470,10 +1552,12 @@ def submit_job(kind, request, extra=None):
          "ts": time.time(), "request": request}
     if extra:
         j.update(extra)
+    j["queue_lane"] = job_queue_lane(j)
     jobs[job_id] = j
-    with cv:
-        queue.append(job_id)
-        cv.notify()
+    target, condition = (online_queue, online_cv) if j["queue_lane"] == "online" else (queue, cv)
+    with condition:
+        target.append(job_id)
+        condition.notify()
     save_state()
     return j
 
@@ -1610,10 +1694,15 @@ def _tracked_wait(jid, popen):
 
 def kill_job_procs(jid):
     p = RUNNING_PROCS.get(jid)
-    if not p:
+    if not p or p.poll() is not None:
         return False
     try:
         os.killpg(os.getpgid(p.pid), 15)
+        deadline = time.monotonic() + 3.0
+        while p.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if p.poll() is None:
+            os.killpg(os.getpgid(p.pid), 9)
         return True
     except Exception:
         try:
@@ -1648,7 +1737,19 @@ INFRA_FAILURE_MARKS = (
     "film crew is down",
 )
 
+def mark_cancelled(j):
+    """Make cancellation an immediate, durable terminal state."""
+    j["cancel"] = True
+    j["status"] = "cancelled"; j["stage"] = "cancelled"
+    j["message"] = "Cancelled by you."
+    j["retryable"] = False
+    j["finished"] = time.time()
+
+
 def fail(j, message, detail=""):
+    if j.get("cancel"):
+        mark_cancelled(j)
+        return
     j["status"] = "error"; j["stage"] = "error"; j["message"] = message
     if detail:
         j["detail"] = str(detail)[:400]
@@ -1746,40 +1847,48 @@ def pause_chat_for_video(j=None):
 
     The receipt makes this crash-safe: only containers recorded as running are
     restored, and the supervisor sees the maintenance marker and stands clear.
+    A pre-existing receipt is recovery state, not proof that Qwen is already
+    cold: reassert the marker, re-read the recorded containers, and verify the
+    live runtime is absent before admitting GPU work.
     """
+    names = []
     if CHAT_PAUSE_RECEIPT.exists():
-        return True
-    names = _chat_containers_running()
+        try:
+            prior = json.loads(CHAT_PAUSE_RECEIPT.read_text())
+            names = [str(x) for x in prior.get("containers", []) if str(x)]
+        except Exception as exc:
+            if j is not None:
+                j["detail"] = f"corrupt chat pause receipt: {exc}"
+            return False
     CHAT_MAINTENANCE.write_text("media-lab video transaction\n")
+    for name in _chat_containers_running():
+        if name not in names:
+            names.append(name)
     tmp = CHAT_PAUSE_RECEIPT.with_suffix(".tmp")
     tmp.write_text(json.dumps({"containers": names, "ts": time.time()}))
     tmp.replace(CHAT_PAUSE_RECEIPT)
     if j is not None:
         j["stage"] = "making safe memory for media…"
         save_state()
-    for name in names:
-        subprocess.run(["docker", "stop", "--time", "45", name],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # Close the snapshot race during vLLM/SGLang migrations: record and stop any
-    # qwen38-* container that appeared after the first listing.
     for _ in range(3):
-        newly = [n for n in _chat_containers_running() if n not in names]
-        if not newly:
-            break
-        names.extend(newly)
-        tmp = CHAT_PAUSE_RECEIPT.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"containers": names, "ts": time.time()}))
-        tmp.replace(CHAT_PAUSE_RECEIPT)
-        for name in newly:
+        running = _chat_containers_running()
+        newly = [name for name in running if name not in names]
+        if newly:
+            names.extend(newly)
+            tmp = CHAT_PAUSE_RECEIPT.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"containers": names, "ts": time.time()}))
+            tmp.replace(CHAT_PAUSE_RECEIPT)
+        for name in running:
             subprocess.run(["docker", "stop", "--time", "45", name],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    still = set(_chat_containers_running())
-    if still:
-        if j is not None:
-            j["detail"] = f"could not pause chat containers: {sorted(still)}"
-        restore_chat_after_video()
-        return False
-    return True
+        if not _chat_containers_running():
+            return True
+    still = sorted(set(_chat_containers_running()))
+    if j is not None:
+        j["detail"] = f"could not pause chat containers: {still}"
+    # Keep the receipt and maintenance marker: fail closed and let the normal
+    # post-transaction residency recovery restore the exact pre-state.
+    return False
 
 def restore_chat_after_video():
     """Restore exactly the chat containers paused by this app, then clear maintenance."""
@@ -2440,7 +2549,10 @@ class _ResidencyRuntime:
         return detail
 
 
-RESIDENCY = ResidencyController(ROOT / "config/model-residency-policy.json",
+_residency_policy = ROOT / "config/model-residency-policy.json"
+if not _residency_policy.exists():
+    _residency_policy = SOURCE_DIR / "config/model-residency-policy.json"
+RESIDENCY = ResidencyController(_residency_policy,
                                 POOL_DIR / "residency", _ResidencyRuntime())
 
 
@@ -2665,7 +2777,7 @@ def media_path(ref: str):
 
 def known_characters():
     """Return prompt-only H3 catalog identities as safe virtual cast records."""
-    payload = _load(KNOWN_CHARS_FILE, {})
+    payload = _load(_known_chars_file(), {})
     records = payload.get("characters", []) if isinstance(payload, dict) else []
     out = []
     for row in records:
@@ -2986,47 +3098,36 @@ def _h3_v2v_prepare_first_frame(j, first_frame, identity_ref):
 
 
 def _run_fal_video(j):
-    """Cloud text-to-video on fal.ai — skips the local pool entirely (no
-    engine_up, no memory accounting, no Qwen eviction). Prompt-only: start
-    frames, references and v2v stay with the local engines."""
+    """Cloud H3 generation/continuation, isolated from the local GPU pool."""
     req = j.get("request") or {}
     if not fal_ready():
         return fail(j, "fal.ai isn't set up — add your API key in Cloud providers.")
-    if req.get("source") or req.get("references") or req.get("video_references"):
-        return fail(j, "The fal.ai cloud crew films from a prompt only — "
-                       "use a local engine to animate a picture or clone an actor.")
-    model_id = fal_config()["models"]["video"]
-    w, h = int(j.get("w") or 1280), int(j.get("h") or 704)
-    ar = "16:9" if w > h else ("9:16" if h > w else "1:1")
-    try:
-        secs = int(round(min(20.0, max(3.0, float(req.get("duration", "5"))))))
-    except (TypeError, ValueError):
-        secs = 5
+    if req.get("references") or req.get("video_references"):
+        return fail(j, "Online actor and motion references are not enabled yet; use a start frame or a local H3 take.")
     j["stage"] = "generating"
     jd = JOBS_DIR / j["id"]
     jd.mkdir(parents=True, exist_ok=True)
     out = jd / "fal-result.mp4"
     try:
-        try:
-            result = fal_queue_run(model_id, {"prompt": j["full_prompt"],
-                                              "aspect_ratio": ar,
-                                              "duration": f"{secs}s"},
-                                   j, timeout_s=1800)
-        except RuntimeError as e:
-            # models disagree on the knobs (veo3 takes "8s", others take
-            # nothing) — fall back to the one field every t2v model accepts
-            if "rejected the request" not in str(e):
-                raise
-            result = fal_queue_run(model_id, {"prompt": j["full_prompt"]},
-                                   j, timeout_s=1800)
+        model_id, payload = fal_video_request(j)
+        j["fal_input"] = {
+            "duration": payload.get("duration"), "resolution": payload.get("resolution"),
+            "aspect_ratio": payload.get("aspect_ratio"), "prompt_expansion_mode": payload.get("prompt_expansion_mode"),
+            "source": req.get("source") or None, "seed": payload.get("seed"),
+        }
+        result = fal_queue_run(model_id, payload, j, timeout_s=1800)
         url = _fal_first_media(result, kinds=("video",))
         if not url:
             raise RuntimeError("fal.ai returned no video")
         fal_download(url, out)
+        if result.get("seed") is not None:
+            j["fal_seed"] = result.get("seed")
+        if result.get("prompt"):
+            j["fal_expanded_prompt"] = str(result.get("prompt"))[:4000]
     except RuntimeError as e:
-        return fail(j, f"The cloud film crew failed — {e}")
+        return fail(j, f"The online film crew failed — {e}")
     except Exception as e:
-        return fail(j, "The cloud film crew failed — try again.", e)
+        return fail(j, "The online film crew failed — try again.", e)
     j["stage"] = "encoding"
     _finish_video(j, out)
 
@@ -4837,6 +4938,74 @@ def _has_audio(p):
                         "stream=codec_type", "-of", "csv=p=0", str(p)], capture_output=True, text=True)
     return bool(r.stdout.strip())
 
+def _beat_assembly_url(beat):
+    """Prefer an untrimmed assembly source while leaving the clean preview clip intact."""
+    return beat.get("assembly_source_url") or beat.get("clip_url")
+
+def _beat_trim_window(beat, clip):
+    """Return a validated (start, end, duration) trim window for one storyboard beat."""
+    clip_duration = media_duration(clip)
+    if not clip_duration or clip_duration <= 0:
+        raise ValueError("The source clip duration could not be read.")
+    try:
+        start = float(beat.get("trim_in_seconds", 0) or 0)
+        raw_end = beat.get("trim_out_seconds")
+        end = clip_duration if raw_end in (None, "") else float(raw_end)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Trim points must be numbers.") from exc
+    if start < 0:
+        raise ValueError("Trim in cannot be negative.")
+    if end <= start:
+        raise ValueError("Trim out must be later than trim in.")
+    if end > clip_duration + 0.05:
+        raise ValueError(f"Trim out {end:.3f}s exceeds the {clip_duration:.3f}s source clip.")
+    end = min(end, clip_duration)
+    return round(start, 6), round(end, 6), round(end - start, 6)
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _commit_storyboard_assembly(board: dict, boards: list, j: dict, final: Path,
+                                url: str, poster: str = "") -> bool:
+    """Finish an assembly job only after its exact bytes are bound to Storyboard.
+
+    This is the assembly/delivery barrier: a stitched film is not a completed
+    Media Lab job until the board has a final URL, a SHA-256 receipt, and the
+    queue job id, and those values survive a readback of storyboards.json.
+    """
+    if not final.exists() or final.stat().st_size <= 0:
+        fail(j, "The assembled film is empty or missing.")
+        return False
+    digest = _sha256_file(final)
+    board["final_url"] = url
+    board["final_sha256"] = digest
+    board["last_assembly_job_id"] = j["id"]
+    board["assembly_registered_at"] = time.time()
+    board["candidate_not_final_until_steve_approves"] = True
+    board["private_internal_only"] = True
+    board["publication_authorized"] = False
+    board["external_sharing_authorized"] = False
+    _save(BOARDS_FILE, boards)
+    persisted = next((b for b in _load(BOARDS_FILE, []) if b.get("id") == board.get("id")), None)
+    if not persisted or persisted.get("final_url") != url or persisted.get("final_sha256") != digest \
+            or persisted.get("last_assembly_job_id") != j.get("id"):
+        fail(j, "Storyboard readback failed; the assembly is blocked from delivery.")
+        return False
+    j["status"] = "done"
+    j["stage"] = "done"
+    j["url"] = url
+    j["poster"] = poster or None
+    j["board_id"] = board["id"]
+    j["sha256"] = digest
+    j["storyboard_registered"] = True
+    return True
+
+
 def run_assemble(j):
     r = j["request"]
     boards = _load(BOARDS_FILE, [])
@@ -4859,16 +5028,28 @@ def run_assemble(j):
     if board.get("bible"):
         recompose_board(board)
         _save(BOARDS_FILE, boards)
-    clips = [MEDIA / Path(b["clip_url"]).name for b in board["beats"] if b.get("clip_url")]
-    clips = [c for c in clips if c.exists()]
-    if not clips:
+    sources = []
+    for beat in board["beats"]:
+        url = _beat_assembly_url(beat)
+        if not url:
+            continue
+        clip = MEDIA / Path(url).name
+        if not clip.exists():
+            continue
+        try:
+            start, end, duration = _beat_trim_window(beat, clip)
+        except ValueError as exc:
+            return fail(j, f"Scene trim is invalid: {exc}")
+        sources.append((beat, clip, start, end, duration))
+    if not sources:
         return fail(j, "Film at least one scene first.")
     j["stage"] = "encoding"
-    n = len(clips)
+    clips = [item[1] for item in sources]
+    n = len(sources)
     song = MEDIA / f"{Path(str(board.get('song_id') or '')).name}.mp3"
     if board.get("song_id") and song.exists():
         # song boards: the song IS the soundtrack
-        total = sum((media_duration(c) or 5.0) for c in clips)
+        total = sum(item[4] for item in sources)
         jd = JOBS_DIR / j["id"]; jd.mkdir(parents=True, exist_ok=True)
         seg = jd / "seg.m4a"
         subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-t", f"{total:.3f}",
@@ -4883,7 +5064,8 @@ def run_assemble(j):
         # normalize every clip before concat — mixed engines (LTX 1280x704 vs
         # H3 864x480) or refilmed beats must never break the stitch
         aw, ah = board_size(board)
-        fc = ("".join(f"[{i}:v]scale={aw}:{ah}:force_original_aspect_ratio=decrease,"
+        fc = ("".join(f"[{i}:v]trim=start={sources[i][2]:.6f}:end={sources[i][3]:.6f},setpts=PTS-STARTPTS,"
+                      f"scale={aw}:{ah}:force_original_aspect_ratio=decrease,"
                       f"pad={aw}:{ah}:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1,format=yuv420p[n{i}];"
                       for i in range(n))
               + "".join(f"[n{i}]" for i in range(n)) + f"concat=n={n}:v=1:a=0[v]")
@@ -4892,10 +5074,9 @@ def run_assemble(j):
                 "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(final)]
         subprocess.run(cmd, check=False)
+        final_url = f"/media/board_{board['id']}.mp4"
         if final.exists() and final.stat().st_size > 0:
-            board["final_url"] = f"/media/board_{board['id']}.mp4"
-            _save(BOARDS_FILE, boards)
-            j["status"] = "done"; j["stage"] = "done"; j["url"] = board["final_url"]; j["board_id"] = board["id"]
+            _commit_storyboard_assembly(board, boards, j, final, final_url)
         else:
             fail(j, "The film could not be stitched together — try again.")
         return
@@ -4904,11 +5085,14 @@ def run_assemble(j):
     for c in clips:
         cmd += ["-i", str(c)]
     aw, ah = board_size(board)
-    norm = "".join(f"[{i}:v]scale={aw}:{ah}:force_original_aspect_ratio=decrease,"
+    norm = "".join(f"[{i}:v]trim=start={sources[i][2]:.6f}:end={sources[i][3]:.6f},setpts=PTS-STARTPTS,"
+                   f"scale={aw}:{ah}:force_original_aspect_ratio=decrease,"
                    f"pad={aw}:{ah}:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1,format=yuv420p[n{i}];"
                    for i in range(n))
     if use_audio:
-        anorm = "".join(f"[{i}:a]aresample=48000,aformat=channel_layouts=stereo[m{i}];" for i in range(n))
+        anorm = "".join(f"[{i}:a]atrim=start={sources[i][2]:.6f}:end={sources[i][3]:.6f},"
+                        f"asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo[m{i}];"
+                        for i in range(n))
         fc = norm + anorm + "".join(f"[n{i}][m{i}]" for i in range(n)) + f"concat=n={n}:v=1:a=1[v][a]"
         maps = ["-map", "[v]", "-map", "[a]", "-c:a", "aac", "-b:a", "128k"]
     else:
@@ -4919,15 +5103,71 @@ def run_assemble(j):
             "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(final)]
     subprocess.run(cmd, check=False)
     if final.exists() and final.stat().st_size > 0:
-        board["final_url"] = f"/media/board_{board['id']}.mp4"
-        _save(BOARDS_FILE, boards)
-        j["status"] = "done"; j["stage"] = "done"; j["url"] = board["final_url"]; j["board_id"] = board["id"]
+        poster_path = MEDIA / f"board_{board['id']}.jpg"
         subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", "1", "-i", str(final),
-                        "-frames:v", "1", str(MEDIA / f"board_{board['id']}.jpg")], check=False)
-        gallery_add(f"board_{board['id']}", f"🎞 {board.get('title','Storyboard film')}", "boardfilm",
-                    board["final_url"], f"/media/board_{board['id']}.jpg", style="storyboard")
+                        "-frames:v", "1", str(poster_path)], check=False)
+        final_url = f"/media/board_{board['id']}.mp4"
+        poster_url = f"/media/board_{board['id']}.jpg" if _nonempty(poster_path) else ""
+        if _commit_storyboard_assembly(board, boards, j, final, final_url, poster_url):
+            gallery_add(f"board_{board['id']}", f"🎞 {board.get('title','Storyboard film')}", "boardfilm",
+                        final_url, poster_url, style="storyboard")
     else:
         fail(j, "The film could not be stitched together — try again.")
+
+
+def run_assembly_import(j):
+    """Queue-register an externally assembled private candidate on its board.
+
+    The inbox watcher moves the source under inbox/imported before enqueueing it.
+    Exact bytes are copied into media/ only after board, hash, and video checks.
+    """
+    r = j.get("request") or {}
+    board_id = str(r.get("board_id") or "").strip()
+    source = Path(str(r.get("path") or "")).expanduser().resolve()
+    allowed = (ROOT / "inbox" / "imported").resolve()
+    try:
+        source.relative_to(allowed)
+    except ValueError:
+        return fail(j, "Assembly imports must come through the Media Lab inbox.")
+    expected = str(r.get("sha256") or "").lower().strip()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected):
+        return fail(j, "Assembly import requires an exact SHA-256 receipt.")
+    boards = _load(BOARDS_FILE, [])
+    matches = [b for b in boards if b.get("id") == board_id]
+    if len(matches) != 1:
+        return fail(j, "Assembly import requires exactly one existing storyboard.")
+    if not source.is_file() or source.suffix.lower() not in (".mp4", ".mov", ".m4v", ".webm"):
+        return fail(j, "The queued assembly source is missing or is not a video.")
+    actual = _sha256_file(source)
+    if actual != expected:
+        return fail(j, f"Assembly SHA-256 mismatch: expected {expected}, got {actual}.")
+    meta = ffprobe_meta(source)
+    if not meta.get("duration") or not meta.get("width") or not meta.get("height"):
+        return fail(j, "The queued assembly did not pass video decode metadata checks.")
+    j["stage"] = "registering storyboard"
+    safe_board = re.sub(r"[^A-Za-z0-9_.-]+", "-", board_id).strip("-.") or "storyboard"
+    final = MEDIA / f"board_{safe_board}_{actual[:12]}.mp4"
+    if not final.exists() or _sha256_file(final) != actual:
+        temp = final.with_suffix(final.suffix + ".tmp")
+        shutil.copy2(source, temp)
+        if _sha256_file(temp) != actual:
+            temp.unlink(missing_ok=True)
+            return fail(j, "Assembly copy verification failed.")
+        os.replace(temp, final)
+    poster_path = final.with_suffix(".jpg")
+    subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", "1", "-i", str(final),
+                    "-frames:v", "1", str(poster_path)], check=False)
+    url = f"/media/{final.name}"
+    poster = f"/media/{poster_path.name}" if _nonempty(poster_path) else ""
+    board = matches[0]
+    board["status"] = "private_review_candidate"
+    if not _commit_storyboard_assembly(board, boards, j, final, url, poster):
+        return
+    j["meta"] = meta
+    j["imported"] = True
+    j["title"] = str(r.get("title") or board.get("title") or "Storyboard film")[:120]
+    gallery_add(j["id"], f"🎞 {j['title']}", "boardfilm", url, poster, style="storyboard")
+
 
 def media_duration(p: Path):
     r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -6745,6 +6985,24 @@ def run_maestro(j):
         if cp.returncode:
             return fail(j, f"Could not stage Maestro job: {(cp.stderr or cp.stdout)[:220]}")
 
+    # Maestro's in-container H3/LTX loader is outside the warm-engine pool, so
+    # it must explicitly make the companion slot cold before loading. Pausing
+    # chat alone is insufficient: a warm LTX plus Maestro H3 exhausts unified
+    # GPU memory even when Qwen was paused correctly.
+    if not release_voice_weights():
+        return fail(j, "Could not unload Voicebox weights for Maestro.")
+    released_image = release_image_weights("Maestro render")
+    if released_image is None and engine_up("image"):
+        return fail(j, "Could not unload image weights for Maestro.")
+    if engine_up("music"):
+        if engine_busy("music"):
+            return fail(j, "Music is active; refusing to interrupt it for Maestro.")
+        stop_engine("music")
+    release_video_engines("Maestro render")
+    remaining = [name for name in VIDEO_ENGINE_NAMES if engine_up(name)]
+    if remaining:
+        return fail(j, f"Could not make the video slot cold for Maestro: {remaining}")
+
     # Maestro video gets the box. The ordinary post-job settle thread restores
     # the committed Qwen/LTX idle profile after this queue item finishes.
     if not pause_chat_for_video(j):
@@ -6840,6 +7098,7 @@ RUNNERS = {"video": run_video, "maestro": run_maestro, "music": run_music,
            "screenshotsong": run_screenshot_song, "image": run_image,
            "charsheets": run_charsheets,
            "character": run_character, "storyboard": run_storyboard, "assemble": run_assemble,
+           "assembly_import": run_assembly_import,
            "musicvideo": run_musicvideo, "selfchar": run_selfchar, "charremix": run_charremix,
            "speak": run_speak, "say": run_say, "filmbeat": run_filmbeat,
            "enhance": run_enhance}
@@ -6859,6 +7118,8 @@ def job_engine(j):
     # Looking at only `engine` made the exact-job stop endpoint mistake active H3
     # video work for LTX and leave the H3 container running.
     selected = str(r.get("engine") or r.get("model") or j.get("engine") or "").lower()
+    if selected.startswith("fal-"):
+        return None
     return "h3" if selected == "h3" else "ltx"
 
 def pick_next_job():
@@ -6889,6 +7150,7 @@ def video_work_pending():
     settle thread resurrect LTX in the middle of a non-video companion job.
     """
     return any(j.get("status") in ("running", "queued") and
+               job_queue_lane(j) == "local" and
                (job_engine(j) or j.get("kind") in COMPANION_JOB_KINDS)
                for j in jobs.values())
 
@@ -6957,9 +7219,7 @@ def run_queued_job(job_id):
         if not j or j.get("status") != "queued":
             return False
         if j.get("cancel"):
-            j["status"] = "error"; j["stage"] = "error"
-            j["message"] = "Stopped by the studio."
-            j["finished"] = time.time()
+            mark_cancelled(j)
             save_state()
             return False
         j["status"] = "running"; j["stage"] = "starting"; j["started"] = time.time()
@@ -6970,6 +7230,10 @@ def run_queued_job(job_id):
             # Unknown code defects are deliberately NOT retried. A broad retry
             # loop turned one missing-directory bug into 18 immediate failures.
             fail(j, "Something went wrong — the studio stopped this job safely.", e)
+        if j.get("cancel"):
+            # A runner may unwind through packaging after its engine has already
+            # been killed. Cancellation wins over any late success/error write.
+            mark_cancelled(j)
         j["finished"] = time.time()
         if j["status"] == "done":
             try:
@@ -6983,6 +7247,45 @@ def run_queued_job(job_id):
         save_state()
     threading.Thread(target=settle_video_transaction, daemon=True).start()
     return True
+
+def online_worker():
+    """Run fal jobs independently; never acquire the Spark inference/GPU mutex."""
+    while True:
+        with online_cv:
+            while not online_queue:
+                online_cv.wait()
+            job_id = online_queue.pop(0)
+        run_online_job(job_id)
+
+
+def run_online_job(job_id):
+    j = jobs.get(job_id)
+    if not j or j.get("status") != "queued" or job_queue_lane(j) != "online":
+        return False
+    if j.get("cancel"):
+        mark_cancelled(j)
+        save_state()
+        return False
+    j["status"] = "running"; j["stage"] = "starting"; j["started"] = time.time()
+    save_state()
+    try:
+        RUNNERS[j["kind"]](j)
+    except Exception as e:
+        fail(j, "Something went wrong — the online queue stopped this job safely.", str(e))
+    if j.get("cancel"):
+        mark_cancelled(j)
+    j["finished"] = time.time()
+    if j["status"] == "done":
+        try:
+            ensure_multi_scene_storyboard(j)
+        except Exception as exc:
+            fail(j, "The media finished, but its Storyboard record could not be created.", str(exc))
+    if j["status"] == "done":
+        eta_record(j)
+        notify_done(j)
+    save_state()
+    return True
+
 
 def worker():
     while True:
@@ -7006,6 +7309,7 @@ except Exception as _recovery_error:
 # under a disposable HOME: the routes stay up, nothing renders or reconciles.
 if os.getenv("MEDIA_LAB_DISABLE_BACKGROUND_WORKERS") != "1":
     threading.Thread(target=worker, daemon=True).start()
+    threading.Thread(target=online_worker, daemon=True).start()
     threading.Thread(target=reaper, daemon=True).start()
     # Reconcile the committed profile after startup. This is idempotent and refuses
     # to touch a live media batch; qwen-ltx-default self-heals its video slot.
@@ -7154,6 +7458,38 @@ def inbox_watcher():
                 side = next((s for s in (f.with_suffix(".json"), Path(str(f) + ".json"))
                              if s.exists()), None)
                 sc = _load(side, {}) if side else {}
+                if sc.get("assembly") is True:
+                    # Externally stitched films are never imported as loose gallery
+                    # media. Move first, then create a real queue job whose runner
+                    # cannot finish until Storyboard persists and reads back the
+                    # exact final URL/hash/job receipt.
+                    token = uuid.uuid4().hex[:8]
+                    dest = INBOX_DONE / f"queued-{token}-{f.name}"
+                    if dest.exists():
+                        dest = dest.with_name(f"{dest.stem}-{int(time.time())}{dest.suffix}")
+                    f.rename(dest)
+                    if side:
+                        side_dest = INBOX_DONE / f"{dest.name}.json"
+                        side.rename(side_dest)
+                    try:
+                        board_id = str(sc.get("board_id") or "").strip()
+                        board = next((b for b in _load(BOARDS_FILE, []) if b.get("id") == board_id), None)
+                        j = submit_job("assembly_import", {
+                            "path": str(dest), "board_id": board_id,
+                            "sha256": str(sc.get("sha256") or "").lower().strip(),
+                            "title": str(sc.get("title") or (board or {}).get("title") or "Storyboard film"),
+                            "source": f"inbox:{f.name}", "private_internal_only": True,
+                            "candidate_not_final_until_steve_approves": True,
+                        }, extra={"board_id": board_id,
+                                  "board_title": str((board or {}).get("title") or "")[:90],
+                                  "prompt_label": f"🎞 Register assembly — {str((board or {}).get('title') or 'film')}"[:90]})
+                        print(f"[media-lab] inbox queued assembly {f.name} -> {j['id']} board={board_id}", flush=True)
+                    except Exception as e:
+                        print(f"[media-lab] inbox assembly queue FAILED {f.name}: {e}", flush=True)
+                        failed = dest.with_name(f"FAILED-{dest.name}")
+                        dest.rename(failed)
+                    seen.pop(f.name, None)
+                    continue
                 try:
                     j = import_media(f, str(sc.get("title") or ""), str(sc.get("kind") or ""),
                                      str(sc.get("prompt") or ""), source=f"inbox:{f.name}")
@@ -8409,15 +8745,37 @@ class BeatEditReq(BaseModel):
     characters: Optional[list] = None    # bible names present in this shot
     use_still: Optional[bool] = None     # film from the scene image, or prompt alone
     orientation: Optional[str] = None    # beat-level shape override
+    trim_in_seconds: Optional[float] = None
+    trim_out_seconds: Optional[float] = None
+    clear_trim: bool = False
 
 @app.post("/api/storyboard/{sid}/beat")
 def storyboard_beat_edit(sid: str, r: BeatEditReq):
-    """Edit a beat before (re)filming — text, prompt, and who's in the scene."""
+    """Edit a beat before (re)filming — text, prompt, cast, and assembly trims."""
     boards = _load(BOARDS_FILE, [])
     board = next((b for b in boards if b["id"] == sid), None)
     if not board or not (0 <= r.beat < len(board["beats"])):
         return JSONResponse({"error": "unknown board/beat"}, status_code=404)
     beat = board["beats"][r.beat]
+    if r.clear_trim:
+        beat.pop("trim_in_seconds", None)
+        beat.pop("trim_out_seconds", None)
+    elif r.trim_in_seconds is not None or r.trim_out_seconds is not None:
+        trial = dict(beat)
+        if r.trim_in_seconds is not None:
+            trial["trim_in_seconds"] = r.trim_in_seconds
+        if r.trim_out_seconds is not None:
+            trial["trim_out_seconds"] = r.trim_out_seconds
+        url = _beat_assembly_url(trial)
+        clip = MEDIA / Path(url).name if url else None
+        if not clip or not clip.exists():
+            return JSONResponse({"error": "Film the scene before setting trim points."}, status_code=422)
+        try:
+            trim_in, trim_out, _ = _beat_trim_window(trial, clip)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        beat["trim_in_seconds"] = trim_in
+        beat["trim_out_seconds"] = trim_out
     if r.title is not None:
         beat["title"] = str(r.title)[:200]
     if r.description is not None:
@@ -8710,7 +9068,10 @@ def providers_get():
     return {"fal": _fal_public_view(), "catalog": _fal_catalog()}
 
 @app.post("/api/providers")
-def providers_set(r: ProviderReq):
+def providers_set(r: ProviderReq, request: Request, x_lab_pin: Optional[str] = Header(None)):
+    bad = admin_guard(request, x_lab_pin)
+    if bad:
+        return bad
     if r.provider != "fal":
         return JSONResponse({"error": "unknown provider"}, status_code=400)
     cfg = _providers_load()
@@ -8972,6 +9333,7 @@ def brief(j):
                or r.get("prompt") or r.get("vibe") or r.get("name") or r.get("idea")
                or r.get("concept") or r.get("line") or r.get("text")
                or ("Assemble film" if j["kind"] == "assemble" else "")
+               or ("Register assembled film" if j["kind"] == "assembly_import" else "")
                or ("✨ Enhance video" if j["kind"] == "enhance" else ""))[:90]
     return {"id": j["id"], "kind": j["kind"], "status": j["status"], "stage": j.get("stage"),
             "progress": j.get("progress"),
@@ -8986,13 +9348,19 @@ def brief(j):
             # which painter actually rendered it — recorded since the image
             # service existed, never shown until now
             "engine_used": j.get("engine_used") or None,
+            "queue_lane": job_queue_lane(j),
+            "fal_model_id": j.get("fal_model_id") or None,
+            "fal_request_id": j.get("fal_request_id") or None,
             "masked": bool(j.get("masked")) or None,
             "meta": j.get("meta"), "request": brief_request(j.get("request"))}
 
 @app.get("/api/queue")
-def queue_view(offset: int = 0, limit: int = 40, hist: int = 1):
-    items = [j for j in jobs.values() if j["status"] == "running"] + \
-            [jobs[i] for i in list(queue) if i in jobs]
+def queue_view(offset: int = 0, limit: int = 40, hist: int = 1, lane: str = "local"):
+    lane = lane if lane in {"local", "online"} else "local"
+    selected_queue = online_queue if lane == "online" else queue
+    items = [j for j in jobs.values()
+             if j["status"] == "running" and job_queue_lane(j) == lane] + \
+            [jobs[i] for i in list(selected_queue) if i in jobs]
     out, cum = [], 0
     for j in items:
         est = eta_estimate(j)
@@ -9004,22 +9372,25 @@ def queue_view(offset: int = 0, limit: int = 40, hist: int = 1):
                                "eta_total": eta_estimate(j),
                                "engine": (j.get("request") or {}).get("engine")
                                          or j.get("engine") or ""})
-    # Newest-first by ARRIVAL (`added`), falling back to the render time for
-    # native jobs, which arrive the moment they are made. Sorting on `ts` alone
-    # meant an import carrying an old mtime was filed under its original render
-    # date and dropped straight off the bottom of the list. `ts` still rides
-    # along in the payload as the honest "made on" date for display.
-    done = sorted((j for j in jobs.values()
-                   if j["status"] in ("done", "error") and not j.get("archived")),
+    all_done = [j for j in jobs.values()
+                if j["status"] in ("done", "error", "cancelled") and not j.get("archived")]
+    done = sorted((j for j in all_done if job_queue_lane(j) == lane),
                   key=lambda x: (x.get("added") or x.get("ts") or 0), reverse=True)
-    # ...and the list is pageable, because a hard cap of 40 is the same bug.
     limit = max(1, min(500, int(limit)))
     offset = max(0, int(offset))
-    # `hist=0`: the caller only wants to know whether anything is working. The
-    # background poll that drives the status orb runs every 4s whether or not
-    # the Past-runs panel is even open, and it has no use for the list.
     rows = [] if not int(hist or 0) else [brief(j) for j in done[offset:offset + limit]]
-    return {"active": out, "history": rows, "history_total": len(done),
+    active_counts = {
+        name: sum(1 for j in jobs.values()
+                  if j.get("status") in ("running", "queued") and job_queue_lane(j) == name)
+        for name in ("local", "online")
+    }
+    history_counts = {
+        name: sum(1 for j in all_done if job_queue_lane(j) == name)
+        for name in ("local", "online")
+    }
+    return {"lane": lane, "active": out, "active_counts": active_counts,
+            "active_total": sum(active_counts.values()), "history": rows,
+            "history_total": len(done), "history_counts": history_counts,
             "history_offset": offset, "history_limit": limit}
 
 @app.get("/api/jobs/{job_id}")
@@ -9028,13 +9399,15 @@ def job(job_id: str, full: int = 0):
     if not j:
         return JSONResponse({"error": "unknown job"}, status_code=404)
     keys = ("id", "kind", "status", "stage", "url", "poster", "message",
-            "caption", "lyrics", "board_id", "character",
+            "caption", "lyrics", "board_id", "character", "sha256", "storyboard_registered",
             "song_url", "video_url", "video_poster", "timing", "screenshot_cues",
             # the painter that actually ran, so the UI can label the version
             # it just produced instead of leaving the user to guess
-            "engine_used", "masked")
+            "engine_used", "masked", "queue_lane", "fal_request_id", "fal_model_id",
+            "fal_input", "fal_seed", "fal_expanded_prompt")
+    queued_in = online_queue if job_queue_lane(j) == "online" else queue
     result = {k: j.get(k) for k in keys} | {
-        "queue_position": queue.index(job_id) + 1 if job_id in queue else 0}
+        "queue_position": queued_in.index(job_id) + 1 if job_id in queued_in else 0}
     if int(full or 0):
         result["request"] = j.get("request")
     return result
@@ -9086,8 +9459,9 @@ def import_file(r: ImportReq, request: Request, x_lab_pin: Optional[str] = Heade
             "url": j["url"], "poster": j["poster"], "meta": j["meta"]}
 
 @app.post("/api/jobs/{job_id}/stop")
-def job_stop(job_id: str, request: Request, x_lab_pin: Optional[str] = Header(None)):
-    """Stop queued or running work and abort only its exact render engine."""
+@app.post("/api/jobs/{job_id}/cancel")
+def job_cancel(job_id: str, request: Request, x_lab_pin: Optional[str] = Header(None)):
+    """Cancel queued or running work and interrupt its exact active backend now."""
     bad = admin_guard(request, x_lab_pin)
     if bad:
         return bad
@@ -9095,14 +9469,22 @@ def job_stop(job_id: str, request: Request, x_lab_pin: Optional[str] = Header(No
     if not j or j.get("status") not in ("running", "queued"):
         return JSONResponse({"error": "not active"}, status_code=404)
     j["cancel"] = True
+    j["cancel_requested_at"] = time.time()
+    save_state()                              # crash-safe before touching a backend
     if j.get("status") == "queued":
-        with cv:
-            if job_id in queue:
-                queue.remove(job_id)
-        j["status"] = "error"; j["stage"] = "error"
-        j["message"] = "Stopped by the studio."
+        target, condition = (online_queue, online_cv) if job_queue_lane(j) == "online" else (queue, cv)
+        with condition:
+            if job_id in target:
+                target.remove(job_id)
+        mark_cancelled(j)
         save_state()
-        return {"ok": True, "killed_process": False}
+        return {"ok": True, "status": "cancelled", "interrupted": False}
+    if job_queue_lane(j) == "online":
+        # fal_queue_run observes this flag between polls. Never interrupt Comfy or
+        # stop a local video engine for an unrelated online request.
+        mark_cancelled(j)
+        save_state()
+        return {"ok": True, "status": "cancelled", "interrupted": False}
     killed = kill_job_procs(job_id)          # runner/enhance subprocess, if any
     for port in (8195, 8196):                # comfy renders: interrupt in place
         try:
@@ -9112,11 +9494,15 @@ def job_stop(job_id: str, request: Request, x_lab_pin: Optional[str] = Header(No
         except Exception:
             pass
     eng = job_engine(j)
+    engine_stopped = False
     if eng in ENGINES and engine_up(eng):
         stop_engine(eng)                     # exact conflicting engine only
         killed = True
+        engine_stopped = not engine_up(eng)
+    mark_cancelled(j)
     save_state()
-    return {"ok": True, "killed_process": killed}
+    return {"ok": True, "status": "cancelled", "interrupted": killed,
+            "engine_stopped": engine_stopped}
 
 def cancel_queued_filmbeats(board_id):
     """Beat indexes are list positions: any queued film job for this board is
@@ -9387,14 +9773,16 @@ def admin_move(r: AdminId, request: Request, x_lab_pin: Optional[str] = Header(N
     bad = admin_guard(request, x_lab_pin)
     if bad:
         return bad
-    with cv:
-        if r.id not in queue:
+    j = jobs.get(r.id) or {}
+    target, condition = (online_queue, online_cv) if job_queue_lane(j) == "online" else (queue, cv)
+    with condition:
+        if r.id not in target:
             return JSONResponse({"error": "not queued"}, status_code=404)
-        i = queue.index(r.id)
-        ni = max(0, i - 1) if r.dir == "up" else min(len(queue) - 1, i + 1)
-        queue[i], queue[ni] = queue[ni], queue[i]
+        i = target.index(r.id)
+        ni = max(0, i - 1) if r.dir == "up" else min(len(target) - 1, i + 1)
+        target[i], target[ni] = target[ni], target[i]
     save_state()
-    return {"ok": True, "queue": list(queue)}
+    return {"ok": True, "queue": list(target), "lane": job_queue_lane(j)}
 
 ARCHIVE_DIR = ROOT / "archive"
 ARCHIVE_DIR.mkdir(exist_ok=True)
@@ -9425,10 +9813,12 @@ def admin_delete(r: AdminId, request: Request, x_lab_pin: Optional[str] = Header
     bad = admin_guard(request, x_lab_pin)
     if bad:
         return bad
-    with cv:
-        if r.id in queue:
+    j = jobs.get(r.id) or {}
+    target, condition = (online_queue, online_cv) if job_queue_lane(j) == "online" else (queue, cv)
+    with condition:
+        if r.id in target:
             # deleted means GONE — not a lingering "cancelled" row in history
-            queue.remove(r.id)
+            target.remove(r.id)
             jobs.pop(r.id, None)
             for f in _artifact_files(r.id):
                 f.unlink(missing_ok=True)
@@ -10208,6 +10598,7 @@ PUSH_TITLES = {"video": "Your video is ready 🎬", "music": "Your song is ready
                "selfchar": "Your character is ready 🧑‍🎤",
                "speak": "Your line is ready 🎙", "say": "They said it 🎬🎙",
                "storyboard": "Your storyboard is ready 🎞", "assemble": "Your film is ready 🎞",
+               "assembly_import": "Your assembled film is registered in Storyboard 🎞",
                "charremix": "Your remixed character is ready 🎭",
                "enhance": "Your enhanced video is ready ✨"}
 
@@ -10260,7 +10651,7 @@ THEME_INK = {"": "#0B0806", "coagent": "#0B0806", "autoedu": "#0F0F11", "source4
 
 @app.get("/manifest.json")
 def manifest(theme: str = ""):
-    data = json.loads((ROOT / "static/manifest.json").read_text())
+    data = json.loads((STATIC_DIR / "manifest.json").read_text())
     ink = THEME_INK.get(theme, THEME_INK[""])
     # id/start_url stay fixed — changing them would orphan the installed app
     data["background_color"] = data["theme_color"] = ink
@@ -10272,22 +10663,22 @@ def manifest(theme: str = ""):
 
 @app.get("/sw.js")
 def service_worker():
-    return FileResponse(str(ROOT / "static/sw.js"),
+    return FileResponse(str(STATIC_DIR / "sw.js"),
                         media_type="application/javascript",
                         headers={"Cache-Control": "no-cache"})
 
 app.mount("/media", StaticFiles(directory=str(MEDIA)), name="media")
-app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/")
 def index():
-    return FileResponse(str(ROOT / "static/index.html"))
+    return FileResponse(str(STATIC_DIR / "index.html"))
 
 @app.get("/cut")
 def cut_page():
-    return FileResponse(str(ROOT / "static/cut.html"))
+    return FileResponse(str(STATIC_DIR / "cut.html"))
 
 
 @app.get('/setup/background')
 def background_setup_page():
-    return FileResponse(str(ROOT/'static/background-setup.html'))
+    return FileResponse(str(STATIC_DIR / 'background-setup.html'))
