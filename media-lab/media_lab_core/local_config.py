@@ -31,6 +31,7 @@ DEFAULTS: dict[str, str] = {
     # Hostnames a reverse proxy / tunnel presents (comma separated). Requests
     # carrying one of these are treated as public-edge traffic.
     "MEDIA_LAB_PUBLIC_HOSTS": "",
+    "MEDIA_LAB_BROWSER_ORIGINS": "",
     # Where engine weights live (HunyuanVideo-Avatar, MuseTalk, ...).
     "MEDIA_LAB_MODELS_ROOT": "~/.local/share/media-lab-p2-models",
     # Where engine runtimes are checked out (LatentSync.stage, comfy-*, ...).
@@ -156,6 +157,22 @@ def tailnet_host() -> str:
 
 def public_hosts() -> set[str]:
     return {h.strip().lower() for h in get("MEDIA_LAB_PUBLIC_HOSTS").split(",") if h.strip()}
+
+
+# Browser origins the VibeX Studio app may call this studio from. Native apps
+# (iOS/Android) are not subject to CORS; the desktop shell and any web build are.
+# The Tauri desktop origins are always allowed; add exact http(s) origins for
+# a web build or a dev server, e.g. http://localhost:8098.
+TAURI_DESKTOP_ORIGINS = ("tauri://localhost", "http://tauri.localhost")
+
+
+def browser_origins() -> list[str]:
+    extra = [o.strip().rstrip("/") for o in get("MEDIA_LAB_BROWSER_ORIGINS").split(",") if o.strip()]
+    out = list(TAURI_DESKTOP_ORIGINS)
+    for o in extra:
+        if o not in out:
+            out.append(o)
+    return out
 
 
 def trusted_hosts() -> set[str]:

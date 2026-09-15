@@ -890,6 +890,14 @@ async def _studio_lifespan(application):
 
 
 app = FastAPI(lifespan=_studio_lifespan)
+# The VibeX Studio desktop shell and web build call this API from a browser
+# origin; native apps and the studio's own pages are same-origin/CORS-free.
+# Exact origins only (MEDIA_LAB_BROWSER_ORIGINS in config/local.env plus the
+# Tauri desktop origins). Bearer tokens travel in headers, so no credentials.
+from fastapi.middleware.cors import CORSMiddleware
+BROWSER_ORIGINS = local_config.browser_origins()
+app.add_middleware(CORSMiddleware, allow_origins=BROWSER_ORIGINS, allow_credentials=False,
+                   allow_methods=["*"], allow_headers=["*"], max_age=600)
 cv = threading.Condition()
 online_cv = threading.Condition()
 _state = _load(JOBS_FILE, {})
