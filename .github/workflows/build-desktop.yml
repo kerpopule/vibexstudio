@@ -13,10 +13,11 @@ name: build-desktop
 # desktop/scripts/release-mac.sh on the fleet Mac.
 
 on:
+  # Desktop builds are release artifacts: run on version tags and by hand only.
+  # (Every merge to main used to fan out to three OS builds; the Windows Store
+  # job fails for a pre-existing reason and mailed a failure per merge.)
   push:
-    branches: [main]
-    tags: ['v*']            # paths filters don't apply to tag pushes
-    paths: ['app/**', 'desktop/**', 'media-lab/**', '.github/workflows/build-desktop.yml']
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:

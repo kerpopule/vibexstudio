@@ -9,6 +9,7 @@ on:
       - 'media-lab/tests/test_cut_storyboard.py'
       - '.github/workflows/editor-store.yml'
   push:
+    branches: [main]        # not on tag pushes (deploy-* tags were triggering this)
     paths:
       - 'media-lab/media_lab_core/cut.py'
       - 'media-lab/tests/test_cut_platform_lock.py'
