@@ -1,4 +1,6 @@
 import ast
+import importlib.util
+from types import SimpleNamespace
 from pathlib import Path
 
 
@@ -48,8 +50,27 @@ def test_recovery_tool_accepts_exact_internal_residency_lease_without_queue_job(
     ast.parse(text)
     assert 'internal_residency_recovery' in text
     assert 'lease.job_id.startswith("internal-")' in text
-    assert 'marker.get("job_id") == args.job_id' in text
+    assert 'marker.get("job_id") == job_id' in text
     assert 'and not internal_residency_recovery' in text
     assert text.index('proof = app._gpu_reclaim_all(job)') < text.index(
         'app.gpu_protocol().reconcile(lease, proof=proof)'
     )
+
+
+def test_internal_residency_marker_matches_jobless_startup_quarantine():
+    spec = importlib.util.spec_from_file_location("reconcile_gpu_recovery", TOOL)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    lease = SimpleNamespace(
+        state="recovery", job_id="internal-4321",
+        reason="operation-uncertain:RuntimeError",
+    )
+    marker = {
+        "job_id": None,
+        "reason": "durable-lease-recovery:operation-uncertain:RuntimeError",
+    }
+    assert module.internal_residency_marker_matches(
+        lease, None, marker, "internal-4321"
+    ) is True

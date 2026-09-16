@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import subprocess
+import time
 from typing import Any, Mapping
 
 H3_QUALIFIED_MAX_FRAMES = 124
@@ -50,7 +51,7 @@ def admission_error(settings: Mapping[str, Any]) -> str | None:
 
 
 def reap_orphan_runners(container: str = "maestro-gui") -> dict[str, Any]:
-    """Kill only queue-owned Maestro runners left inside the container after API death."""
+    """Kill queue-owned Maestro runners and prove that none survive."""
     try:
         completed = subprocess.run(
             ["docker", "exec", container, "pkill", "-f", _ORPHAN_PATTERN],
@@ -61,14 +62,39 @@ def reap_orphan_runners(container: str = "maestro-gui") -> dict[str, Any]:
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return {"status": "error", "returncode": None, "detail": str(exc)[:300]}
-    if completed.returncode == 0:
-        status = "reaped"
-    elif completed.returncode == 1:
-        status = "clean"
+    if completed.returncode not in (0, 1):
+        return {
+            "status": "error", "returncode": completed.returncode,
+            "detail": (completed.stderr or completed.stdout or "").strip()[:300],
+        }
+    status = "reaped" if completed.returncode == 0 else "clean"
+    verify = None
+    for _ in range(10):
+        try:
+            verify = subprocess.run(
+                ["docker", "exec", container, "pgrep", "-f", _ORPHAN_PATTERN],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return {"status": "error", "returncode": None, "detail": str(exc)[:300]}
+        if verify.returncode == 1:
+            break
+        if verify.returncode != 0:
+            return {
+                "status": "error", "returncode": verify.returncode,
+                "detail": (verify.stderr or verify.stdout or "").strip()[:300],
+            }
+        time.sleep(0.2)
     else:
-        status = "error"
+        detail = "unknown"
+        if verify is not None:
+            detail = (verify.stdout or "").strip()[:220]
+        return {
+            "status": "error", "returncode": 0,
+            "detail": f"queue-owned Maestro runner survived: {detail}",
+        }
     return {
         "status": status,
-        "returncode": completed.returncode,
+        "returncode": verify.returncode,
         "detail": (completed.stderr or completed.stdout or "").strip()[:300],
     }

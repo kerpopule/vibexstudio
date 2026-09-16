@@ -1,5 +1,6 @@
 """Execute actual controller functions without importing startup services."""
 import ast
+import subprocess
 import threading
 from contextlib import contextmanager
 from pathlib import Path
@@ -246,6 +247,20 @@ def test_reclaim_does_not_treat_unreachable_live_process_as_gone():
     assert proof['processes_gone'] is False
     assert proof['memory_recovered'] is False
     assert proof['survivors'] == ['h3']
+
+
+def test_gpu_process_identity_fails_closed_when_inspection_fails(monkeypatch):
+    import app as studio
+
+    failed = subprocess.CompletedProcess(
+        ["docker", "inspect"], 2, stdout="", stderr="daemon unavailable"
+    )
+    monkeypatch.setattr(studio, "ENGINES", {
+        "fixture": {"kind": "docker", "container": "fixture-container"}
+    })
+    monkeypatch.setattr(studio.subprocess, "run", lambda *_args, **_kwargs: failed)
+    with pytest.raises(RuntimeError, match="inspection failed"):
+        studio._gpu_process_identity("fixture")
 
 
 def test_queued_job_closes_previous_task_context_before_retarget():

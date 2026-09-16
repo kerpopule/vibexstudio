@@ -342,7 +342,7 @@ class MaestroExclusiveResidencyTests(unittest.TestCase):
         block = source[source.index("def gpu_operation"):source.index("def gpu_render_ready")]
         unload_at = block.index('protocol.advance(lease, "unload")')
         pause_at = block.index("pause_chat_for_video(j)")
-        reclaim_at = block.index("reclaim_proof = _gpu_reclaim_all(j)")
+        reclaim_at = block.index("reclaim_proof = reclaim_operation()")
         load_at = block.index('protocol.advance(lease, "load")')
         self.assertLess(unload_at, pause_at)
         self.assertLess(pause_at, reclaim_at)
@@ -381,6 +381,8 @@ class MaestroExclusiveResidencyTests(unittest.TestCase):
                  mock.patch.object(studio, "_gpu_warm_proof", return_value={
                      "healthy": False, "busy": False}), \
                  mock.patch.object(studio, "pause_chat_for_video", return_value=True) as pause, \
+                 mock.patch.object(studio, "reap_orphan_maestro_runners", return_value={
+                     "status": "clean", "returncode": 1, "detail": ""}), \
                  mock.patch.object(studio, "_gpu_reclaim_all", return_value={
                      "processes_gone": True, "memory_recovered": True,
                      "available_gib": 120.0, "survivors": []}), \
@@ -415,6 +417,10 @@ class MaestroExclusiveResidencyTests(unittest.TestCase):
             def mark_recovery(self, current, _reason):
                 current.state = "recovery"
 
+            def release(self, current, proof):
+                events.append("release")
+                current.state = "released"
+
         previous = studio._gpu_active_lease
         studio._gpu_active_lease = None
         try:
@@ -423,7 +429,11 @@ class MaestroExclusiveResidencyTests(unittest.TestCase):
                  mock.patch.object(studio, "_gpu_warm_proof", return_value={
                      "healthy": False, "busy": False}), \
                  mock.patch.object(studio, "pause_chat_for_video", return_value=False), \
-                 mock.patch.object(studio, "_gpu_reclaim_all") as reclaim, \
+                 mock.patch.object(studio, "reap_orphan_maestro_runners", return_value={
+                     "status": "clean", "returncode": 1, "detail": ""}), \
+                 mock.patch.object(studio, "_gpu_reclaim_all", return_value={
+                     "processes_gone": True, "memory_recovered": True,
+                     "available_gib": 120.0, "survivors": []}) as reclaim, \
                  mock.patch.object(studio, "restore_chat_after_video", return_value=True) as restore, \
                  mock.patch.object(studio, "hold_gpu_recovery"):
                 with self.assertRaisesRegex(studio.LeaseBusy, "pause"):
@@ -434,20 +444,22 @@ class MaestroExclusiveResidencyTests(unittest.TestCase):
             studio._gpu_active_lease = previous
 
         restore.assert_called_once_with()
-        reclaim.assert_not_called()
-        self.assertEqual(["unload"], events)
+        reclaim.assert_called_once_with({"id": "maestro-job"})
+        self.assertEqual(["unload", "reclaim", "release"], events)
 
-    def test_maestro_render_exception_attempts_qwen_restore_before_quarantine(self):
+    def test_maestro_render_exception_reaps_runner_before_qwen_restore_and_release(self):
         lease = SimpleNamespace(
             state="active", phase="drain", job_id="maestro-job",
             engine="maestro", task="generate", _fd=None,
         )
+        events = []
 
         class Protocol:
             def acquire(self, **_kwargs):
                 return lease
 
             def advance(self, current, phase):
+                events.append(phase)
                 current.phase = phase
                 return current
 
@@ -455,7 +467,12 @@ class MaestroExclusiveResidencyTests(unittest.TestCase):
                 return None
 
             def mark_recovery(self, current, _reason):
+                events.append("recovery")
                 current.state = "recovery"
+
+            def release(self, current, proof):
+                events.append("release")
+                current.state = "released"
 
         previous = studio._gpu_active_lease
         studio._gpu_active_lease = None
@@ -465,11 +482,16 @@ class MaestroExclusiveResidencyTests(unittest.TestCase):
                  mock.patch.object(studio, "_gpu_warm_proof", return_value={
                      "healthy": False, "busy": False}), \
                  mock.patch.object(studio, "pause_chat_for_video", return_value=True), \
-                 mock.patch.object(studio, "_gpu_reclaim_all", return_value={
-                     "processes_gone": True, "memory_recovered": True,
-                     "available_gib": 120.0, "survivors": []}), \
+                 mock.patch.object(studio, "_gpu_reclaim_all", side_effect=lambda _job=None: (
+                     events.append("reclaim-proof") or {
+                         "processes_gone": True, "memory_recovered": True,
+                         "available_gib": 120.0, "survivors": []})), \
                  mock.patch.object(studio, "_gpu_process_identity", return_value=None), \
-                 mock.patch.object(studio, "restore_chat_after_video", return_value=True) as restore, \
+                 mock.patch.object(studio, "reap_orphan_maestro_runners",
+                                   side_effect=lambda: (events.append("maestro-reap") or {
+                                       "status": "clean", "returncode": 1, "detail": ""})), \
+                 mock.patch.object(studio, "restore_chat_after_video",
+                                   side_effect=lambda: (events.append("restore") or True)) as restore, \
                  mock.patch.object(studio, "hold_gpu_recovery"):
                 with self.assertRaisesRegex(RuntimeError, "fixture render failure"):
                     with studio.gpu_operation("maestro", "generate", {"id": "maestro-job"},
@@ -480,7 +502,9 @@ class MaestroExclusiveResidencyTests(unittest.TestCase):
             studio._gpu_active_lease = previous
 
         restore.assert_called_once_with()
-        self.assertEqual("recovery", lease.state)
+        self.assertEqual("released", lease.state)
+        self.assertLess(len(events) - 1 - events[::-1].index("maestro-reap"), events.index("restore"))
+        self.assertNotIn("recovery", events)
 
 
 if __name__ == "__main__":

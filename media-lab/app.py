@@ -1827,13 +1827,27 @@ def _gpu_process_identity(engine):
         result = subprocess.run(["systemctl", "--user", "show", e["unit"],
                                  "-p", "MainPID", "--value"],
                                 capture_output=True, text=True, timeout=10)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        lowered = detail.lower()
+        if ("no such object" in lowered or "could not be found" in lowered
+                or "not-found" in lowered):
+            return None
+        raise RuntimeError(
+            f"GPU process inspection failed for {engine}: {detail or result.returncode}"
+        )
+    raw_pid = (result.stdout or "").strip()
+    if raw_pid in ("", "0"):
+        return None
     try:
-        pid = int((result.stdout or "").strip()) if result.returncode == 0 else 0
+        pid = int(raw_pid)
+        if pid <= 0:
+            raise ValueError("non-positive pid")
         stat = Path(f"/proc/{pid}/stat").read_text()
         start_ticks = stat[stat.rfind(")") + 2:].split()[19]
         boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
-    except (OSError, ValueError, IndexError):
-        return None
+    except (OSError, ValueError, IndexError) as exc:
+        raise RuntimeError(f"GPU process identity unreadable for {engine}: {exc}") from exc
     return pid, f"{boot}:{pid}:{start_ticks}"
 
 
@@ -1985,6 +1999,15 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
                 managed_qwen_paused = False
             return restored
 
+        def reclaim_operation():
+            if engine == "maestro":
+                reaped = reap_orphan_maestro_runners()
+                if reaped.get("status") not in ("clean", "reaped"):
+                    raise RuntimeError(
+                        f"Maestro runner absence is unproven: {reaped.get('detail') or reaped}"
+                    )
+            return _gpu_reclaim_all(j)
+
         try:
             warm = _gpu_warm_proof(engine, task, j)
             if lease is None:
@@ -2020,7 +2043,7 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
                     managed_qwen_paused = True
                     if not pause_chat_for_video(j):
                         raise LeaseBusy("could not safely pause managed Qwen for Maestro")
-                reclaim_proof = _gpu_reclaim_all(j)
+                reclaim_proof = reclaim_operation()
                 if reclaim_proof["processes_gone"] is not True:
                     raise RuntimeError(f"GPU processes survived unload: {reclaim_proof['survivors']}")
                 protocol.advance(lease, "reclaim")
@@ -2034,7 +2057,7 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
             proof = _gpu_warm_proof(engine, task, j)
             if ephemeral:
                 protocol.advance(lease, "unload")
-                reclaimed = _gpu_reclaim_all(j)
+                reclaimed = reclaim_operation()
                 protocol.advance(lease, "reclaim")
                 if not restore_managed_qwen():
                     raise LeaseBusy("managed Qwen restoration failed after Maestro")
@@ -2071,15 +2094,41 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
                     hold_gpu_recovery("capacity-rejected-before-safe-release", j)
             raise
         except Exception as exc:
-            restore_failed = managed_qwen_paused and not restore_managed_qwen()
-            if lease is not None and lease.state == "active" and lease.phase != "parked":
-                reason = ("managed-qwen-restore-failed" if restore_failed
-                          else f"operation-uncertain:{type(exc).__name__}")
-                try: protocol.mark_recovery(lease, reason)
+            safely_released = False
+            cleanup_reason = f"operation-uncertain:{type(exc).__name__}"
+            if (managed_qwen_paused and lease is not None
+                    and lease.state == "active" and lease.phase in ("unload", "render")):
+                try:
+                    if lease.phase == "render":
+                        protocol.advance(lease, "unload")
+                    failed_proof = reclaim_operation()
+                    if failed_proof.get("processes_gone") is not True:
+                        raise RuntimeError(
+                            f"GPU processes survived failed Maestro operation: "
+                            f"{failed_proof.get('survivors')}"
+                        )
+                    if failed_proof.get("memory_recovered") is not True:
+                        raise RuntimeError(
+                            f"GPU memory did not recover after failed Maestro operation: "
+                            f"{failed_proof.get('available_gib')} GiB"
+                        )
+                    protocol.advance(lease, "reclaim")
+                    if not restore_managed_qwen():
+                        raise RuntimeError("managed Qwen restoration failed")
+                    protocol.release(lease, proof=failed_proof)
+                    _gpu_active_lease = None
+                    safely_released = True
+                except Exception as cleanup_exc:
+                    cleanup_reason = (
+                        f"maestro-failure-cleanup-uncertain:{type(cleanup_exc).__name__}"
+                    )
+                    if j is not None:
+                        j["detail"] = f"Maestro cleanup failed: {cleanup_exc}"
+            if (not safely_released and lease is not None and lease.state == "active"
+                    and lease.phase != "parked"):
+                try: protocol.mark_recovery(lease, cleanup_reason)
                 except StaleFence: pass
-                hold_gpu_recovery(reason, j)
-            if restore_failed:
-                raise LeaseBusy("managed Qwen restoration failed while unwinding Maestro") from exc
+                hold_gpu_recovery(cleanup_reason, j)
             raise
         finally:
             _gpu_thread.lease = None

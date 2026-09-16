@@ -29,6 +29,27 @@ def systemctl(*args: str, check: bool = True) -> subprocess.CompletedProcess[str
     )
 
 
+def internal_residency_marker_matches(lease, job, marker, job_id: str) -> bool:
+    """Bind a jobless internal hold to one exact durable recovery lease."""
+    if not (
+        lease is not None and lease.state == "recovery"
+        and lease.job_id == job_id and job is None
+        and (lease.job_id.startswith("internal-")
+             or lease.job_id.startswith("idle-restore-"))
+        and marker is not None
+    ):
+        return False
+    if marker.get("job_id") == job_id:
+        return True
+    if marker.get("job_id") is not None:
+        return False
+    lease_reason = str(getattr(lease, "reason", "") or "unknown")
+    return str(marker.get("reason") or "") in {
+        lease_reason,
+        f"durable-lease-{lease.state}:{lease_reason}",
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--job-id", required=True)
@@ -53,12 +74,8 @@ def main() -> int:
             marker = json.loads(app.GPU_RECOVERY_HOLD.read_text())
 
         job = app.jobs.get(args.job_id)
-        internal_residency_recovery = bool(
-            lease is not None and lease.state == "recovery"
-            and lease.job_id == args.job_id and job is None
-            and (lease.job_id.startswith("internal-")
-                 or lease.job_id.startswith("idle-restore-"))
-            and marker is not None and marker.get("job_id") == args.job_id
+        internal_residency_recovery = internal_residency_marker_matches(
+            lease, job, marker, args.job_id
         )
         terminal_parked_recovery = bool(
             lease is not None and lease.state == "recovery" and lease.phase == "parked"
