@@ -2705,6 +2705,93 @@ def ensure_video_residency(name, j=None):
 AUTO_RETRY_MAX = 3
 AUTO_RETRY_WINDOW_S = 6 * 3600
 
+def _auto_retry_recovery_error(j):
+    """Read-only recovery probe. Never boot, reconcile, unload or allocate."""
+    if (j.get("kind") not in ("video", "filmbeat") or j.get("imported")):
+        return "no verified automatic recovery contract for this job kind"
+    selected = str((j.get("request") or {}).get("engine") or
+                   (j.get("request") or {}).get("model") or j.get("engine") or "").lower()
+    if selected not in ("", "h3", "ltx", "ltx25"):
+        return "no verified automatic recovery contract for this job's engine"
+    engine = job_engine(j)
+    if engine not in ("h3", "ltx"):
+        return "no verified automatic recovery contract for this job's engine"
+    spec = ENGINES[engine]
+    try:
+        health = http_json(f"http://127.0.0.1:{spec['port']}{spec['health']}", timeout=3)
+    except Exception:
+        return f"{engine} health is unknown or unreachable"
+    if not isinstance(health, dict) or health.get("ok") is not True:
+        return f"{engine} health is not explicitly OK"
+    if health.get("engine") != engine:
+        return f"{engine} health identity does not match the failed job"
+    if health.get("loaded") is not True or health.get("busy") is not False:
+        return f"{engine} health is cold, busy or unknown; automatic recovery never loads weights"
+    # Sol must advertise the incident safety contract explicitly. An old shim's
+    # HTTP 200 is not proof that its persistent safety latch has been cleared.
+    if engine == "h3":
+        if health.get("blocked") is not False or health.get("loading") is not False:
+            return "h3 safety latch/loading health is blocked or unknown"
+    elif health.get("blocked", False) is not False or health.get("loading", False) is not False:
+        return "ltx health is blocked or loading"
+    try:
+        policy = json.loads(_residency_policy.read_text())
+        floor = float(policy["operational_floor_gb"])
+        phases = policy["models"][engine]["phases_gb"]
+        budgets = [float(phases[p]) for p in ("cold_load", "sampler", "decode")]
+        available = float(_mem_available_gb())
+        if (not all(math.isfinite(v) and v > 0 for v in [floor, *budgets])
+                or not math.isfinite(available) or available < 0):
+            raise ValueError("invalid memory measurement/policy")
+        # Conservative, read-only admission: no credit for hypothetical releases
+        # or resident weights. Do not lower the existing phase floors to retry.
+        required = max(budgets) + floor
+        if available < required:
+            return f"{engine} memory below retry admission floor ({available:.1f} < {required:.1f} GiB)"
+    except Exception:
+        return f"{engine} memory measurement or admission policy is unknown"
+    return None
+
+
+def _auto_retry_hold(j, reason):
+    hold = {"reason": reason,
+            "action": ("Operator recovery required: preserve this job ID, request, source assets and "
+                       "completed checkpoints; inspect engine health, safety latches and memory. "
+                       "Obtain approval before loading/restarting engines or manually retrying. "
+                       "Do not clear a safety latch or reset the retry budget to force progress.")}
+    if j.get("auto_retry_hold") != hold:
+        previous = dict(j)
+        j["auto_retry_hold"] = hold
+        try:
+            save_state()
+        except Exception:
+            j.clear(); j.update(previous)
+            raise
+
+
+def _auto_retry_eligibility_error(j, now):
+    # Explicit false is authoritative; only legacy jobs lacking the field use
+    # message classification. Unknown/malformed counters never gain a budget.
+    if "retryable" in j:
+        if j["retryable"] is not True:
+            return "failure is not explicitly retryable"
+    elif not any(m in str(j.get("message") or "").lower() for m in INFRA_FAILURE_MARKS):
+        return "legacy failure is not classified as infrastructure"
+    count = j.get("auto_retries", 0)
+    if type(count) is not int or count < 0:
+        return "invalid automatic retry budget"
+    if count >= AUTO_RETRY_MAX:
+        return "automatic retry budget exhausted"
+    try:
+        finished = float(j.get("finished") or j.get("started") or 0)
+        age = now - finished
+        if not math.isfinite(age) or not 0 <= age <= AUTO_RETRY_WINDOW_S:
+            return "automatic retry window expired or timestamp invalid"
+    except (TypeError, ValueError, OverflowError):
+        return "invalid automatic retry timestamp"
+    return None
+
+
 def auto_requeue():
     """Put takes the STUDIO broke back in the queue, by themselves.
 
@@ -2720,36 +2807,50 @@ def auto_requeue():
         return
     if any(j.get("status") in ("running", "queued") for j in jobs.values()):
         return                                   # let the queue drain first
-    # LTX is the warm idle default, but retry remains keyed to the exact failed
-    # job rather than to whichever engine happens to be resident.
-    now, back = time.time(), []
     for jid, j in list(jobs.items()):
-        if j.get("status") != "error":
-            continue
-        if j.get("cancel"):
-            continue                               # an explicit stop stays stopped
-        if not j.get("retryable"):
-            # failures recorded before this field existed: judge by the message
-            low = str(j.get("message") or "").lower()
-            if not any(m in low for m in INFRA_FAILURE_MARKS):
+        with cv:
+            if ENGINE_MAINTENANCE.exists() or queue or online_queue or any(
+                    row.get("status") in ("running", "queued") for row in jobs.values()):
+                return
+            if j.get("status") != "error" or j.get("cancel"):
+                continue                         # an explicit stop stays stopped
+            fingerprint = json.dumps(j, sort_keys=True)
+        reason = _auto_retry_eligibility_error(j, time.time())
+        if reason is None:
+            try:
+                reason = _auto_retry_recovery_error(j)
+            except Exception:
+                reason = "recovery evidence is unknown; automatic retry refused"
+        with cv:
+            # Network probes run outside the queue lock. Revalidate exact state
+            # before either annotating a failure or making work visible to worker.
+            if (ENGINE_MAINTENANCE.exists() or queue or online_queue or any(
+                    row.get("status") in ("running", "queued") for row in jobs.values())):
+                return
+            if jobs.get(jid) is not j or json.dumps(j, sort_keys=True) != fingerprint:
                 continue
-        if now - float(j.get("finished") or j.get("started") or 0) > AUTO_RETRY_WINDOW_S:
-            continue
-        if int(j.get("auto_retries") or 0) >= AUTO_RETRY_MAX:
-            continue
-        j["auto_retries"] = int(j.get("auto_retries") or 0) + 1
-        j["status"] = "queued"; j["stage"] = "queued"; j["message"] = None
-        back.append(jid)
-    if not back:
+            if reason:
+                _auto_retry_hold(j, reason)
+                continue
+            reason = _auto_retry_eligibility_error(j, time.time())
+            if reason:
+                _auto_retry_hold(j, reason)
+                continue
+            previous = dict(j)
+            j.pop("auto_retry_hold", None)
+            j["auto_retries"] = j.get("auto_retries", 0) + 1
+            j["status"] = "queued"; j["stage"] = "queued"; j["message"] = None
+            queue.append(jid)
+            try:
+                save_state()
+            except Exception:
+                queue.remove(jid)
+                j.clear(); j.update(previous)
+                raise
+            cv.notify_all()
+        # One recovered take, not an entire backlog based on one health sample.
+        print(f"[recovery] verified retry admission for {jid}", flush=True)
         return
-    with cv:
-        for jid in back:
-            if jid not in queue:
-                queue.append(jid)
-        cv.notify_all()
-    print(f"[recovery] the studio is healthy again — re-running {len(back)} failed take(s)",
-          flush=True)
-    save_state()
 
 def reap_idle_engines():
     """Stop only engines that are both stale and provably not working.
@@ -4991,8 +5092,10 @@ def board_seed(board):
 def run_storyboard(j):
     r = j["request"]
     j["stage"] = "writing"
+    # One snapshot for cast resolution, prompt composition and likeness lookup.
+    all_chars = selectable_characters()
     cast_ids = r.get("cast") or []
-    cast = resolve_cast_records(cast_ids)
+    cast = resolve_cast_records(cast_ids, chars=all_chars)
     premise = str(r.get("idea", "") or "")[:MAX_PREMISE]
     user = f"Story idea: {premise}"
     if r.get("song_id"):
