@@ -1774,7 +1774,7 @@ def fail(j, message, detail=""):
     if detail:
         j["detail"] = str(detail)[:400]
     low = str(message or "").lower()
-    j["retryable"] = any(m in low for m in INFRA_FAILURE_MARKS)
+    j["retryable"] = not j.get("recovery_required") and any(m in low for m in INFRA_FAILURE_MARKS)
 
 # ---------- warm model pool ----------
 # DSV4 POLICY — Steve's directive 2026-08-15: all media models get priority over
@@ -1792,6 +1792,37 @@ COMFY_IMAGE_DIR = Path.home() / "runtime/comfy-ltx25/ComfyUI"
 SOL_H3_PORT = 8291
 # Cross-process inference mutex (shared with the engine shims and image_service).
 INFERENCE_LOCK = os.environ.get("MEDIA_LAB_INFERENCE_LOCK") or local_config.inference_lock()   # MEDIA_LAB_INFERENCE_LOCK
+
+GPU_RECOVERY_HOLD = POOL_DIR / "gpu-recovery-hold.json"
+_gpu_recovery_blocked = False
+
+def gpu_recovery_pending():
+    """Unknown engine outcomes survive restarts; health is not release proof."""
+    return (_gpu_recovery_blocked or GPU_RECOVERY_HOLD.exists()
+            or any(j.get("recovery_required") for j in jobs.values()))
+
+def hold_gpu_recovery(reason, j=None):
+    global _gpu_recovery_blocked
+    _gpu_recovery_blocked = True
+    if j is not None:
+        j.update(recovery_required=True, retryable=False, recovery_reason=reason)
+    # Never remove this marker on timeout, reboot, service start or late success.
+    # Clearance requires independent process/container and memory reconciliation.
+    # Exclusive creation is fail-closed across processes: even an interrupted
+    # write leaves a blocking marker. Never replace another owner's evidence.
+    try:
+        with GPU_RECOVERY_HOLD.open("x") as marker:
+            json.dump({"reason": reason, "job_id": (j or {}).get("id"),
+                       "created": time.time()}, marker)
+            marker.flush()
+            os.fsync(marker.fileno())
+        directory = os.open(str(GPU_RECOVERY_HOLD.parent), os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    except FileExistsError:
+        pass
 
 # ---------- music engines ----------
 # YuE2 is the PRIMARY music engine (Steve, 2026-09-14): the default for every
@@ -2083,22 +2114,21 @@ def stop_engine(name):
         # Preserve the last backend evidence before removing an exact container.
         # A failed warm engine otherwise disappears together with its only useful
         # traceback, turning rollback diagnosis into guesswork.
-        logs = subprocess.run(["docker", "logs", "--tail", "400", e["container"],],
-                              capture_output=True, text=True)
         try:
+            logs = subprocess.run(["docker", "logs", "--tail", "400", e["container"],],
+                                  capture_output=True, text=True, timeout=15)
             with (POOL_DIR / "engine-events.log").open("a") as fh:
                 fh.write(f"\n[{int(time.time())}] stop {name} ({e['container']})\n")
                 fh.write((logs.stdout or "")[-40000:])
                 fh.write((logs.stderr or "")[-10000:])
         except Exception:
             pass
-        subprocess.run(["docker", "rm", "-f", e["container"]],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    else:
-        subprocess.run(["systemctl", "--user", "stop", e["unit"]],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["systemctl", "--user", "reset-failed", e["unit"]],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    from media_lab_core.engine_shutdown import stop_runtime
+    try:
+        stop_runtime(e)
+    except Exception:
+        hold_gpu_recovery("engine-shutdown-unverified")
+        raise
     (POOL_DIR / f"{name}.last").unlink(missing_ok=True)
 
 def resident_engines():
@@ -2166,10 +2196,12 @@ def verify_pplx_after_companion_load(target, j=None):
 
 
 def maybe_release_pool():
-    if not resident_engines():
+    if not gpu_recovery_pending() and not resident_engines():
         pool_cmd("release")
 
 def _boot_engine(name, j=None, variant=None, turbo_preset=None):
+    if gpu_recovery_pending():
+        return False
     # Stop is cooperative even while a heavyweight container is warming. Before
     # this check, a queued job cancelled during the worker handoff could spend the
     # entire boot timeout in "warming up" after its exact engine had been removed.
@@ -2225,6 +2257,8 @@ def ensure_h3_variant(j=None):
     restores the exact previous variant if the requested boot fails.
     No-reference jobs explicitly return to the promoted FL2VA default.
     """
+    if gpu_recovery_pending():
+        return "busy"
     request = ((j or {}).get("request") or {})
     target = _h3ref.required_runtime_config(request)
     current = h3_resident_config()
@@ -2339,14 +2373,25 @@ def release_image_weights(why=""):
               f"{why or 'a video render'}", flush=True)
     return gb
 
-def _mem_available_gb():
-    """The kernel's own answer, not our estimates — MemAvailable in GiB."""
+def _mem_available_gb(*, strict=False):
+    """MemAvailable in GiB; strict admission callers never receive a sentinel.
+
+    The default retains legacy callers' fallback; it is NOT recovery evidence.
+    """
     try:
-        for line in open("/proc/meminfo"):
-            if line.startswith("MemAvailable:"):
-                return int(line.split()[1]) / 1048576
+        with open("/proc/meminfo") as meminfo:
+            for line in meminfo:
+                if line.startswith("MemAvailable:"):
+                    fields = line.split()
+                    if strict and (len(fields) != 3 or fields[2] != "kB"
+                                   or not fields[1].isascii() or not fields[1].isdigit()):
+                        raise ValueError("invalid MemAvailable measurement")
+                    return int(fields[1]) / 1048576
+        if strict:
+            raise ValueError("MemAvailable measurement missing")
     except Exception:
-        pass
+        if strict:
+            raise
     return 999.0
 
 MEM_FLOOR_GB = 24   # measured safety margin across load, sampler, decode and mux
@@ -2359,6 +2404,10 @@ def ensure_engine(name, j=None):
     GB table — the table can't know about pilots, downloads or leaks."""
     if j is not None and j.get("cancel"):
         return "cancelled"
+    if gpu_recovery_pending():
+        if j is not None:
+            j["detail"] = "GPU recovery hold: previous process outcome is unresolved"
+        return "busy"
     # The admission invariant is stronger than a memory estimate: PPLX remains
     # healthy and every other heavyweight companion is cold before this target
     # is reused or loaded.  This also closes the old PPLX+LTX+image/music state
@@ -2461,6 +2510,8 @@ class _ResidencyRuntime:
     @staticmethod
     def begin_residency_transaction():
         """Claim scheduling without confusing it with pool ownership."""
+        if gpu_recovery_pending():
+            raise ResidencyError("GPU recovery hold; process and memory reconciliation required")
         gate = open(INFERENCE_LOCK, "a+")
         try:
             fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -2705,6 +2756,102 @@ def ensure_video_residency(name, j=None):
 AUTO_RETRY_MAX = 3
 AUTO_RETRY_WINDOW_S = 6 * 3600
 
+def _auto_retry_recovery_error(j):
+    """Read-only recovery probe. Never boot, reconcile, unload or allocate."""
+    if (j.get("kind") not in ("video", "filmbeat") or j.get("imported")):
+        return "no verified automatic recovery contract for this job kind"
+    request = j.get("request", {})
+    if not isinstance(request, dict):
+        return "malformed request; no verified automatic recovery engine"
+    for record in (j, request):
+        for key in ("engine", "model"):
+            if key in record and record[key] not in ("h3", "ltx", "ltx25"):
+                return "unsupported or malformed automatic recovery engine selector"
+    # Match the execution contract, NOT job_engine's scheduling preference.
+    # run_video consumes top-level engine (populated by make_video_job), while
+    # run_filmbeat always allocates LTX. Request metadata cannot override either.
+    if j["kind"] == "video":
+        if j.get("engine") not in ("h3", "ltx25"):
+            return "missing or unsupported video execution engine"
+        engine = "ltx" if j["engine"] == "ltx25" else "h3"
+    else:
+        engine = "ltx"
+    spec = ENGINES[engine]
+    try:
+        health = http_json(f"http://127.0.0.1:{spec['port']}{spec['health']}", timeout=3)
+    except Exception:
+        return f"{engine} health is unknown or unreachable"
+    if not isinstance(health, dict) or health.get("ok") is not True:
+        return f"{engine} health is not explicitly OK"
+    if health.get("engine") != engine:
+        return f"{engine} health identity does not match the failed job"
+    if health.get("loaded") is not True or health.get("busy") is not False:
+        return f"{engine} health is cold, busy or unknown; automatic recovery never loads weights"
+    # Sol must advertise the incident safety contract explicitly. An old shim's
+    # HTTP 200 is not proof that its persistent safety latch has been cleared.
+    if engine == "h3":
+        if health.get("blocked") is not False or health.get("loading") is not False:
+            return "h3 safety latch/loading health is blocked or unknown"
+    elif health.get("blocked", False) is not False or health.get("loading", False) is not False:
+        return "ltx health is blocked or loading"
+    try:
+        policy = json.loads(_residency_policy.read_text())
+        floor = float(policy["operational_floor_gb"])
+        phases = policy["models"][engine]["phases_gb"]
+        budgets = [float(phases[p]) for p in ("cold_load", "sampler", "decode")]
+        available = float(_mem_available_gb(strict=True))
+        if (not all(math.isfinite(v) and v > 0 for v in [floor, *budgets])
+                or not math.isfinite(available) or available < 0):
+            raise ValueError("invalid memory measurement/policy")
+        # Conservative, read-only admission: no credit for hypothetical releases
+        # or resident weights. Do not lower the existing phase floors to retry.
+        required = max(budgets) + floor
+        if available < required:
+            return f"{engine} memory below retry admission floor ({available:.1f} < {required:.1f} GiB)"
+    except Exception:
+        return f"{engine} memory measurement or admission policy is unknown"
+    return None
+
+
+def _auto_retry_hold(j, reason):
+    hold = {"reason": reason,
+            "action": ("Operator recovery required: preserve this job ID, request, source assets and "
+                       "completed checkpoints; inspect engine health, safety latches and memory. "
+                       "Obtain approval before loading/restarting engines or manually retrying. "
+                       "Do not clear a safety latch or reset the retry budget to force progress.")}
+    if j.get("auto_retry_hold") != hold:
+        previous = dict(j)
+        j["auto_retry_hold"] = hold
+        try:
+            save_state()
+        except Exception:
+            j.clear(); j.update(previous)
+            raise
+
+
+def _auto_retry_eligibility_error(j, now):
+    # Explicit false is authoritative; only legacy jobs lacking the field use
+    # message classification. Unknown/malformed counters never gain a budget.
+    if "retryable" in j:
+        if j["retryable"] is not True:
+            return "failure is not explicitly retryable"
+    elif not any(m in str(j.get("message") or "").lower() for m in INFRA_FAILURE_MARKS):
+        return "legacy failure is not classified as infrastructure"
+    count = j.get("auto_retries", 0)
+    if type(count) is not int or count < 0:
+        return "invalid automatic retry budget"
+    if count >= AUTO_RETRY_MAX:
+        return "automatic retry budget exhausted"
+    try:
+        finished = float(j.get("finished") or j.get("started") or 0)
+        age = now - finished
+        if not math.isfinite(age) or not 0 <= age <= AUTO_RETRY_WINDOW_S:
+            return "automatic retry window expired or timestamp invalid"
+    except (TypeError, ValueError, OverflowError):
+        return "invalid automatic retry timestamp"
+    return None
+
+
 def auto_requeue():
     """Put takes the STUDIO broke back in the queue, by themselves.
 
@@ -2714,38 +2861,56 @@ def auto_requeue():
     failures come back (see INFRA_FAILURE_MARKS) — a bad prompt would just fail
     again — and only while the studio is actually healthy, so a broken box does
     not spin the whole backlog into the same wall."""
+    # The existing operator hold also gates idle residency restoration. Read it
+    # on every pass: suspend automatic retries without rewriting saved work.
+    if ENGINE_MAINTENANCE.exists():
+        return
     if any(j.get("status") in ("running", "queued") for j in jobs.values()):
         return                                   # let the queue drain first
-    # LTX is the warm idle default, but retry remains keyed to the exact failed
-    # job rather than to whichever engine happens to be resident.
-    now, back = time.time(), []
     for jid, j in list(jobs.items()):
-        if j.get("status") != "error":
-            continue
-        if j.get("cancel"):
-            continue                               # an explicit stop stays stopped
-        if not j.get("retryable"):
-            # failures recorded before this field existed: judge by the message
-            low = str(j.get("message") or "").lower()
-            if not any(m in low for m in INFRA_FAILURE_MARKS):
+        with cv:
+            if ENGINE_MAINTENANCE.exists() or queue or online_queue or any(
+                    row.get("status") in ("running", "queued") for row in jobs.values()):
+                return
+            if j.get("status") != "error" or j.get("cancel"):
+                continue                         # an explicit stop stays stopped
+            fingerprint = json.dumps(j, sort_keys=True)
+        reason = _auto_retry_eligibility_error(j, time.time())
+        if reason is None:
+            try:
+                reason = _auto_retry_recovery_error(j)
+            except Exception:
+                reason = "recovery evidence is unknown; automatic retry refused"
+        with cv:
+            # Network probes run outside the queue lock. Revalidate exact state
+            # before either annotating a failure or making work visible to worker.
+            if (ENGINE_MAINTENANCE.exists() or queue or online_queue or any(
+                    row.get("status") in ("running", "queued") for row in jobs.values())):
+                return
+            if jobs.get(jid) is not j or json.dumps(j, sort_keys=True) != fingerprint:
                 continue
-        if now - float(j.get("finished") or j.get("started") or 0) > AUTO_RETRY_WINDOW_S:
-            continue
-        if int(j.get("auto_retries") or 0) >= AUTO_RETRY_MAX:
-            continue
-        j["auto_retries"] = int(j.get("auto_retries") or 0) + 1
-        j["status"] = "queued"; j["stage"] = "queued"; j["message"] = None
-        back.append(jid)
-    if not back:
+            if reason:
+                _auto_retry_hold(j, reason)
+                continue
+            reason = _auto_retry_eligibility_error(j, time.time())
+            if reason:
+                _auto_retry_hold(j, reason)
+                continue
+            previous = dict(j)
+            j.pop("auto_retry_hold", None)
+            j["auto_retries"] = j.get("auto_retries", 0) + 1
+            j["status"] = "queued"; j["stage"] = "queued"; j["message"] = None
+            queue.append(jid)
+            try:
+                save_state()
+            except Exception:
+                queue.remove(jid)
+                j.clear(); j.update(previous)
+                raise
+            cv.notify_all()
+        # One recovered take, not an entire backlog based on one health sample.
+        print(f"[recovery] verified retry admission for {jid}", flush=True)
         return
-    with cv:
-        for jid in back:
-            if jid not in queue:
-                queue.append(jid)
-        cv.notify_all()
-    print(f"[recovery] the studio is healthy again — re-running {len(back)} failed take(s)",
-          flush=True)
-    save_state()
 
 def reap_idle_engines():
     """Stop only engines that are both stale and provably not working.
@@ -4987,8 +5152,10 @@ def board_seed(board):
 def run_storyboard(j):
     r = j["request"]
     j["stage"] = "writing"
+    # One snapshot for cast resolution, prompt composition and likeness lookup.
+    all_chars = selectable_characters()
     cast_ids = r.get("cast") or []
-    cast = resolve_cast_records(cast_ids)
+    cast = resolve_cast_records(cast_ids, chars=all_chars)
     premise = str(r.get("idea", "") or "")[:MAX_PREMISE]
     user = f"Story idea: {premise}"
     if r.get("song_id"):
@@ -6225,6 +6392,8 @@ def engine_generate(eng, body, j=None, timeout=7200):
     night was lost to takes that failed on constraints the engine had spelled out.
 
     Returns the engine's response dict; the caller still checks resp["ok"]."""
+    if gpu_recovery_pending():
+        return {"ok": False, "error": "GPU recovery hold", "recovery_required": True}
     url = f"http://127.0.0.1:{ENGINES[eng]['port']}/generate"
     body = preflight(eng, body)
     if j is not None and j.get("id"):
@@ -6240,7 +6409,17 @@ def engine_generate(eng, body, j=None, timeout=7200):
             # canonical residency lock and is held only during actual inference.
             with open(INFERENCE_LOCK, "a+") as gate:
                 fcntl.flock(gate, fcntl.LOCK_EX)
-                return http_json(url, body, timeout=timeout)
+                if gpu_recovery_pending():
+                    return {"ok": False, "error": "GPU recovery hold", "recovery_required": True}
+                try:
+                    return http_json(url, body, timeout=timeout)
+                except Exception as transport_error:
+                    problem = str(transport_error).lower()
+                    if (isinstance(transport_error, TimeoutError) or "connection" in problem
+                            or "timed out" in problem or "remote end" in problem):
+                        # Persist exclusion BEFORE releasing the transaction lock.
+                        hold_gpu_recovery("engine-request-outcome-unknown", j)
+                    raise
         except Exception as e:
             msg = str(e)
             if j is not None and j.get("cancel"):
@@ -6268,11 +6447,16 @@ def engine_generate(eng, body, j=None, timeout=7200):
                     if want != body.get("frames"):
                         fixed = f"duration -> {want} frames"
                         body["frames"] = want
-            # the engine died under us: bring it back and try the same request
-            if fixed is None and ("Connection" in msg or "timed out" in msg
-                                  or "Remote end" in msg):
-                if ensure_engine(eng, j) == "up":
-                    fixed = "engine was down — restarted"
+            # Transport failure is not proof of backend exit. The old request
+            # can still be allocating after the HTTP client gives up; never
+            # restart/reissue it here. Recovery must reconcile its exact owner.
+            if fixed is None and ("connection" in msg.lower() or "timed out" in msg.lower()
+                                  or "remote end" in msg.lower() or isinstance(e, TimeoutError)):
+                if j is not None:
+                    j.update(recovery_required=True, retryable=False,
+                             recovery_reason="engine-request-outcome-unknown")
+                    save_state()
+                return {"ok": False, "error": msg[:500], "recovery_required": True}
             if fixed is None or attempt == 3:
                 return {"ok": False, "error": msg[:500]}
             print(f"[engine] {eng} refused ({msg[:120]}); corrected: {fixed} — retrying",
@@ -7533,7 +7717,7 @@ def restore_warm_ltx_idle():
     if not _idle_restore_mutex.acquire(blocking=False):
         return False
     try:
-        if ENGINE_MAINTENANCE.exists() or video_work_pending():
+        if ENGINE_MAINTENANCE.exists() or gpu_recovery_pending() or video_work_pending():
             return False
         if not release_voice_weights():
             raise ResidencyError("loaded TTS weights would not release before LTX restore")
@@ -7581,6 +7765,8 @@ def run_queued_job(job_id):
     """
     j = jobs.get(job_id)
     if not j or j.get("status") != "queued":
+        return False
+    if gpu_recovery_pending():
         return False
     with _idle_restore_mutex:
         # The job may have been stopped while waiting for a restore to finish.
@@ -7662,11 +7848,17 @@ def worker():
             while not queue:
                 cv.wait()
             job_id = pick_next_job()
-        run_queued_job(job_id)
+        if not run_queued_job(job_id):
+            with cv:
+                # A recovery hold must not silently drop the popped queue row.
+                if jobs.get(job_id, {}).get("status") == "queued" and job_id not in queue:
+                    queue.append(job_id)
+                    cv.wait(timeout=3)
 
 mask_sweep()
 try:
-    _recovery = RESIDENCY.recover()
+    _recovery = ({"status": "gpu-recovery-held"} if gpu_recovery_pending()
+                 else RESIDENCY.recover())
     if _recovery.get("status") not in ("clean", "rolled-back"):
         print(f"[residency] startup recovery is degraded: {_recovery}", flush=True)
 except Exception as _recovery_error:

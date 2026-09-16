@@ -5,8 +5,8 @@
 #
 #   FLOOR_GIB=12   CONSECUTIVE=3   CONTAINER=qwen38-flash-next   UNIT=flashnext.service
 #
-# Why MemAvailable and why kill-then-stop: see WATCHDOG.md. The latch prevents repeated kills while the operator looks;
-# flashnext.service clears it in ExecStartPre.
+# Why MemAvailable: see WATCHDOG.md. The latch records the safety stop for
+# operator inspection; it must not disable protection if a controller relaunches.
 set -u
 FLOOR_GIB="${FLOOR_GIB:-12}"
 CONSECUTIVE="${CONSECUTIVE:-3}"
@@ -32,7 +32,9 @@ mkdir -p "$(dirname "$LOG")" 2>/dev/null
 printf '%s avail=%dMiB free=%dMiB swapfree=%dMiB below_floor=%d/%d container=%s\n' \
   "$(date '+%F %T')" "$avail_mib" "$free_mib" "$swapfree_mib" "$count" "$CONSECUTIVE" "$running" >> "$LOG" 2>/dev/null
 
-[ -f "$LATCH" ] && exit 0                                  # already fired; operator has not restarted the unit yet
+# A controller can restart the unit without clearing the marker. Keep the
+# safety evidence, but never let an old marker disable protection of a new load.
+[ -f "$LATCH" ] && [ "$running" != 1 ] && exit 0
 [ "$count" -lt "$CONSECUTIVE" ] && exit 0
 [ "$running" = 1 ] || { echo 0 > "$COUNT_FILE"; exit 0; }  # nothing of ours to kill; do not latch on someone else's pressure
 
@@ -41,5 +43,5 @@ date '+%F %T' > "$LATCH"
 true
 systemctl --user stop "$UNIT" >/dev/null 2>&1 || true      # explicit stop => Restart=always does not bring it back
 echo 0 > "$COUNT_FILE"
-logger -t "$TAG" -p user.crit "stopped. Inspect: journalctl -k | grep NVRM ; then: systemctl --user start $UNIT (clears the latch)"
+logger -t "$TAG" -p user.crit "stop requested; latch retained. Inspect unit state and kernel NVRM errors; operator-approved recovery required before clearing the latch."
 exit 2
