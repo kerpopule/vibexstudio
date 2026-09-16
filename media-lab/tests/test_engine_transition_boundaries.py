@@ -1,6 +1,7 @@
 """Execute actual controller functions without importing startup services."""
 import ast
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -279,6 +280,56 @@ def test_yue2_shim_bootstraps_controller_import_path():
     assert 'Path(__file__).resolve().parents[1]' in text
     assert text.index('sys.path.insert(0, str(CONTROLLER_ROOT))') < text.index(
         'from media_lab_core.gpu_lease_runtime import ENV_TASK')
+
+
+def test_nonresident_gpu_operation_never_attempts_warm_health_probe():
+    proof = function('_gpu_warm_proof', ENGINES={},
+                     _gpu_exact_warm=lambda *_args: (_ for _ in ()).throw(AssertionError()),
+                     engine_busy=lambda *_args: (_ for _ in ()).throw(AssertionError()))
+    assert proof('maestro', 'generate') == {
+        'engine': 'maestro', 'task': 'generate', 'healthy': False, 'busy': False}
+
+
+def test_render_body_task_is_bound_during_video_admission():
+    seen = []
+
+    @contextmanager
+    def operation(engine, task, job):
+        seen.append((engine, task, job.get('_gpu_task')))
+        yield object()
+
+    def authorized(_engine, _body, j=None, task=None, **_kwargs):
+        assert j is not None
+        seen.append(('authorized', task, j.get('_gpu_task')))
+        return {'ok': True}
+
+    generate = function('engine_generate', gpu_operation=operation,
+                        _engine_generate_authorized=authorized)
+    job = {'id': 'talk-1', 'request': {}}
+    assert generate('h3', {'start_image_b64': 'frame'}, job)['ok'] is True
+    assert seen == [('h3', 'fl2va', 'fl2va'), ('authorized', 'fl2va', 'fl2va')]
+    assert '_gpu_task' not in job
+
+
+def test_idle_model_start_routes_cold_video_boot_through_durable_operation():
+    text = APP.read_text()
+    cls = next(n for n in ast.parse(text).body
+               if isinstance(n, ast.ClassDef) and n.name == '_ResidencyRuntime')
+    start = ast.get_source_segment(text, next(
+        n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'start_model'))
+    assert start is not None
+    assert 'with gpu_operation(model, task, restore_job)' in start
+    assert start.index('with gpu_operation(model, task, restore_job)') < start.index(
+        'return _boot_engine(model)')
+
+
+def test_maestro_is_ephemeral_and_reclaimed_instead_of_parked():
+    text = APP.read_text()
+    maestro = ast.get_source_segment(text, next(
+        n for n in ast.parse(text).body
+        if isinstance(n, ast.FunctionDef) and n.name == 'run_maestro_fenced'))
+    assert maestro is not None
+    assert 'gpu_operation("maestro", "generate", j, ephemeral=True)' in maestro
 
 
 def test_h3_gpu_task_classifies_media_source_as_fl2va_before_admission():

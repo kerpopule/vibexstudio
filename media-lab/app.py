@@ -1912,6 +1912,10 @@ def _gpu_exact_warm(engine, task, j=None):
 
 
 def _gpu_warm_proof(engine, task, j=None):
+    if engine not in ENGINES:
+        # One-shot GPU consumers (Maestro, stems, etc.) have no resident health
+        # contract and therefore can never be adopted as warm.
+        return {"engine": engine, "task": task, "healthy": False, "busy": False}
     return {"engine": engine, "task": task,
             "healthy": _gpu_exact_warm(engine, task, j), "busy": engine_busy(engine)}
 
@@ -3005,6 +3009,20 @@ class _ResidencyRuntime:
                     return True
                 time.sleep(5)
             return self.model_healthy("qwen")
+        lease = getattr(_gpu_thread, "lease", None)
+        if model in ENGINES and lease is None:
+            task = "fl2va" if model == "h3" else "t2va"
+            restore_job = {"id": f"idle-restore-{model}", "_gpu_task": task,
+                           "request": {}}
+            with gpu_operation(model, task, restore_job):
+                started = self.start_model(model, detail)
+                if started:
+                    gpu_render_ready(model, task)
+                return started
+        if lease is not None:
+            if lease.phase != "load" or lease.engine != model:
+                raise LeaseBusy(f"idle restore lease is {lease.engine}/{lease.phase}, not {model}/load")
+            return _boot_engine(model)
         st = pool_cmd("acquire")
         for _ in range(6):
             if st != "BUSY":
@@ -6798,8 +6816,19 @@ def preflight(eng, body):
 def engine_generate(eng, body, j=None, timeout=7200):
     task = ("ref2va" if eng == "h3" and (body.get("references") or body.get("video_references")) else
             "fl2va" if eng == "h3" and body.get("start_image_b64") else "t2va")
-    with gpu_operation(eng, task, j):
-        return _engine_generate_authorized(eng, body, j=j, timeout=timeout, task=task)
+    marker = object()
+    previous = marker if j is None else j.get("_gpu_task", marker)
+    if j is not None:
+        j["_gpu_task"] = task
+    try:
+        with gpu_operation(eng, task, j):
+            return _engine_generate_authorized(eng, body, j=j, timeout=timeout, task=task)
+    finally:
+        if j is not None:
+            if previous is marker:
+                j.pop("_gpu_task", None)
+            else:
+                j["_gpu_task"] = previous
 
 
 def _engine_generate_authorized(eng, body, j=None, timeout=7200, task="t2va"):
@@ -8013,7 +8042,7 @@ def run_maestro(j):
 
 def run_maestro_fenced(j):
     """Fence the entire external Maestro load/render/unload transaction."""
-    with gpu_operation("maestro", "generate", j):
+    with gpu_operation("maestro", "generate", j, ephemeral=True):
         gpu_render_ready("maestro", "generate")
         return run_maestro(j)
 
