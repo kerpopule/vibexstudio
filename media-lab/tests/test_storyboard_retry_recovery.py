@@ -69,7 +69,7 @@ def test_storyboard_completes_with_one_consistent_character_snapshot(tmp_path, c
 
 @pytest.fixture
 def recovery(tmp_path):
-    j = {"id": "fixture-failed", "kind": "video", "status": "error", "stage": "error",
+    j = {"id": "fixture-failed", "kind": "video", "engine": "h3", "status": "error", "stage": "error",
          "request": {"model": "h3", "source": "/media/fixture.png"},
          "retryable": True, "auto_retries": 0, "finished": time.time(),
          "message": "Remote end closed connection without response", "detail": "original error",
@@ -255,6 +255,7 @@ def test_failed_hold_persistence_is_retried_not_silently_cached(recovery):
 def test_ltx_uses_its_own_phase_budget_and_health(recovery):
     ns, j, _ = recovery
     j["request"] = {"model": "ltx25"}
+    j["engine"] = "ltx25"
     ns["http_json"].return_value = {"ok": True, "engine": "ltx", "loaded": True, "busy": False}
     ns["_mem_available_gb"].return_value = 49
     ns["auto_requeue"]()

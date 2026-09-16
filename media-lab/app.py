@@ -2339,14 +2339,25 @@ def release_image_weights(why=""):
               f"{why or 'a video render'}", flush=True)
     return gb
 
-def _mem_available_gb():
-    """The kernel's own answer, not our estimates — MemAvailable in GiB."""
+def _mem_available_gb(*, strict=False):
+    """MemAvailable in GiB; strict admission callers never receive a sentinel.
+
+    The default retains legacy callers' fallback; it is NOT recovery evidence.
+    """
     try:
-        for line in open("/proc/meminfo"):
-            if line.startswith("MemAvailable:"):
-                return int(line.split()[1]) / 1048576
+        with open("/proc/meminfo") as meminfo:
+            for line in meminfo:
+                if line.startswith("MemAvailable:"):
+                    fields = line.split()
+                    if strict and (len(fields) != 3 or fields[2] != "kB"
+                                   or not fields[1].isascii() or not fields[1].isdigit()):
+                        raise ValueError("invalid MemAvailable measurement")
+                    return int(fields[1]) / 1048576
+        if strict:
+            raise ValueError("MemAvailable measurement missing")
     except Exception:
-        pass
+        if strict:
+            raise
     return 999.0
 
 MEM_FLOOR_GB = 24   # measured safety margin across load, sampler, decode and mux
@@ -2709,13 +2720,22 @@ def _auto_retry_recovery_error(j):
     """Read-only recovery probe. Never boot, reconcile, unload or allocate."""
     if (j.get("kind") not in ("video", "filmbeat") or j.get("imported")):
         return "no verified automatic recovery contract for this job kind"
-    selected = str((j.get("request") or {}).get("engine") or
-                   (j.get("request") or {}).get("model") or j.get("engine") or "").lower()
-    if selected not in ("", "h3", "ltx", "ltx25"):
-        return "no verified automatic recovery contract for this job's engine"
-    engine = job_engine(j)
-    if engine not in ("h3", "ltx"):
-        return "no verified automatic recovery contract for this job's engine"
+    request = j.get("request", {})
+    if not isinstance(request, dict):
+        return "malformed request; no verified automatic recovery engine"
+    for record in (j, request):
+        for key in ("engine", "model"):
+            if key in record and record[key] not in ("h3", "ltx", "ltx25"):
+                return "unsupported or malformed automatic recovery engine selector"
+    # Match the execution contract, NOT job_engine's scheduling preference.
+    # run_video consumes top-level engine (populated by make_video_job), while
+    # run_filmbeat always allocates LTX. Request metadata cannot override either.
+    if j["kind"] == "video":
+        if j.get("engine") not in ("h3", "ltx25"):
+            return "missing or unsupported video execution engine"
+        engine = "ltx" if j["engine"] == "ltx25" else "h3"
+    else:
+        engine = "ltx"
     spec = ENGINES[engine]
     try:
         health = http_json(f"http://127.0.0.1:{spec['port']}{spec['health']}", timeout=3)
@@ -2739,7 +2759,7 @@ def _auto_retry_recovery_error(j):
         floor = float(policy["operational_floor_gb"])
         phases = policy["models"][engine]["phases_gb"]
         budgets = [float(phases[p]) for p in ("cold_load", "sampler", "decode")]
-        available = float(_mem_available_gb())
+        available = float(_mem_available_gb(strict=True))
         if (not all(math.isfinite(v) and v > 0 for v in [floor, *budgets])
                 or not math.isfinite(available) or available < 0):
             raise ValueError("invalid memory measurement/policy")

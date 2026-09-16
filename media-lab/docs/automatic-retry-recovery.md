@@ -24,14 +24,29 @@ contract here. Composite jobs (including `musicvideo`), cloud jobs, imported wor
 and unsupported engines require operator recovery. This is intentional: a video
 health response cannot prove recovery of every component of a composite job.
 
-The exact selected engine must answer a bounded read-only health request with
+Recovery identity follows the actual kind-specific runner, not the scheduling
+helper's selector precedence. `video` requires an explicit top-level `engine` of
+`h3` or `ltx25`, as emitted by `make_video_job`; absent/unsupported values are held,
+not guessed from request metadata. `filmbeat` always executes LTX. Recognized but
+contradictory request selectors do not override those execution contracts, and
+the original request is never rewritten. Malformed requests or present selectors
+outside `h3`/`ltx`/`ltx25` are held without a health probe. Top-level `ltx` is not a
+valid video execution value: the current runner only recognizes `ltx25` as LTX.
+
+The exact execution engine must answer a bounded read-only health request with
 matching identity, `ok=true`, `loaded=true`, and `busy=false`. H3 additionally
 requires explicit `blocked=false` and `loading=false`, so the older H3 shim without
 the safety-latch health contract remains held. Cold engines are never booted by
 the probe. LTX's current health contract lacks those additional keys; if present,
 they must be false.
 
-Memory must be finite and available from the actual host. The current residency
+Memory must be finite and available from the actual host. Recovery calls
+`_mem_available_gb(strict=True)`: unreadable procfs, missing `MemAvailable`, invalid
+non-negative integer syntax or missing/incorrect `kB` units raise and persist an
+unknown-memory hold, never a permissive numeric sentinel. Other callers keep the
+existing default-reader behavior; its legacy `999.0` fallback is explicitly not
+recovery evidence. This patch does not claim to harden unrelated admission paths.
+The current residency
 policy must contain valid positive cold-load, sampler and decode budgets plus an
 operational reserve. The conservative threshold is the maximum of those phase
 budgets plus the reserve; it gives no credit for hypothetical weight releases or
