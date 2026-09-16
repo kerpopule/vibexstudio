@@ -16,7 +16,7 @@ No source deployment is authorized by this document. Keep all workload launchers
 
 ## Supervisor design for independent review
 
-The included `media_lab_core/recovery_policy.py` is ONLY an executable advisory policy model. It contains no collection daemon, durable ledger writer, privileged executor, watchdog access or outbound notifier. It cannot recover a live host. Its dataclasses assume trusted typed input. Do not install it as a live service.
+The included `media_lab_core/recovery_policy.py` is ONLY an executable advisory policy model. It contains no collection daemon, durable ledger writer, privileged executor, watchdog access or outbound notifier. It cannot recover a live host. It validates ledger epochs and sample types but does not authenticate callers or persist anything. An explicit trusted `begin_boot` transition must be authenticated and durably committed by a future coordinator; observations cannot establish a boot. Incident identity, strictly increasing epoch and retired boot IDs survive ledger reload, and boot changes never replenish the reboot budget. Corrupt/missing ledgers require quarantine and alert, never reconstruction from an empty State. Do not install it as a live service.
 
 Proposed production sequence:
 
@@ -31,6 +31,10 @@ Proposed production sequence:
 - Authenticated out-of-band observer stores heartbeat/incident IDs and sends deduplicated alerts with acknowledged delivery. Alert failure remains a fault, not a successful notification. New endpoints, ACLs, credentials or chat routes require approval; none added here.
 
 The fixture suite exercises the policy against missing evidence/ledger/quarantine, lost peer confirmation, stale observations, healthy samples, and a persisted budget across a simulated boot change. It does NOT validate the proposed cadence, collectors, authentication, crash-consistent ledger, host reset or real watchdog timing.
+
+## Offline container rescue
+
+See `offline-container-rescue.md`: Docker `unless-stopped` containers may restart independently of the user manager. An approved emergency boot must contain daemon/socket activation too; inventory persistent metadata without invoking a Docker client or SDK. Persistent containment requires exact approval including unrelated container impact before leaving emergency mode. No container names or complete live inventory are inferred from repository launch scripts.
 
 ## Acceptance before activation
 

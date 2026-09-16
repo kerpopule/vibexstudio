@@ -210,4 +210,3 @@ class SolSafety(unittest.TestCase):
             s.close_pipeline(old)
 
 if __name__ == '__main__': unittest.main()
-

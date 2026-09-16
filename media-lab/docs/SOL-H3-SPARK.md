@@ -43,8 +43,13 @@ when experimenting; the app does not set them.
 
 `runner/memavail-watchdog.sh` samples `/proc/meminfo` and stops the unit
 when `MemAvailable` stays below 8 GiB for 3 consecutive samples — the
-GB10's silent-wedge defence. It latches until the operator starts the unit
-again (`systemctl --user start media-lab-sol-h3.service` clears it).
+memory-pressure mitigation, not a guarantee against GPU/IO wedges. The latch
+remains evidence across unit starts; `systemctl --user start media-lab-sol-h3.service`
+does NOT clear it. The wrapper refuses allocation while either the memory latch
+or `SOL_ROOT/safety-stop.json` exists. Preserve and review both before a separately
+approved clearance procedure; unit start is never clearance. A new boot also
+requires separately approved boot-bound clearance. See `sol-h3-safety.md` and
+`boot-safe-recovery.md`. Do not enable/restart services as an incident diagnostic.
 
 ```sh
 cp config/solh3-memwatch.service config/solh3-memwatch.timer ~/.config/systemd/user/
