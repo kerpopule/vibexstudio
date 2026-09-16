@@ -95,26 +95,45 @@ def _install_decord_compat():
 
 
 def _install_ltx_retake_dtype_compat():
-    """Align cached Gemma states with the native-retake projection dtype."""
-    module = importlib.import_module(
+    """Align cached Gemma states at both native-retake projection boundaries.
+
+    Maestro's retake cache materializes float32 text states while its pinned LTX
+    connector weights are bfloat16.  The ordinary text-to-video path does not
+    cross this cached post-processing boundary, so keep the shim local to native
+    retake setup and cast only to each receiving module's own parameter dtype.
+    """
+    base_module = importlib.import_module(
         'models.ltx2.ltx_core.text_encoders.gemma.encoders.base_encoder')
-    current = module._apply_feature_extractor
-    if getattr(current, '_media_lab_dtype_compat', False):
-        return 'hidden-state-dtype-aligned'
+    current = base_module._apply_feature_extractor
+    if not getattr(current, '_media_lab_dtype_compat', False):
+        def aligned(hidden_states, attention_mask, padding_side, feature_extractor):
+            parameter = next(feature_extractor.parameters(), None)
+            dtype = getattr(parameter, 'dtype', None)
+            if dtype is not None:
+                hidden_states = tuple(
+                    tensor.to(dtype=dtype) if getattr(tensor, 'dtype', None) != dtype else tensor
+                    for tensor in hidden_states
+                )
+            return current(hidden_states, attention_mask, padding_side, feature_extractor)
 
-    def aligned(hidden_states, attention_mask, padding_side, feature_extractor):
-        parameter = next(feature_extractor.parameters(), None)
-        dtype = getattr(parameter, 'dtype', None)
-        if dtype is not None:
-            hidden_states = tuple(
-                tensor.to(dtype=dtype) if getattr(tensor, 'dtype', None) != dtype else tensor
-                for tensor in hidden_states
-            )
-        return current(hidden_states, attention_mask, padding_side, feature_extractor)
+        setattr(aligned, '_media_lab_dtype_compat', True)
+        setattr(base_module, '_apply_feature_extractor', aligned)
 
-    setattr(aligned, '_media_lab_dtype_compat', True)
-    setattr(module, '_apply_feature_extractor', aligned)
-    return 'hidden-state-dtype-aligned'
+    connector_module = importlib.import_module(
+        'models.ltx2.ltx_core.text_encoders.gemma.embeddings_connector')
+    connector_class = connector_module.Embeddings1DConnector
+    connector_forward = connector_class.forward
+    if not getattr(connector_forward, '_media_lab_dtype_compat', False):
+        def aligned_connector(self, hidden_states, attention_mask=None):
+            parameter = next(self.parameters(), None)
+            dtype = getattr(parameter, 'dtype', None)
+            if dtype is not None and getattr(hidden_states, 'dtype', None) != dtype:
+                hidden_states = hidden_states.to(dtype=dtype)
+            return connector_forward(self, hidden_states, attention_mask)
+
+        setattr(aligned_connector, '_media_lab_dtype_compat', True)
+        setattr(connector_class, 'forward', aligned_connector)
+    return 'hidden-state-and-connector-dtype-aligned'
 
 
 def register_quant_handlers() -> None:

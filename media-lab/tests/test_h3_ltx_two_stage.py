@@ -198,7 +198,7 @@ def test_decord_compat_reader_uses_bounded_installed_pyav(monkeypatch):
     assert reader[1].shape == (16, 24, 3)
 
 
-def test_retake_dtype_compat_casts_hidden_states_to_projection_dtype(monkeypatch):
+def test_retake_dtype_compat_casts_hidden_states_at_both_projection_boundaries(monkeypatch):
     class Tensor:
         def __init__(self, dtype):
             self.dtype = dtype
@@ -211,26 +211,44 @@ def test_retake_dtype_compat_casts_hidden_states_to_projection_dtype(monkeypatch
             return iter([SimpleNamespace(dtype="bfloat16")])
 
     calls = []
-    module = types.ModuleType("base_encoder")
+    base_module = types.ModuleType("base_encoder")
+    connector_module = types.ModuleType("embeddings_connector")
 
     def original(hidden_states, attention_mask, padding_side, feature_extractor):
         calls.append((hidden_states, attention_mask, padding_side, feature_extractor))
         return "ok"
 
-    setattr(module, "_apply_feature_extractor", original)
-    monkeypatch.setattr(importlib, "import_module", lambda name: module)
+    setattr(base_module, "_apply_feature_extractor", original)
+
+    class Embeddings1DConnector:
+        def parameters(self):
+            return iter([SimpleNamespace(dtype="bfloat16")])
+
+        def forward(self, hidden_states, attention_mask=None):
+            calls.append((hidden_states, attention_mask))
+            return "connected"
+
+    setattr(connector_module, "Embeddings1DConnector", Embeddings1DConnector)
+
+    def import_module(name):
+        return connector_module if name.endswith("embeddings_connector") else base_module
+
+    monkeypatch.setattr(importlib, "import_module", import_module)
     tree = ast.parse(ENGINE.read_text())
     node = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
                 and n.name == "_install_ltx_retake_dtype_compat")
     namespace = {"importlib": importlib}
     exec(compile(ast.Module(body=[node], type_ignores=[]), str(ENGINE), "exec"), namespace)
     install = namespace["_install_ltx_retake_dtype_compat"]
-    assert install() == "hidden-state-dtype-aligned"
-    result = module._apply_feature_extractor(
+    assert install() == "hidden-state-and-connector-dtype-aligned"
+    result = base_module._apply_feature_extractor(
         (Tensor("float32"), Tensor("float32")), "mask", "right", FeatureExtractor())
     assert result == "ok"
     assert [tensor.dtype for tensor in calls[0][0]] == ["bfloat16", "bfloat16"]
-    assert install() == "hidden-state-dtype-aligned"
+    connector = connector_module.Embeddings1DConnector()
+    assert connector.forward(Tensor("float32"), "connector-mask") == "connected"
+    assert calls[1][0].dtype == "bfloat16"
+    assert install() == "hidden-state-and-connector-dtype-aligned"
 
 
 def test_studio_ui_exposes_explicit_two_stage_choice():
