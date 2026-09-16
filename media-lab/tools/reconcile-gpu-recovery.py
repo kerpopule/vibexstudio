@@ -9,6 +9,8 @@ the legacy idle pool, and restarts Media Lab in a finally block.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -37,7 +39,10 @@ def main() -> int:
 
     systemctl("stop", SERVICE)
     try:
-        import app
+        # app.py logs door codes at import for the interactive service. Recovery
+        # receipts must never expose those secrets to operator logs.
+        with contextlib.redirect_stdout(io.StringIO()):
+            import app
 
         lease = app._gpu_active_lease or app.gpu_protocol().recover_startup()
         app._gpu_active_lease = lease
