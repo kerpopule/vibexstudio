@@ -94,6 +94,29 @@ def _install_decord_compat():
     return 'pyav-compat'
 
 
+def _install_ltx_retake_dtype_compat():
+    """Align cached Gemma states with the native-retake projection dtype."""
+    module = importlib.import_module(
+        'models.ltx2.ltx_core.text_encoders.gemma.encoders.base_encoder')
+    current = module._apply_feature_extractor
+    if getattr(current, '_media_lab_dtype_compat', False):
+        return 'hidden-state-dtype-aligned'
+
+    def aligned(hidden_states, attention_mask, padding_side, feature_extractor):
+        parameter = next(feature_extractor.parameters(), None)
+        dtype = getattr(parameter, 'dtype', None)
+        if dtype is not None:
+            hidden_states = tuple(
+                tensor.to(dtype=dtype) if getattr(tensor, 'dtype', None) != dtype else tensor
+                for tensor in hidden_states
+            )
+        return current(hidden_states, attention_mask, padding_side, feature_extractor)
+
+    setattr(aligned, '_media_lab_dtype_compat', True)
+    setattr(module, '_apply_feature_extractor', aligned)
+    return 'hidden-state-dtype-aligned'
+
+
 def register_quant_handlers() -> None:
     quant_router.unregister_handler('.fp8_quanto_bridge')
     for handler in (
@@ -650,8 +673,10 @@ class Handler(BaseHTTPRequestHandler):
                         extra['retake_engine'] = 'native'
                         extra['regenerate_audio'] = regenerate_audio
                         decoder = _install_decord_compat()
+                        dtype_compat = _install_ltx_retake_dtype_compat()
                         print(f'NATIVE_RETAKE {ltx_input_video} strength={retake_strength} '
-                              f'regenerate_audio={regenerate_audio} decoder={decoder}', flush=True)
+                              f'regenerate_audio={regenerate_audio} decoder={decoder} '
+                              f'dtype_compat={dtype_compat}', flush=True)
                     if modality_scale:
                         extra['modality_scale'] = modality_scale
                     if stg:

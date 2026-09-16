@@ -198,6 +198,41 @@ def test_decord_compat_reader_uses_bounded_installed_pyav(monkeypatch):
     assert reader[1].shape == (16, 24, 3)
 
 
+def test_retake_dtype_compat_casts_hidden_states_to_projection_dtype(monkeypatch):
+    class Tensor:
+        def __init__(self, dtype):
+            self.dtype = dtype
+
+        def to(self, *, dtype):
+            return Tensor(dtype)
+
+    class FeatureExtractor:
+        def parameters(self):
+            return iter([SimpleNamespace(dtype="bfloat16")])
+
+    calls = []
+    module = types.ModuleType("base_encoder")
+
+    def original(hidden_states, attention_mask, padding_side, feature_extractor):
+        calls.append((hidden_states, attention_mask, padding_side, feature_extractor))
+        return "ok"
+
+    setattr(module, "_apply_feature_extractor", original)
+    monkeypatch.setattr(importlib, "import_module", lambda name: module)
+    tree = ast.parse(ENGINE.read_text())
+    node = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                and n.name == "_install_ltx_retake_dtype_compat")
+    namespace = {"importlib": importlib}
+    exec(compile(ast.Module(body=[node], type_ignores=[]), str(ENGINE), "exec"), namespace)
+    install = namespace["_install_ltx_retake_dtype_compat"]
+    assert install() == "hidden-state-dtype-aligned"
+    result = module._apply_feature_extractor(
+        (Tensor("float32"), Tensor("float32")), "mask", "right", FeatureExtractor())
+    assert result == "ok"
+    assert [tensor.dtype for tensor in calls[0][0]] == ["bfloat16", "bfloat16"]
+    assert install() == "hidden-state-dtype-aligned"
+
+
 def test_studio_ui_exposes_explicit_two_stage_choice():
     source = (ROOT / "static" / "index.html").read_text()
     assert 'data-v="h3-ltx25"' in source
