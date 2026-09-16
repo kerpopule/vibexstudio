@@ -65,6 +65,12 @@ def test_queued_job_stays_visible_under_recovery_hold():
     assert job['status'] == 'queued'
 
 
+def test_picker_tolerates_queue_swap_race():
+    pick = function('pick_next_job', queue=[], VIDEO_ENGINE_NAMES=(),
+                    engine_up=lambda _name: False, jobs={}, job_engine=lambda _job: None)
+    assert pick() is None
+
+
 def test_cloud_execution_continues_while_local_recovery_is_held():
     import time
     calls = []

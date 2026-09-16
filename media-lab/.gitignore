@@ -7,9 +7,10 @@ config/local.env
 providers.json
 vapid_private.pem
 
-# Python caches
+# Python caches and local package metadata
 __pycache__/
 *.py[cod]
+*.egg-info/
 __pycache__/
 *.pyc
 

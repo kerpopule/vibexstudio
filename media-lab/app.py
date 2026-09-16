@@ -7681,6 +7681,8 @@ def pick_next_job():
     EVERY queued H3 job, then go back to LTX. Taking the queue in raw order
     would swap 40 GB of weights between every alternating job.
     Caller holds cv."""
+    if not queue:
+        return None
     resident = next((n for n in VIDEO_ENGINE_NAMES if engine_up(n)), None)
     if resident:
         for i, jid in enumerate(queue):
@@ -7848,6 +7850,8 @@ def worker():
             while not queue:
                 cv.wait()
             job_id = pick_next_job()
+        if job_id is None:
+            continue
         if not run_queued_job(job_id):
             with cv:
                 # A recovery hold must not silently drop the popped queue row.
