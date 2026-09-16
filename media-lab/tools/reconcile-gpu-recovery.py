@@ -39,7 +39,8 @@ def main() -> int:
     try:
         import app
 
-        lease = app._gpu_active_lease
+        lease = app._gpu_active_lease or app.gpu_protocol().recover_startup()
+        app._gpu_active_lease = lease
         if lease is None or lease.state != "recovery" or lease.job_id != args.job_id:
             raise RuntimeError(
                 f"exact recovery lease not found for {args.job_id}: "
