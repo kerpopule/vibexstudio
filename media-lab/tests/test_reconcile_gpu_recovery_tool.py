@@ -18,4 +18,15 @@ def test_recovery_tool_is_exact_proof_gated_and_restart_safe():
     assert text.index('app.gpu_protocol().reconcile(lease, proof=proof)') < text.index('app.GPU_RECOVERY_HOLD.unlink()')
     assert 'finally:' in text
     assert 'systemctl("start", SERVICE' in text
+
+
+def test_recovery_tool_can_reconcile_exact_orphan_job_only_after_full_reclaim():
+    text = TOOL.read_text()
+    ast.parse(text)
+    assert 'if lease is None:' in text
+    assert 'recovery marker exists without a durable lease' in text
+    assert 'orphan_recovery_job' in text
+    assert text.index('proof = app._gpu_reclaim_all(job)') < text.index(
+        'for key in ("recovery_required", "recovery_reason")'
+    )
     assert 'DELETE FROM' not in text and 'UPDATE gpu_lease' not in text

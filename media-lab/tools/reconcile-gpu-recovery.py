@@ -2,9 +2,10 @@
 """Reconcile one exact Media Lab durable GPU recovery hold.
 
 Run only after operator approval. The tool stops admission, adopts the existing
-recovery fence, reclaims every managed GPU companion, requires exact process and
-memory proof, reconciles the protocol, removes only the matching hold, restores
-the legacy idle pool, and restarts Media Lab in a finally block.
+recovery fence (or proves that only one exact orphaned job flag remains), reclaims
+every managed GPU companion, requires exact process and memory proof, reconciles
+the protocol, removes only the matching hold, restores the legacy idle pool, and
+restarts Media Lab in a finally block.
 """
 from __future__ import annotations
 
@@ -44,20 +45,35 @@ def main() -> int:
         with contextlib.redirect_stdout(io.StringIO()):
             import app
 
-        lease = app._gpu_active_lease or app.gpu_protocol().recover_startup()
-        app._gpu_active_lease = lease
-        if lease is None or lease.state != "recovery" or lease.job_id != args.job_id:
-            raise RuntimeError(
-                f"exact recovery lease not found for {args.job_id}: "
-                f"{None if lease is None else (lease.job_id, lease.state)}"
-            )
         job = app.jobs.get(args.job_id)
         if not job or job.get("recovery_required") is not True:
             raise RuntimeError("matching job is not marked recovery_required")
 
-        marker = json.loads(app.GPU_RECOVERY_HOLD.read_text())
-        if marker.get("job_id") != args.job_id:
-            raise RuntimeError(f"recovery marker belongs to {marker.get('job_id')!r}")
+        lease = app._gpu_active_lease or app.gpu_protocol().recover_startup()
+        app._gpu_active_lease = lease
+        orphan_recovery_job = lease is None
+        marker = None
+        if app.GPU_RECOVERY_HOLD.exists():
+            marker = json.loads(app.GPU_RECOVERY_HOLD.read_text())
+
+        if lease is None:
+            # A previous exact reconciliation can leave only the persisted job
+            # flag behind if the controller crashes between protocol/marker
+            # cleanup and jobs.json persistence. A remaining marker is not that
+            # case: without its matching durable fence it is ambiguous and must
+            # stay blocked for an operator.
+            if marker is not None:
+                raise RuntimeError("recovery marker exists without a durable lease")
+        else:
+            if lease.state != "recovery" or lease.job_id != args.job_id:
+                raise RuntimeError(
+                    f"exact recovery lease not found for {args.job_id}: "
+                    f"{(lease.job_id, lease.state)}"
+                )
+            if marker is None or marker.get("job_id") != args.job_id:
+                raise RuntimeError(
+                    f"recovery marker belongs to {None if marker is None else marker.get('job_id')!r}"
+                )
 
         proof = app._gpu_reclaim_all(job)
         if proof.get("processes_gone") is not True:
@@ -65,17 +81,20 @@ def main() -> int:
         if proof.get("memory_recovered") is not True:
             raise RuntimeError(f"memory did not recover: {proof.get('available_gib')} GiB")
 
-        app.gpu_protocol().reconcile(lease, proof=proof)
+        if lease is not None:
+            app.gpu_protocol().reconcile(lease, proof=proof)
         app._gpu_active_lease = None
         for key in ("recovery_required", "recovery_reason"):
             job.pop(key, None)
         app.save_state()
-        app.GPU_RECOVERY_HOLD.unlink()
+        if marker is not None:
+            app.GPU_RECOVERY_HOLD.unlink()
         if app.pool_cmd("acquire") != "OK":
             raise RuntimeError("legacy idle pool did not reacquire canonical GPU lock")
 
         print(json.dumps({
             "reconciled_job": args.job_id,
+            "orphan_recovery_job": orphan_recovery_job,
             "proof": proof,
             "lease": app.gpu_protocol().snapshot().get("lease"),
             "hold_exists": app.GPU_RECOVERY_HOLD.exists(),
