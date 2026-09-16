@@ -16,7 +16,7 @@ from media_lab_core.job_store import JobStore
 from media_lab_core.director_context import project_context_message
 from media_lab_core import installer as engine_installer
 from media_lab_core import cut as cut_core
-from media_lab_core.durable_gpu_protocol import LeaseBusy, StaleFence
+from media_lab_core.durable_gpu_protocol import CapacityUnqualified, LeaseBusy, StaleFence
 from media_lab_core.gpu_lease_runtime import delegation_env, delegation_headers, open_protocol
 from runner.audio_signal_gate import audio_signal_metrics
 from runner import h3_reference as _h3ref   # H3 Ref2VA / Qwen quality contract
@@ -1952,6 +1952,7 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
             yield nested
             return
         protocol = gpu_protocol(); lease = _gpu_active_lease
+        reclaim_proof = None
         try:
             warm = _gpu_warm_proof(engine, task)
             if lease is None:
@@ -1978,12 +1979,12 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
                                   owner=owner, warm_proof=warm)
             if lease.phase == "drain":
                 protocol.advance(lease, "unload")
-                proof = _gpu_reclaim_all(j)
-                if proof["processes_gone"] is not True:
-                    raise RuntimeError(f"GPU processes survived unload: {proof['survivors']}")
+                reclaim_proof = _gpu_reclaim_all(j)
+                if reclaim_proof["processes_gone"] is not True:
+                    raise RuntimeError(f"GPU processes survived unload: {reclaim_proof['survivors']}")
                 protocol.advance(lease, "reclaim")
-                if proof["memory_recovered"] is not True:
-                    raise RuntimeError(f"GPU memory did not recover: {proof['available_gib']:.2f} GiB")
+                if reclaim_proof["memory_recovered"] is not True:
+                    raise RuntimeError(f"GPU memory did not recover: {reclaim_proof['available_gib']:.2f} GiB")
                 protocol.advance(lease, "load")
             _gpu_thread.lease = lease
             yield lease
@@ -2001,6 +2002,26 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
             else:
                 protocol.mark_recovery(lease, "operation-finished-without-exact-idle-residency")
                 hold_gpu_recovery("operation-finished-without-exact-idle-residency", j)
+        except CapacityUnqualified as exc:
+            # Capacity is checked only before an engine load. If exact unload and
+            # memory proof already passed, no model request was issued and the
+            # outcome is known: release cleanly instead of quarantining the GPU.
+            if (lease is not None and lease.state == "active" and lease.phase == "reclaim"
+                    and reclaim_proof is not None
+                    and reclaim_proof.get("processes_gone") is True
+                    and reclaim_proof.get("memory_recovered") is True):
+                protocol.release(lease, proof=reclaim_proof)
+                _gpu_active_lease = None
+                if pool_cmd("acquire") != "OK":
+                    raise LeaseBusy(
+                        "capacity rejection released the durable lease but legacy pool restore failed"
+                    ) from exc
+            else:
+                if lease is not None and lease.state == "active" and lease.phase != "parked":
+                    try: protocol.mark_recovery(lease, "capacity-rejected-before-safe-release")
+                    except StaleFence: pass
+                    hold_gpu_recovery("capacity-rejected-before-safe-release", j)
+            raise
         except Exception as exc:
             if lease is not None and lease.state == "active" and lease.phase != "parked":
                 try: protocol.mark_recovery(lease, f"operation-uncertain:{type(exc).__name__}")

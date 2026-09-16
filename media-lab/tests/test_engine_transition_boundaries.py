@@ -172,6 +172,21 @@ def test_first_gpu_acquire_hands_legacy_pool_to_durable_controller():
     assert 'pool_cmd("acquire")' in text[acquire:], 'failed durable acquire must restore legacy exclusion'
 
 
+def test_preload_capacity_rejection_releases_without_uncertain_quarantine():
+    text = ast.get_source_segment(APP.read_text(), next(
+        n for n in ast.parse(APP.read_text()).body
+        if isinstance(n, ast.FunctionDef) and n.name == 'gpu_operation'))
+    assert text is not None
+    deterministic = text.index('except CapacityUnqualified')
+    uncertain = text.index('except Exception as exc:', deterministic)
+    assert deterministic < uncertain
+    block = text[deterministic:uncertain]
+    assert 'lease.phase == "reclaim"' in block
+    assert 'protocol.release(lease, proof=reclaim_proof)' in block
+    assert 'pool_cmd("acquire")' in block
+    assert 'operation-uncertain' not in block
+
+
 def test_pool_lock_manager_has_fail_closed_controller_handoff():
     text = (APP.parent / 'runner' / 'pool_lock.sh').read_text()
     handoff = text.index('handoff)')
