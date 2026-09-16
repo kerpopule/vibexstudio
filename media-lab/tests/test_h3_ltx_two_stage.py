@@ -251,6 +251,12 @@ def test_retake_dtype_compat_casts_hidden_states_at_both_projection_boundaries(m
             # after the connector boundary has already been aligned.
             return self.attention.to_gate_logits(Tensor("float32"))
 
+    video_connector = Embeddings1DConnector()
+    audio_connector = Embeddings1DConnector()
+    ltx_model = SimpleNamespace(
+        video_embeddings_connector=video_connector,
+        audio_embeddings_connector=audio_connector,
+    )
     setattr(connector_module, "Embeddings1DConnector", Embeddings1DConnector)
 
     def import_module(name):
@@ -263,18 +269,21 @@ def test_retake_dtype_compat_casts_hidden_states_at_both_projection_boundaries(m
     namespace = {"importlib": importlib}
     exec(compile(ast.Module(body=[node], type_ignores=[]), str(ENGINE), "exec"), namespace)
     install = namespace["_install_ltx_retake_dtype_compat"]
-    assert install() == "hidden-state-connector-and-gate-forward-dtype-aligned"
+    marker = "hidden-state-and-live-connector-gates-dtype-aligned"
+    assert install(ltx_model) == marker
     result = base_module._apply_feature_extractor(
         (Tensor("float32"), Tensor("float32")), "mask", "right", FeatureExtractor())
     assert result == "ok"
     assert [tensor.dtype for tensor in calls[0][0]] == ["bfloat16", "bfloat16"]
-    connector = connector_module.Embeddings1DConnector()
-    gate_result = connector.forward(Tensor("float32"), "connector-mask")
-    assert calls[1][0].dtype == "bfloat16"
-    assert gate_result.dtype == "bfloat16"
-    assert calls[2][0] == "gate"
-    assert calls[2][1].dtype == "bfloat16"
-    assert install() == "hidden-state-connector-and-gate-forward-dtype-aligned"
+    video_result = video_connector.forward(Tensor("float32"), "video-mask")
+    audio_result = audio_connector.forward(Tensor("float32"), "audio-mask")
+    assert video_result.dtype == "bfloat16"
+    assert audio_result.dtype == "bfloat16"
+    connector_calls = [call for call in calls if call[0] != "gate" and len(call) == 2]
+    gate_calls = [call for call in calls if call[0] == "gate"]
+    assert [call[0].dtype for call in connector_calls] == ["bfloat16", "bfloat16"]
+    assert [call[1].dtype for call in gate_calls] == ["bfloat16", "bfloat16"]
+    assert install(ltx_model) == marker
 
 
 def test_studio_ui_exposes_explicit_two_stage_choice():

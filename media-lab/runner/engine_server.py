@@ -94,13 +94,13 @@ def _install_decord_compat():
     return 'pyav-compat'
 
 
-def _install_ltx_retake_dtype_compat():
-    """Align cached Gemma states at native-retake projection boundaries.
+def _install_ltx_retake_dtype_compat(ltx_model):
+    """Align cached Gemma states on the two live native-retake connectors.
 
     Maestro's retake cache materializes float32 text states while its pinned LTX
-    connector weights are bfloat16.  The connector's attention blocks also retain
-    a float32 gate input after the outer hidden state has been aligned.  Keep the
-    shim local to native retake setup and cast each input only to its receiving
+    connector weights are bfloat16. MMGP replaces ``forward`` on each connector
+    instance after profiling, so a class-level wrapper never runs. Bind the shim
+    to the loaded video/audio instances and cast each input only to its receiving
     projection's own weight dtype.
     """
     base_module = importlib.import_module(
@@ -120,38 +120,48 @@ def _install_ltx_retake_dtype_compat():
         setattr(aligned, '_media_lab_dtype_compat', True)
         setattr(base_module, '_apply_feature_extractor', aligned)
 
-    connector_module = importlib.import_module(
-        'models.ltx2.ltx_core.text_encoders.gemma.embeddings_connector')
-    connector_class = connector_module.Embeddings1DConnector
-    connector_forward = connector_class.forward
-    if not getattr(connector_forward, '_media_lab_dtype_compat', False):
-        def aligned_connector(self, hidden_states, attention_mask=None):
-            for block in self.modules():
-                gate = getattr(block, 'to_gate_logits', None)
-                if gate is None or getattr(gate, '_media_lab_dtype_compat', False):
-                    continue
-                gate_forward = gate.forward
+    connectors = []
+    for name in ('video_embeddings_connector', 'audio_embeddings_connector'):
+        connector = getattr(ltx_model, name, None)
+        if connector is None:
+            raise RuntimeError(f'LTX native retake is missing live {name}')
+        connectors.append(connector)
 
-                def aligned_gate(hidden_states, *args, _gate=gate,
-                                 _forward=gate_forward, **kwargs):
-                    weight = getattr(_gate, 'weight', None)
-                    dtype = getattr(weight, 'dtype', None)
-                    if (dtype is not None
-                            and getattr(hidden_states, 'dtype', None) != dtype):
-                        hidden_states = hidden_states.to(dtype=dtype)
-                    return _forward(hidden_states, *args, **kwargs)
+    for connector in connectors:
+        connector_forward = connector.forward
+        if getattr(connector_forward, '_media_lab_dtype_compat', False):
+            continue
 
-                setattr(gate, 'forward', aligned_gate)
-                setattr(gate, '_media_lab_dtype_compat', True)
-            parameter = next(self.parameters(), None)
+        for block in connector.modules():
+            gate = getattr(block, 'to_gate_logits', None)
+            if gate is None or getattr(gate, '_media_lab_dtype_compat', False):
+                continue
+            gate_forward = gate.forward
+
+            def aligned_gate(hidden_states, *args, _gate=gate,
+                             _forward=gate_forward, **kwargs):
+                weight = getattr(_gate, 'weight', None)
+                dtype = getattr(weight, 'dtype', None)
+                if (dtype is not None
+                        and getattr(hidden_states, 'dtype', None) != dtype):
+                    hidden_states = hidden_states.to(dtype=dtype)
+                return _forward(hidden_states, *args, **kwargs)
+
+            setattr(aligned_gate, '_media_lab_dtype_compat', True)
+            setattr(gate, 'forward', aligned_gate)
+            setattr(gate, '_media_lab_dtype_compat', True)
+
+        def aligned_connector(hidden_states, attention_mask=None,
+                              _connector=connector, _forward=connector_forward):
+            parameter = next(_connector.parameters(), None)
             dtype = getattr(parameter, 'dtype', None)
             if dtype is not None and getattr(hidden_states, 'dtype', None) != dtype:
                 hidden_states = hidden_states.to(dtype=dtype)
-            return connector_forward(self, hidden_states, attention_mask)
+            return _forward(hidden_states, attention_mask)
 
         setattr(aligned_connector, '_media_lab_dtype_compat', True)
-        setattr(connector_class, 'forward', aligned_connector)
-    return 'hidden-state-connector-and-gate-forward-dtype-aligned'
+        setattr(connector, 'forward', aligned_connector)
+    return 'hidden-state-and-live-connector-gates-dtype-aligned'
 
 
 def register_quant_handlers() -> None:
@@ -710,7 +720,7 @@ class Handler(BaseHTTPRequestHandler):
                         extra['retake_engine'] = 'native'
                         extra['regenerate_audio'] = regenerate_audio
                         decoder = _install_decord_compat()
-                        dtype_compat = _install_ltx_retake_dtype_compat()
+                        dtype_compat = _install_ltx_retake_dtype_compat(model)
                         print(f'NATIVE_RETAKE {ltx_input_video} strength={retake_strength} '
                               f'regenerate_audio={regenerate_audio} decoder={decoder} '
                               f'dtype_compat={dtype_compat}', flush=True)
