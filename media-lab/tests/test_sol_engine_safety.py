@@ -28,6 +28,45 @@ class SolSafety(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('sol_under_test', ROOT/'runner/sol_engine_server.py')
         self.s = importlib.util.module_from_spec(spec); spec.loader.exec_module(self.s)
         self.s.warm_case = lambda task: {'task': task}
+        boot_id = '11111111-1111-4111-8111-111111111111'
+        (Path(base)/'boot-id').write_text(boot_id)
+        os.environ['SOL_BOOT_ID_PATH'] = str(Path(base)/'boot-id')
+        (Path(base)/'boot-clearance.json').write_text(
+            '{"boot_id":"' + boot_id + '","approved":true}')
+
+    def test_new_boot_without_clearance_refuses_allocation(self):
+        s = self.s; calls = []
+        (Path(s.SOL_ROOT)/'boot-clearance.json').unlink()
+        class Pipeline:
+            def __init__(self, *a, **k): calls.append('new')
+            def start(self, case): pass
+        s.Pipeline = Pipeline
+        with self.assertRaises(RuntimeError): s.ensure_pipeline('t2va')
+        self.assertEqual(calls, [])
+
+    def test_stale_or_malformed_boot_clearance_is_fail_closed(self):
+        root = Path(self.s.SOL_ROOT)
+        for content in ('{}', '[]', '{', '{"approved":true,"boot_id":"old"}',
+                        '{"approved":1,"boot_id":"11111111-1111-4111-8111-111111111111"}'):
+            with self.subTest(content=content):
+                (root/'boot-clearance.json').write_text(content)
+                self.assertFalse(self.s.boot_cleared())
+                self.assertTrue(self.s.safety_latched())
+
+    def test_simulated_reboot_invalidates_previously_valid_clearance(self):
+        self.assertTrue(self.s.boot_cleared())
+        (Path(self.s.SOL_ROOT)/'boot-id').write_text('22222222-2222-4222-8222-222222222222')
+        self.assertFalse(self.s.boot_cleared())
+        calls = []
+        self.s.Pipeline = lambda *a, **k: calls.append('new')
+        for _ in range(20):
+            self.s.STATE.update(blocked=False, loaded=False, pipe=None)
+            with self.assertRaises(RuntimeError): self.s.ensure_pipeline('t2va')
+        self.assertEqual(calls, [])
+
+    def test_unreadable_boot_identity_is_fail_closed(self):
+        (Path(self.s.SOL_ROOT)/'boot-id').unlink()
+        self.assertFalse(self.s.boot_cleared())
 
     def test_preload_and_request_cannot_construct_two_pipelines(self):
         s = self.s; entered = threading.Event(); release = threading.Event(); second_started = threading.Event()

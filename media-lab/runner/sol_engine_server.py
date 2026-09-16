@@ -35,10 +35,23 @@ def warm_case(task):
         fp = _png(f"{RUNTIME}/inputs/warm-ref.png", (672, 384), (96, 96, 96))
         return {"case_id": "warm", "task": task, "seed": 1, "references": [{"type": "image", "path": fp}], "prompt": "subject_definitions: <Subject 1> is the shape in <Picture 1>. detailed_description: <Subject 1> stays still. overall_soundscape: silence."}
     return {"case_id": "warm", "task": "t2va", "seed": 1, "prompt": "A calm wide shot of a quiet meadow at dawn. overall_soundscape: soft wind."}
+def boot_cleared():
+    """Operator clearance is tied to one Linux boot; never auto-resume H3."""
+    try:
+        boot = Path(os.environ.get('SOL_BOOT_ID_PATH',
+                    '/proc/sys/kernel/random/boot_id')).read_text().strip()
+        if str(uuid.UUID(boot)) != boot:
+            return False
+        permit = json.loads((Path(SOL_ROOT) / 'boot-clearance.json').read_text())
+        return isinstance(permit, dict) and permit.get('approved') is True and permit.get('boot_id') == boot
+    except (OSError, ValueError, TypeError):
+        return False
+
 def safety_latched():
     # Legacy watchdog marker is intentionally honored until explicit recovery.
     # The persistent marker also survives controller/service restarts and reboot.
-    return (STATE.get("blocked", False)
+    return (not boot_cleared()
+            or STATE.get("blocked", False)
             or (Path(SOL_ROOT) / "safety-stop.json").exists()
             or (Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
                 / "flashnext-memwatch.latch").exists())

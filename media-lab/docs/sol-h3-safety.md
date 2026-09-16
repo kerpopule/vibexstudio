@@ -12,6 +12,10 @@ The marker records only reason, exception type, PID, task family, and timestamp.
 
 The memory watchdog retains its marker but can stop a newly active service under pressure again. A stale marker no longer makes it ignore a controller relaunch. This is a last-resort stop, not an admission allocator.
 
+## Boot quarantine
+
+The wrapper also requires an operator-issued `boot-clearance.json` under `SOL_ROOT`, with `approved: true` and the exact current Linux `boot_id`. No clearance, malformed clearance, or a reboot denies new allocation. Clearance never overrides a sticky stop. See [boot-safe recovery](boot-safe-recovery.md) for the system-level rescue boundary, synthetic supervisor policy, limitations and approval gates. Do not automate issuance of this token.
+
 ## Operator maintenance hold
 
 The app's existing `.engine-maintenance` marker now also gates `auto_requeue()` on every pass. While present, automatic retries leave job status, retry counters and both queues unchanged; the existing idle-residency restoration is held too. This is not a cancellation and does not pause manually submitted or already queued work. Once this source is loaded, marker changes are observed without another app restart. On older source the marker gates only idle restoration, not automatic retries. Preserve and clear it only under operator-approved recovery.
