@@ -534,11 +534,19 @@ class DurableGpuProtocol:
             try:
                 row = db.execute("SELECT * FROM gpu_lease WHERE singleton=1").fetchone()
                 if row is not None:
-                    reason = "controller-restarted"
-                    if row["boot_id"] != boot:
-                        reason = "boot-changed"
-                    elif not self._pid_alive(int(row["pid"])):
-                        reason = "owner-exited"
+                    # A recovery reason is part of the durable, fence-bound
+                    # operator hold. Preserve it across later controller
+                    # restarts so an exact marker can still reconcile the same
+                    # quarantined lease. Only active/parked ownership receives
+                    # a newly diagnosed restart reason.
+                    if row["state"] == "recovery" and row["reason"]:
+                        reason = str(row["reason"])
+                    else:
+                        reason = "controller-restarted"
+                        if row["boot_id"] != boot:
+                            reason = "boot-changed"
+                        elif not self._pid_alive(int(row["pid"])):
+                            reason = "owner-exited"
                     db.execute(
                         "UPDATE gpu_lease SET state='recovery',reason=?,updated=? WHERE singleton=1",
                         (reason, self._now()),

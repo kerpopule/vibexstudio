@@ -107,6 +107,22 @@ def test_timeout_retains_exclusion_until_exact_reconciliation(tmp_path):
     p.reconcile(lease, proof={"processes_gone": True, "memory_recovered": True, "boot_id": "boot-a"})
 
 
+@pytest.mark.parametrize("job_id", ["internal-4321", "idle-restore-h3"])
+def test_recovery_restart_preserves_exact_jobless_hold_reason(tmp_path, job_id):
+    p = protocol(tmp_path)
+    p.qualify("h3", "t2va", peak_gib=10.0, reserve_gib=2.0, evidence="fixture")
+    lease = p.acquire(job_id=job_id, engine="h3", task="t2va", owner="controller")
+    p.mark_recovery(lease, "operation-uncertain:RuntimeError")
+    assert p.snapshot()["lease"]["reason"] == "operation-uncertain:RuntimeError"
+    assert lease._fd is not None
+    lease._fd.close()
+    lease._fd = None
+
+    recovered = p.recover_startup()
+    assert recovered is not None and recovered.job_id == job_id
+    assert p.snapshot()["lease"]["reason"] == "operation-uncertain:RuntimeError"
+
+
 def test_reboot_quarantines_preboot_owner(tmp_path):
     state = {"boot": "boot-a"}
     p = DurableGpuProtocol(
