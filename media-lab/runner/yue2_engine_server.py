@@ -27,8 +27,13 @@ as a subprocess.
 
 Weights licence: the YuE2 weights are CC BY-NC 4.0 - non-commercial use only.
 """
-import os, json, time, threading, re, fcntl, subprocess, traceback
+import os, json, time, threading, re, fcntl, subprocess, traceback, sys
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+CONTROLLER_ROOT = Path(__file__).resolve().parents[1]
+if str(CONTROLLER_ROOT) not in sys.path:
+    sys.path.insert(0, str(CONTROLLER_ROOT))
 
 def _env_path(*names, default):
     for name in names:

@@ -1,5 +1,6 @@
 """Execute actual controller functions without importing startup services."""
 import ast
+import threading
 from pathlib import Path
 
 import pytest
@@ -228,6 +229,56 @@ def test_h3_warm_reuse_requires_complete_runtime_configuration():
     assert exact("h3", "t2va", job) is True
     job["request"]["turbo_preset"] = "turbo-b"
     assert exact("h3", "t2va", job) is False
+
+
+def test_reclaim_does_not_treat_unreachable_live_process_as_gone():
+    stopped = []
+    reclaim = function('_gpu_reclaim_all', COMPANION_ENGINE_NAMES=('h3',),
+                       _gpu_process_identity=lambda _name: (4321, 'boot:4321:1'),
+                       engine_up=lambda _name: False,
+                       engine_busy=lambda _name: False,
+                       stop_engine=lambda name: stopped.append(name),
+                       _mem_available_gb=lambda: 80.0,
+                       LeaseBusy=RuntimeError, Path=Path)
+    proof = reclaim()
+    assert stopped == []
+    assert proof['processes_gone'] is False
+    assert proof['memory_recovered'] is False
+    assert proof['survivors'] == ['h3']
+
+
+def test_queued_job_closes_previous_task_context_before_retarget():
+    events = []
+    gpu_thread = threading.local()
+    gpu_thread.lease = type('Lease', (), {
+        'engine': 'yue2', 'task': 'transcribe', 'job_id': 'cover-1'})()
+    gpu_thread.job_context = object()
+    gpu_thread.job_target = ('yue2', 'transcribe')
+
+    def finish(*_args):
+        events.append('finish')
+        gpu_thread.lease = None
+        gpu_thread.job_context = None
+
+    class Context:
+        def __enter__(self): events.append('enter'); return object()
+        def __exit__(self, *_args): events.append('exit')
+
+    ensure = function('ensure_engine', _gpu_task_for_engine=lambda *_args: 'generate',
+                      _gpu_thread=gpu_thread, _gpu_finish_job_operation=finish,
+                      gpu_operation=lambda *_args: Context(),
+                      _ensure_engine_under_lease=lambda *_args: 'up',
+                      gpu_render_ready=lambda *_args: events.append('ready'),
+                      LeaseBusy=RuntimeError)
+    assert ensure('yue2', {'id': 'cover-1'}) == 'up'
+    assert events[:3] == ['finish', 'enter', 'ready']
+
+
+def test_yue2_shim_bootstraps_controller_import_path():
+    text = (APP.parent / 'runner' / 'yue2_engine_server.py').read_text()
+    assert 'Path(__file__).resolve().parents[1]' in text
+    assert text.index('sys.path.insert(0, str(CONTROLLER_ROOT))') < text.index(
+        'from media_lab_core.gpu_lease_runtime import ENV_TASK')
 
 
 def test_h3_gpu_task_classifies_media_source_as_fl2va_before_admission():

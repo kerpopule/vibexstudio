@@ -1920,12 +1920,21 @@ def _gpu_reclaim_all(j=None):
     releaser = globals().get("release_voice_weights")
     if callable(releaser) and not releaser():
         raise RuntimeError("loaded TTS weights would not unload")
+    survivors = []
     for name in COMPANION_ENGINE_NAMES:
-        if engine_up(name):
-            if engine_busy(name):
-                raise LeaseBusy(f"active companion will not be interrupted: {name}")
-            stop_engine(name)
-    survivors = [name for name in COMPANION_ENGINE_NAMES if engine_up(name)]
+        identity = _gpu_process_identity(name)
+        if identity is None:
+            continue
+        if not engine_up(name):
+            # An unreachable endpoint is not proof that the exact managed
+            # process or cgroup is gone. Keep ownership fenced for recovery.
+            survivors.append(name)
+            continue
+        if engine_busy(name):
+            raise LeaseBusy(f"active companion will not be interrupted: {name}")
+        stop_engine(name)
+        if _gpu_process_identity(name) is not None:
+            survivors.append(name)
     available = _mem_available_gb()
     boot_path = Path("/proc/sys/kernel/random/boot_id")
     return {"processes_gone": not survivors,
@@ -2824,6 +2833,14 @@ def ensure_engine(name, j=None):
     """Load/reuse an engine only while its exact durable GPU lease is live."""
     task = _gpu_task_for_engine(name, j)
     active = getattr(_gpu_thread, "lease", None)
+    if (active is not None and (active.engine, active.task) != (name, task)
+            and getattr(_gpu_thread, "job_context", None) is not None
+            and j is not None and str(j.get("id") or "") == active.job_id):
+        # A queued multi-stage job may legitimately move between exact tasks
+        # (for example YuE2 transcribe -> generate). Close and park the previous
+        # context before entering the next one; unrelated nesting stays fenced.
+        _gpu_finish_job_operation()
+        active = getattr(_gpu_thread, "lease", None)
     if active is not None:
         if (active.engine, active.task) != (name, task):
             raise LeaseBusy(f"active GPU lease is {active.engine}/{active.task}, not {name}/{task}")
