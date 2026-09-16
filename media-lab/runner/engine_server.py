@@ -125,22 +125,23 @@ def _install_ltx_retake_dtype_compat():
     connector_class = connector_module.Embeddings1DConnector
     connector_forward = connector_class.forward
     if not getattr(connector_forward, '_media_lab_dtype_compat', False):
-        def align_gate_input(module, args):
-            weight = getattr(module, 'weight', None)
-            dtype = getattr(weight, 'dtype', None)
-            if not args or dtype is None:
-                return None
-            hidden_states = args[0]
-            if getattr(hidden_states, 'dtype', None) == dtype:
-                return None
-            return (hidden_states.to(dtype=dtype), *args[1:])
-
         def aligned_connector(self, hidden_states, attention_mask=None):
             for block in self.modules():
                 gate = getattr(block, 'to_gate_logits', None)
                 if gate is None or getattr(gate, '_media_lab_dtype_compat', False):
                     continue
-                gate.register_forward_pre_hook(align_gate_input)
+                gate_forward = gate.forward
+
+                def aligned_gate(hidden_states, *args, _gate=gate,
+                                 _forward=gate_forward, **kwargs):
+                    weight = getattr(_gate, 'weight', None)
+                    dtype = getattr(weight, 'dtype', None)
+                    if (dtype is not None
+                            and getattr(hidden_states, 'dtype', None) != dtype):
+                        hidden_states = hidden_states.to(dtype=dtype)
+                    return _forward(hidden_states, *args, **kwargs)
+
+                setattr(gate, 'forward', aligned_gate)
                 setattr(gate, '_media_lab_dtype_compat', True)
             parameter = next(self.parameters(), None)
             dtype = getattr(parameter, 'dtype', None)
@@ -150,7 +151,7 @@ def _install_ltx_retake_dtype_compat():
 
         setattr(aligned_connector, '_media_lab_dtype_compat', True)
         setattr(connector_class, 'forward', aligned_connector)
-    return 'hidden-state-connector-and-gate-dtype-aligned'
+    return 'hidden-state-connector-and-gate-forward-dtype-aligned'
 
 
 def register_quant_handlers() -> None:

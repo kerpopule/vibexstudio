@@ -223,19 +223,13 @@ def test_retake_dtype_compat_casts_hidden_states_at_both_projection_boundaries(m
     class GateProjection:
         def __init__(self):
             self.weight = SimpleNamespace(dtype="bfloat16")
-            self._forward_pre_hooks = []
 
-        def register_forward_pre_hook(self, hook):
-            self._forward_pre_hooks.append(hook)
+        def forward(self, hidden_states):
+            calls.append(("gate", hidden_states))
+            return hidden_states
 
         def __call__(self, hidden_states):
-            args = (hidden_states,)
-            for hook in self._forward_pre_hooks:
-                replacement = hook(self, args)
-                if replacement is not None:
-                    args = replacement
-            calls.append(("gate", args[0]))
-            return args[0]
+            return self.forward(hidden_states)
 
     class Attention:
         def __init__(self):
@@ -269,7 +263,7 @@ def test_retake_dtype_compat_casts_hidden_states_at_both_projection_boundaries(m
     namespace = {"importlib": importlib}
     exec(compile(ast.Module(body=[node], type_ignores=[]), str(ENGINE), "exec"), namespace)
     install = namespace["_install_ltx_retake_dtype_compat"]
-    assert install() == "hidden-state-connector-and-gate-dtype-aligned"
+    assert install() == "hidden-state-connector-and-gate-forward-dtype-aligned"
     result = base_module._apply_feature_extractor(
         (Tensor("float32"), Tensor("float32")), "mask", "right", FeatureExtractor())
     assert result == "ok"
@@ -280,7 +274,7 @@ def test_retake_dtype_compat_casts_hidden_states_at_both_projection_boundaries(m
     assert gate_result.dtype == "bfloat16"
     assert calls[2][0] == "gate"
     assert calls[2][1].dtype == "bfloat16"
-    assert install() == "hidden-state-connector-and-gate-dtype-aligned"
+    assert install() == "hidden-state-connector-and-gate-forward-dtype-aligned"
 
 
 def test_studio_ui_exposes_explicit_two_stage_choice():
