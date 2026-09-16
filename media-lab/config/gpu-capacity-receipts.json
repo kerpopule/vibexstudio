@@ -3,7 +3,7 @@
   "reserve_basis": "existing production envelopes plus explicit OS/headroom reserve; remeasure on every runtime or model revision",
   "qualifications": [
     {"engine":"h3","task":"fl2va","peak_gib":60.38,"reserve_gib":24.0,"evidence":"2026-09-16 live media-lab-sol-h3.service MemoryPeak 64824205312 bytes after seven completed renders"},
-    {"engine":"h3","task":"t2va","peak_gib":115.0,"reserve_gib":5.0,"evidence":"config/model-residency-policy.json h3 measured decode envelope"},
+    {"engine":"h3","task":"t2va","peak_gib":115.0,"reserve_gib":2.0,"evidence":"2026-09-16 live recalibration: a 5 GiB add-on reserve made the 120 GiB gate unreachable on the 121 GiB GB10 (max measured MemAvailable 118.4 GiB with the remote-Qwen shim resident); the measured 115 GiB decode envelope already includes the model-residency policy floor, so retain 2 GiB explicit OS headroom"},
     {"engine":"h3","task":"ref2va","peak_gib":115.0,"reserve_gib":5.0,"evidence":"config/model-residency-policy.json h3 measured decode envelope; exact Ref2VA requalification still required on revision change"},
     {"engine":"ltx","task":"t2va","peak_gib":46.0,"reserve_gib":24.0,"evidence":"config/model-residency-policy.json ltx measured decode envelope"},
     {"engine":"image","task":"generate","peak_gib":15.0,"reserve_gib":24.0,"evidence":"existing production image ComfyUI budget in app.py; exact graph-specific requalification remains required on revision change"},
