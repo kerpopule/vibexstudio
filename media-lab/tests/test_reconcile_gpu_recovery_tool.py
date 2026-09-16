@@ -30,3 +30,13 @@ def test_recovery_tool_can_reconcile_exact_orphan_job_only_after_full_reclaim():
         'for key in ("recovery_required", "recovery_reason")'
     )
     assert 'DELETE FROM' not in text and 'UPDATE gpu_lease' not in text
+
+
+def test_recovery_tool_accepts_only_exact_terminal_parked_restart_hold():
+    text = TOOL.read_text()
+    ast.parse(text)
+    assert 'terminal_parked_recovery' in text
+    assert 'lease.phase == "parked"' in text
+    assert 'job.get("status") in ("done", "error", "cancelled")' in text
+    assert 'marker.get("job_id") is None' in text
+    assert 'durable-lease-recovery:' in text

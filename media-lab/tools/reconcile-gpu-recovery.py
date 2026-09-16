@@ -45,16 +45,26 @@ def main() -> int:
         with contextlib.redirect_stdout(io.StringIO()):
             import app
 
-        job = app.jobs.get(args.job_id)
-        if not job or job.get("recovery_required") is not True:
-            raise RuntimeError("matching job is not marked recovery_required")
-
         lease = app._gpu_active_lease or app.gpu_protocol().recover_startup()
         app._gpu_active_lease = lease
         orphan_recovery_job = lease is None
         marker = None
         if app.GPU_RECOVERY_HOLD.exists():
             marker = json.loads(app.GPU_RECOVERY_HOLD.read_text())
+
+        job = app.jobs.get(args.job_id)
+        terminal_parked_recovery = bool(
+            lease is not None and lease.state == "recovery" and lease.phase == "parked"
+            and lease.job_id == args.job_id and job
+            and job.get("status") in ("done", "error", "cancelled")
+            and marker is not None and marker.get("job_id") is None
+            and str(marker.get("reason") or "").startswith("durable-lease-recovery:")
+        )
+        if not job or (job.get("recovery_required") is not True
+                       and not terminal_parked_recovery):
+            raise RuntimeError(
+                "matching job is neither recovery_required nor an exact terminal parked restart"
+            )
 
         if lease is None:
             # A previous exact reconciliation can leave only the persisted job
@@ -95,6 +105,7 @@ def main() -> int:
         print(json.dumps({
             "reconciled_job": args.job_id,
             "orphan_recovery_job": orphan_recovery_job,
+            "terminal_parked_recovery": terminal_parked_recovery,
             "proof": proof,
             "lease": app.gpu_protocol().snapshot().get("lease"),
             "hold_exists": app.GPU_RECOVERY_HOLD.exists(),

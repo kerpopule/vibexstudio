@@ -213,6 +213,16 @@ def test_h3_boot_binds_and_waits_for_exact_task_family():
     assert 'task=current.get("task")' in switch
 
 
+def test_h3_gpu_task_classifies_media_source_as_fl2va_before_admission():
+    text = APP.read_text()
+    task = ast.get_source_segment(text, next(
+        n for n in ast.parse(text).body
+        if isinstance(n, ast.FunctionDef) and n.name == '_gpu_task_for_engine'))
+    assert task is not None
+    assert 'request.get("source")' in task
+    assert task.index('request.get("source")') < task.index('return "fl2va"')
+
+
 def test_maestro_runner_consumes_exact_delegation_before_model_init():
     runner = (APP.parent / 'runner' / 'maestro_queue_runner.py').read_text()
     assert 'exact Maestro GPU lease delegation is required' in runner

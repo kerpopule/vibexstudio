@@ -2799,7 +2799,8 @@ def _gpu_task_for_engine(name, j=None):
     if name == "h3":
         if request.get("references") or request.get("video_references"):
             return "ref2va"
-        if request.get("start_image") or request.get("start_image_b64"):
+        if (request.get("source") or request.get("start_image")
+                or request.get("start_image_b64")):
             return "fl2va"
         return "t2va"
     if name == "ltx":
