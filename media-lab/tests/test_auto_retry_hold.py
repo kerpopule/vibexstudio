@@ -28,7 +28,11 @@ class AutoRetryHold(unittest.TestCase):
               'exhausted':{'status':'error','retryable':True,'finished':100,'auto_retries':3},
               'cancelled':{'status':'error','retryable':True,'finished':100,'cancel':True}}
         queue=[]
+        # This test isolates the retry budget. Execution evidence itself is
+        # exercised by test_retry_evidence_boundaries and must never be bypassed
+        # in production merely because maintenance is absent.
         with mock.patch.multiple(studio,jobs=jobs,queue=queue,cv=threading.Condition()), \
+             mock.patch.object(studio,'_auto_retry_recovery_error',return_value=None), \
              mock.patch.object(studio,'ENGINE_MAINTENANCE') as marker, \
              mock.patch.object(studio.time,'time',return_value=101), \
              mock.patch.object(studio,'save_state'):
