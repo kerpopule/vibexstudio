@@ -31,6 +31,8 @@ def main() -> int:
     parser.add_argument("--job-id", required=True)
     args = parser.parse_args()
     os.chdir(ROOT)
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
     os.environ["MEDIA_LAB_DISABLE_BACKGROUND_WORKERS"] = "1"
 
     systemctl("stop", SERVICE)
