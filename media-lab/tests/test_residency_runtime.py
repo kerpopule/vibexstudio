@@ -337,6 +337,14 @@ class MaestroExclusiveResidencyTests(unittest.TestCase):
             ["docker", "stop", "--time", "45", "qwen38-vllm"],
             stdout=studio.subprocess.DEVNULL, stderr=studio.subprocess.DEVNULL)
 
+    def test_chat_container_inspection_failure_is_not_treated_as_absent(self):
+        failed = subprocess.CompletedProcess(
+            ["docker", "ps"], 2, stdout="", stderr="daemon unavailable"
+        )
+        with mock.patch.object(studio.subprocess, "run", return_value=failed):
+            with self.assertRaisesRegex(RuntimeError, "inspection failed"):
+                studio._chat_containers_running()
+
     def test_maestro_pause_is_inside_fenced_unload_before_reclaim_and_load(self):
         source = (SRC / "app.py").read_text()
         block = source[source.index("def gpu_operation"):source.index("def gpu_render_ready")]
@@ -505,6 +513,58 @@ class MaestroExclusiveResidencyTests(unittest.TestCase):
         self.assertEqual("released", lease.state)
         self.assertLess(len(events) - 1 - events[::-1].index("maestro-reap"), events.index("restore"))
         self.assertNotIn("recovery", events)
+
+    def test_maestro_invalid_final_reclaim_never_restores_qwen(self):
+        lease = SimpleNamespace(
+            state="active", phase="drain", job_id="maestro-job",
+            engine="maestro", task="generate", _fd=None,
+        )
+
+        class Protocol:
+            def acquire(self, **_kwargs):
+                return lease
+
+            def advance(self, current, phase):
+                current.phase = phase
+                return current
+
+            def bind_process(self, *_args, **_kwargs):
+                return None
+
+            def mark_recovery(self, current, _reason):
+                current.state = "recovery"
+
+        good = {
+            "processes_gone": True, "memory_recovered": True,
+            "available_gib": 120.0, "survivors": [],
+        }
+        bad = {
+            "processes_gone": False, "memory_recovered": False,
+            "available_gib": 12.0, "survivors": ["h3"],
+        }
+        previous = studio._gpu_active_lease
+        studio._gpu_active_lease = None
+        try:
+            with mock.patch.object(studio, "gpu_protocol", return_value=Protocol()), \
+                 mock.patch.object(studio, "pool_cmd", return_value="OK"), \
+                 mock.patch.object(studio, "_gpu_warm_proof", return_value={
+                     "healthy": False, "busy": False}), \
+                 mock.patch.object(studio, "pause_chat_for_video", return_value=True), \
+                 mock.patch.object(studio, "reap_orphan_maestro_runners", return_value={
+                     "status": "clean", "returncode": 1, "detail": ""}), \
+                 mock.patch.object(studio, "_gpu_reclaim_all", side_effect=[good, bad]), \
+                 mock.patch.object(studio, "_gpu_process_identity", return_value=None), \
+                 mock.patch.object(studio, "restore_chat_after_video") as restore, \
+                 mock.patch.object(studio, "hold_gpu_recovery"):
+                with self.assertRaisesRegex(RuntimeError, "survived final reclaim"):
+                    with studio.gpu_operation("maestro", "generate", {"id": "maestro-job"},
+                                              ephemeral=True):
+                        studio.gpu_render_ready("maestro", "generate")
+        finally:
+            studio._gpu_active_lease = previous
+
+        restore.assert_not_called()
+        self.assertEqual("recovery", lease.state)
 
 
 if __name__ == "__main__":

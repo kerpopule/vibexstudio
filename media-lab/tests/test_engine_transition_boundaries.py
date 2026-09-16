@@ -240,7 +240,7 @@ def test_reclaim_does_not_treat_unreachable_live_process_as_gone():
                        engine_up=lambda _name: False,
                        engine_busy=lambda _name: False,
                        stop_engine=lambda name: stopped.append(name),
-                       _mem_available_gb=lambda: 80.0,
+                       _mem_available_gb=lambda *, strict=False: 80.0,
                        LeaseBusy=RuntimeError, Path=Path)
     proof = reclaim()
     assert stopped == []
@@ -261,6 +261,19 @@ def test_gpu_process_identity_fails_closed_when_inspection_fails(monkeypatch):
     monkeypatch.setattr(studio.subprocess, "run", lambda *_args, **_kwargs: failed)
     with pytest.raises(RuntimeError, match="inspection failed"):
         studio._gpu_process_identity("fixture")
+
+
+def test_gpu_reclaim_requires_strict_memory_measurement(monkeypatch):
+    import app as studio
+    from unittest import mock
+
+    measured = mock.Mock(return_value=80.0)
+    monkeypatch.setattr(studio, "COMPANION_ENGINE_NAMES", ())
+    monkeypatch.setattr(studio, "_mem_available_gb", measured)
+    monkeypatch.setattr(studio, "release_voice_weights", lambda: True)
+    proof = studio._gpu_reclaim_all()
+    measured.assert_called_once_with(strict=True)
+    assert proof["memory_recovered"] is True
 
 
 def test_queued_job_closes_previous_task_context_before_retarget():

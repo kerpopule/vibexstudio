@@ -29,7 +29,9 @@ def systemctl(*args: str, check: bool = True) -> subprocess.CompletedProcess[str
     )
 
 
-def internal_residency_marker_matches(lease, job, marker, job_id: str) -> bool:
+def internal_residency_marker_matches(
+    lease, durable_row, job, marker, job_id: str,
+) -> bool:
     """Bind a jobless internal hold to one exact durable recovery lease."""
     if not (
         lease is not None and lease.state == "recovery"
@@ -43,7 +45,7 @@ def internal_residency_marker_matches(lease, job, marker, job_id: str) -> bool:
         return True
     if marker.get("job_id") is not None:
         return False
-    lease_reason = str(getattr(lease, "reason", "") or "unknown")
+    lease_reason = str((durable_row or {}).get("reason") or "unknown")
     return str(marker.get("reason") or "") in {
         lease_reason,
         f"durable-lease-{lease.state}:{lease_reason}",
@@ -66,8 +68,10 @@ def main() -> int:
         with contextlib.redirect_stdout(io.StringIO()):
             import app
 
-        lease = app._gpu_active_lease or app.gpu_protocol().recover_startup()
+        protocol = app.gpu_protocol()
+        lease = app._gpu_active_lease or protocol.recover_startup()
         app._gpu_active_lease = lease
+        durable_row = protocol.snapshot().get("lease") or {}
         orphan_recovery_job = lease is None
         marker = None
         if app.GPU_RECOVERY_HOLD.exists():
@@ -75,7 +79,7 @@ def main() -> int:
 
         job = app.jobs.get(args.job_id)
         internal_residency_recovery = internal_residency_marker_matches(
-            lease, job, marker, args.job_id
+            lease, durable_row, job, marker, args.job_id
         )
         terminal_parked_recovery = bool(
             lease is not None and lease.state == "recovery" and lease.phase == "parked"
@@ -107,11 +111,22 @@ def main() -> int:
                     f"{(lease.job_id, lease.state)}"
                 )
             if (marker is None or
-                    (marker.get("job_id") != args.job_id and not terminal_parked_recovery)):
+                    (marker.get("job_id") != args.job_id
+                     and not terminal_parked_recovery
+                     and not internal_residency_recovery)):
                 raise RuntimeError(
                     f"recovery marker belongs to {None if marker is None else marker.get('job_id')!r}"
                 )
 
+        target_engine = str(
+            getattr(lease, "engine", "") or (job or {}).get("engine") or ""
+        )
+        if target_engine == "maestro":
+            reaped = app.reap_orphan_maestro_runners()
+            if reaped.get("status") not in ("clean", "reaped"):
+                raise RuntimeError(
+                    f"Maestro runner absence is unproven: {reaped.get('detail') or reaped}"
+                )
         proof = app._gpu_reclaim_all(job)
         if proof.get("processes_gone") is not True:
             raise RuntimeError(f"managed GPU processes survived: {proof.get('survivors')}")

@@ -1953,7 +1953,7 @@ def _gpu_reclaim_all(j=None):
         stop_engine(name)
         if _gpu_process_identity(name) is not None:
             survivors.append(name)
-    available = _mem_available_gb()
+    available = _mem_available_gb(strict=True)
     boot_path = Path("/proc/sys/kernel/random/boot_id")
     return {"processes_gone": not survivors,
             "memory_recovered": not survivors and available >= 24,
@@ -2059,6 +2059,15 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
                 protocol.advance(lease, "unload")
                 reclaimed = reclaim_operation()
                 protocol.advance(lease, "reclaim")
+                if reclaimed.get("processes_gone") is not True:
+                    raise RuntimeError(
+                        f"GPU processes survived final reclaim: {reclaimed.get('survivors')}"
+                    )
+                if reclaimed.get("memory_recovered") is not True:
+                    raise RuntimeError(
+                        f"GPU memory did not recover after final reclaim: "
+                        f"{reclaimed.get('available_gib')} GiB"
+                    )
                 if not restore_managed_qwen():
                     raise LeaseBusy("managed Qwen restoration failed after Maestro")
                 protocol.release(lease, proof=reclaimed)
@@ -2311,6 +2320,9 @@ def _chat_containers_running():
     """Return the exact running Qwen containers; never guess from process text."""
     r = subprocess.run(["docker", "ps", "--format", "{{.Names}}"],
                        capture_output=True, text=True)
+    if r.returncode != 0:
+        detail = (r.stderr or r.stdout or "").strip()
+        raise RuntimeError(f"managed Qwen inspection failed: {detail or r.returncode}")
     names = [x.strip() for x in (r.stdout or "").splitlines() if x.strip()]
     # qwen3vl is a managed companion resident too.  It used to be stopped by
     # Maestro outside the receipt-backed pause path, so a completed render could
