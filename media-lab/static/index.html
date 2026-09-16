@@ -863,6 +863,7 @@
     <div class="chips" id="models">
       <div class="chip sel" data-v="ltx25">⚡ Fast draft <small>LTX 2.5</small></div>
       <div class="chip" data-v="h3">🎬 Cinematic <small>MiniMax H3</small></div>
+      <div class="chip" data-v="h3-ltx25">✨ H3 → LTX <small>draft + refine</small></div>
       <div class="chip advx" data-v="maestro">🎛 Recipes <small>200 in the library</small></div>
     </div>
     <div class="maestrobox" id="maestroBox" style="display:none">
@@ -1766,7 +1767,7 @@ function modelsSelected(){
   const on=[...document.querySelectorAll('#models .chip.sel')].map(c=>c.dataset.v);
   if(on.includes('maestro'))return ['maestro'];
   /* Fast draft first, always — the cheap take proves the prompt */
-  return ['ltx25','h3','fal-video'].filter(m=>on.includes(m));
+  return ['ltx25','h3','h3-ltx25','fal-video'].filter(m=>on.includes(m));
 }
 
 /* ---- length control: Auto (engine default) or any second on the slider ---- */
@@ -1774,7 +1775,7 @@ let DUR_AUTO=true;
 function durValue(){return DUR_AUTO?'5':String($('#durSlider').value);}
 function durPaint(){
   /* read the chip directly — sel() is a const declared further down (TDZ) */
-  const h3=[...document.querySelectorAll('#models .chip.sel')].some(c=>c.dataset.v==='h3');
+  const h3=[...document.querySelectorAll('#models .chip.sel')].some(c=>['h3','h3-ltx25'].includes(c.dataset.v));
   const s=$('#durSlider');
   if(h3&&+s.value>15)s.value=15;          /* H3's contract tops out at ~15s */
   s.max=h3?15:20;
@@ -1894,7 +1895,7 @@ $('#models').addEventListener('click',e=>{
   const c=e.target.closest('.chip');if(!c)return;
   const on=c.dataset.v==='maestro';$('#maestroBox').style.display=on?'block':'none';
   if(on&&!MAESTRO_MODEL)openMaestro('video',maestroPickedVideo);
-  $('#v2vBox').style.display=c.dataset.v==='h3'?'block':'none';
+  $('#v2vBox').style.display=['h3','h3-ltx25'].includes(c.dataset.v)?'block':'none';
 });
 $('#maestroBrowse').onclick=()=>openMaestro('video',maestroPickedVideo);
 const SHELVES={};
@@ -2026,10 +2027,11 @@ $('#go').onclick=async()=>{
   const engines=modelsSelected();
   const mode=engines[0];
   if(mode==='maestro'&&!MAESTRO_MODEL){showErr('Pick a Maestro model first.');return}
-  const v2vSwap=engines.includes('h3')&&!!V2V.item&&$('#v2vSwap').classList.contains('sel');
+  const h3Requested=engines.some(e=>['h3','h3-ltx25'].includes(e));
+  const v2vSwap=h3Requested&&!!V2V.item&&$('#v2vSwap').classList.contains('sel');
   if(v2vSwap&&V_CAST.size!==1){showErr('First-frame identity preparation needs exactly one cast character.');return}
   const v2vStart=Math.max(0,parseFloat($('#v2vStart').value||'0')||0);
-  const videoRefs=(engines.includes('h3')&&V2V.item)?[{source:V2V.item.url,start_sec:v2vStart,
+  const videoRefs=(h3Requested&&V2V.item)?[{source:V2V.item.url,start_sec:v2vStart,
     include_audio:false,role:'source motion, restrained performance, pose, and camera movement only; do not copy identity or clothing'}]:[];
   $('#go').disabled=true;$('#err').style.display='none';$('#result').style.display='none';
   let r,id,eta_min;
@@ -2045,8 +2047,8 @@ $('#go').onclick=async()=>{
       r=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({prompt:p,style:shelfVal('#styles'),duration:durValue(),orientation:sel('#ors'),
           model:eng,face_fix:$('#facefix').classList.contains('sel'),cast:[...V_CAST],
-          video_references:eng==='h3'?videoRefs:[],v2v_swap_first_frame:eng==='h3'?v2vSwap:false,
-          v2v_wardrobe:(eng==='h3'&&v2vSwap)?$('#v2vWardrobe').value.trim():''})});
+          video_references:['h3','h3-ltx25'].includes(eng)?videoRefs:[],v2v_swap_first_frame:['h3','h3-ltx25'].includes(eng)?v2vSwap:false,
+          v2v_wardrobe:(['h3','h3-ltx25'].includes(eng)&&v2vSwap)?$('#v2vWardrobe').value.trim():''})});
       if(!r.ok){let d={};try{d=await r.json()}catch(e){}showErr(d.error||'Could not start — try again.');return}
       const j=await r.json();
       if(id===undefined){({id,eta_min}={id:j.id,eta_min:j.eta_min});}
@@ -4785,7 +4787,7 @@ function setHTML(el,html){if(el&&el.innerHTML!==html)el.innerHTML=html}
    actually measures (H3 runs about twice as long as LTX, so one shared number
    was wrong for both). Waiting: how long until its turn. */
 function qTime(j,i){
-  const eng=j.queue_lane==='online'?' · online':(j.engine==='h3'?' · H3':'');
+  const eng=j.queue_lane==='online'?' · online':(j.engine==='h3-ltx25'?' · H3 → LTX':(j.engine==='h3'?' · H3':''));
   if(j.status==='running'&&j.started){
     const total=(j.eta_total||j.eta_self||5)*60;
     const left=Math.max(0,Math.round(total-(Date.now()/1000-j.started)));

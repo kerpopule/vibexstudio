@@ -46,6 +46,15 @@ STATIC_DIR = ROOT / "static" if (ROOT / "static").is_dir() else SOURCE_DIR / "st
 JOBS_DIR = ROOT / "jobs"
 MEDIA = ROOT / "media"
 SCREENSHOT_SONGS_DIR = ROOT / "screenshot-songs"
+try:
+    H3_LTX_RETAKE_STRENGTH = min(1.0, max(0.01, float(
+        local_config.get("MEDIA_LAB_H3_LTX_RETAKE_STRENGTH", "0.35"))))
+except ValueError:
+    H3_LTX_RETAKE_STRENGTH = 0.35
+H3_LTX_REFINEMENT_PROMPT = (
+    "Preserve the original subject identity, composition, motion timing, and sound "
+    "while improving detail, material fidelity, and polish."
+)
 for d in (JOBS_DIR, MEDIA, SCREENSHOT_SONGS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 JOBS_FILE = ROOT / "jobs.json"
@@ -1617,9 +1626,10 @@ def make_video_job(request):
     style = STYLES.get(request.get("style", "none"), STYLES["none"])
     if request.get("model") == "fal-video" and not fal_ready():
         raise ValueError("fal.ai isn't set up — add your API key in Cloud providers.")
-    engine = request.get("model") if request.get("model") in ("ltx25", "h3", "fal-video") else "ltx25"
+    engine = request.get("model") if request.get("model") in ("ltx25", "h3", "h3-ltx25", "fal-video") else "ltx25"
+    uses_h3 = engine in ("h3", "h3-ltx25")
     turbo_preset = _h3ref.required_turbo_preset(request)
-    if turbo_preset and engine != "h3":
+    if turbo_preset and not uses_h3:
         raise ValueError("the managed H3 Turbo preset requires model 'h3'")
     request["h3_turbo"] = turbo_preset or False
     # H3 Ref2VA actor cloning: references are an explicit list of separate
@@ -1628,11 +1638,11 @@ def make_video_job(request):
     references = request.get("references") or []
     reference_detail = request.get("reference_detail") or "match"
     if references:
-        if engine != "h3":
+        if not uses_h3:
             # references requested, but the job is not headed for the reference
             # engine — refuse loudly rather than run a likeness-less shot.
             raise ValueError(
-                "H3 Ref2VA reference conditioning requires model 'h3' (got "
+                "H3 Ref2VA reference conditioning requires model 'h3' or 'h3-ltx25' (got "
                 f"model={engine!r}). Refusing a silent downgrade to a "
                 "likeness-less pipeline.")
         # keep only validated references so garbage b64 never reaches the engine
@@ -1649,8 +1659,8 @@ def make_video_job(request):
         request["reference_detail"] = _h3ref.resolve_reference_detail(reference_detail)
     video_requested = request.get("video_references") or []
     if video_requested:
-        if engine != "h3":
-            raise ValueError("H3 video-to-video motion references require model 'h3'; refusing a silent downgrade.")
+        if not uses_h3:
+            raise ValueError("H3 video-to-video motion references require model 'h3' or 'h3-ltx25'; refusing a silent downgrade.")
         video_usable = _h3ref.normalize_video_references(video_requested)
         if len(video_usable) != len(video_requested):
             raise ValueError("every H3 motion reference must be a supported /media video with a non-negative start time")
@@ -1675,9 +1685,13 @@ def make_video_job(request):
         _secs = min(20.0, max(3.0, float(request.get("duration", "5"))))
     except (TypeError, ValueError):
         _secs = 5.0
-    frames = engine_frames(engine, _secs)
+    if engine == "h3-ltx25":
+        # Sol-H3-Spark's immutable runtime contract is one five-second clip.
+        _secs = 5.0
+        request["duration"] = "5"
+    frames = engine_frames("h3" if uses_h3 else engine, _secs)
     w, h = SIZES.get(request.get("orientation", "landscape"), SIZES["landscape"])
-    if engine == "h3":
+    if uses_h3:
         # Was hardcoded 864x480 — which ALSO silently forced landscape, because
         # preflight() reads orientation back off w >= h. Anyone picking portrait
         # for a plain H3 clip got a landscape video and no warning.
@@ -3893,6 +3907,151 @@ def _run_fal_video(j):
     j["stage"] = "encoding"
     _finish_video(j, out)
 
+
+def _write_h3_ltx_receipt(job_dir, payload):
+    """Atomically persist the exact two-stage inputs and accepted artifacts."""
+    job_dir = Path(job_dir)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    target = job_dir / "h3-ltx-receipt.json"
+    temp = target.with_suffix(".tmp")
+    temp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(temp, target)
+
+
+def _run_h3_ltx_video(j, *, references, staged_video_refs, start_b64):
+    """Run one durable queue job through H3 draft then native LTX retake.
+
+    Each engine call crosses the normal fenced controller boundary.  The H3
+    artifact is copied into the job directory before H3 can be evicted, then a
+    basename-only copy is staged in LTX's mounted input directory.  Failure in
+    either stage is terminal; this route never falls back to another engine.
+    """
+    req = j.get("request") or {}
+    seed = int(req.get("seed") or int(j["id"][:8], 16) % 1_000_000_000 or 1)
+    job_dir = JOBS_DIR / j["id"]
+    job_dir.mkdir(parents=True, exist_ok=True)
+    receipt = {
+        "pipeline": "h3-ltx25",
+        "job_id": j["id"],
+        "seed": seed,
+        "prompt": j["full_prompt"],
+        "status": "stage-a",
+        "stages": [],
+    }
+    _write_h3_ltx_receipt(job_dir, receipt)
+
+    ref2va = bool(references or staged_video_refs)
+    h3_body = {
+        "prompt": h3_prompt(j["full_prompt"], start_image=bool(start_b64) and not ref2va),
+        "frames": max(124, int(j.get("frames") or 124)),
+        "width": int(j.get("w") or 1344),
+        "height": int(j.get("h") or 768),
+        "seed": seed,
+    }
+    if references:
+        h3_body["references"] = [
+            {key: value for key, value in ref.items() if not str(key).startswith("_")}
+            for ref in references
+        ]
+    if staged_video_refs:
+        h3_body["video_references"] = staged_video_refs
+    if ref2va:
+        h3_body["reference_detail"] = req.get("reference_detail") or "match"
+    if start_b64:
+        h3_body["start_image_b64"] = start_b64
+
+    j["active_engine"] = "h3"
+    j["stage"] = "stage 1/2 · H3 draft"
+    save_state()
+    try:
+        h3_result = engine_generate("h3", h3_body, j, timeout=5400)
+    except Exception as exc:
+        h3_result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    touch_engine("h3")
+    if not h3_result.get("ok"):
+        j.pop("active_engine", None)
+        receipt.update(status="failed", failed_stage="h3",
+                       error=str(h3_result.get("error") or "H3 engine failed")[:400])
+        _write_h3_ltx_receipt(job_dir, receipt)
+        return fail(j, "Stage 1/2 H3 draft failed — LTX was not started.", receipt["error"])
+    h3_out = POOL_DIR / "h3-out" / Path(str(h3_result.get("file") or "")).name
+    if not h3_out.is_file() or h3_out.stat().st_size <= 0:
+        j.pop("active_engine", None)
+        receipt.update(status="failed", failed_stage="h3", error="H3 output missing")
+        _write_h3_ltx_receipt(job_dir, receipt)
+        return fail(j, "Stage 1/2 H3 draft failed — its output artifact is missing.")
+
+    stage_a = job_dir / "stage-a-h3.mp4"
+    shutil.copy2(h3_out, stage_a)
+    stage_a_hash = _sha256_file(stage_a)
+    receipt["stages"].append({
+        "stage": "draft", "engine": "h3", "seed": seed,
+        "frames_requested": h3_body["frames"],
+        "width": h3_body["width"], "height": h3_body["height"],
+        "artifact": stage_a.name, "sha256": stage_a_hash,
+    })
+    receipt["status"] = "stage-b"
+    _write_h3_ltx_receipt(job_dir, receipt)
+    j["stage_a_sha256"] = stage_a_hash
+    j["stage_a_artifact"] = str(stage_a)
+
+    input_dir = POOL_DIR / "ltx-out" / "inputs"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    staged_name = f"{j['id']}-stage-a.mp4"
+    staged_input = input_dir / staged_name
+    shutil.copy2(stage_a, staged_input)
+    ltx_body = {
+        "prompt": f"{j['full_prompt']} {H3_LTX_REFINEMENT_PROMPT}",
+        "frames": 121,
+        "width": int(j.get("w") or 1344),
+        "height": int(j.get("h") or 768),
+        "seed": seed,
+        "input_video_file": staged_name,
+        "retake_strength": H3_LTX_RETAKE_STRENGTH,
+        "regenerate_audio": False,
+        "reference_pipeline": True,
+    }
+    j["active_engine"] = "ltx"
+    j["stage"] = "stage 2/2 · LTX refinement"
+    save_state()
+    try:
+        try:
+            ltx_result = engine_generate("ltx", ltx_body, j, timeout=5400)
+        except Exception as exc:
+            ltx_result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    finally:
+        staged_input.unlink(missing_ok=True)
+    touch_engine("ltx")
+    if not ltx_result.get("ok"):
+        j.pop("active_engine", None)
+        receipt.update(status="failed", failed_stage="ltx25",
+                       error=str(ltx_result.get("error") or "LTX engine failed")[:400])
+        _write_h3_ltx_receipt(job_dir, receipt)
+        return fail(j, "Stage 2/2 LTX refinement failed — the H3 draft was preserved.", receipt["error"])
+    ltx_out = POOL_DIR / "ltx-out" / Path(str(ltx_result.get("file") or "")).name
+    if not ltx_out.is_file() or ltx_out.stat().st_size <= 0:
+        j.pop("active_engine", None)
+        receipt.update(status="failed", failed_stage="ltx25", error="LTX output missing")
+        _write_h3_ltx_receipt(job_dir, receipt)
+        return fail(j, "Stage 2/2 LTX refinement failed — its output artifact is missing; the H3 draft was preserved.")
+
+    receipt["stages"].append({
+        "stage": "refine", "engine": "ltx25", "seed": seed,
+        "frames_requested": ltx_body["frames"],
+        "width": ltx_body["width"], "height": ltx_body["height"],
+        "retake_strength": ltx_body["retake_strength"],
+        "regenerate_audio": False,
+        "source_sha256": stage_a_hash,
+        "artifact": ltx_out.name, "sha256": _sha256_file(ltx_out),
+    })
+    receipt["status"] = "complete"
+    _write_h3_ltx_receipt(job_dir, receipt)
+    j["h3_ltx_receipt"] = str(job_dir / "h3-ltx-receipt.json")
+    j.pop("active_engine", None)
+    j["stage"] = "encoding"
+    _finish_video(j, ltx_out)
+
+
 def run_video(j):
     if j["engine"] == "fal-video":
         return _run_fal_video(j)
@@ -3967,6 +4126,12 @@ def run_video(j):
             body["reference_detail"] = req.get("reference_detail") or "match"
         if start_b64:
             body["start_image_b64"] = start_b64
+        if j["engine"] == "h3-ltx25":
+            return _run_h3_ltx_video(
+                j, references=references,
+                staged_video_refs=staged_video_refs,
+                start_b64=start_b64,
+            )
         r = engine_generate(eng, body, j, timeout=5400)
         touch_engine(eng)
         if r.get("ok"):
@@ -8235,6 +8400,9 @@ def job_engine(j):
         return "maestro"
     if j.get("kind") == "assemble":
         return None
+    active = str(j.get("active_engine") or "").lower()
+    if active in ("h3", "ltx"):
+        return active
     r = j.get("request") or {}
     # Video-page payloads use `model`, while Say/Filmbeat payloads use `engine`.
     # Looking at only `engine` made the exact-job stop endpoint mistake active H3
@@ -8242,7 +8410,7 @@ def job_engine(j):
     selected = str(r.get("engine") or r.get("model") or j.get("engine") or "").lower()
     if selected.startswith("fal-"):
         return None
-    return "h3" if selected == "h3" else "ltx"
+    return "h3" if selected in ("h3", "h3-ltx25") else "ltx"
 
 def pick_next_job():
     """Group the queue by engine instead of taking it strictly in order.

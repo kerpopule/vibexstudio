@@ -35,6 +35,7 @@ LTX_TRANSFORMER = os.environ.get(
 ).strip()
 OUT = Path('/work/out')
 OUT.mkdir(parents=True, exist_ok=True)
+LTX_INPUT_DIR = OUT / 'inputs'
 FPS = 24
 
 import imageio_ffmpeg
@@ -459,6 +460,21 @@ class Handler(BaseHTTPRequestHandler):
             stg = float(req.get('stg_scale') or 0) or None
             input_video_strength = float(req.get('input_video_strength') or 0) or None
             ref_pipe = bool(req.get('reference_pipeline'))
+            input_video_raw = str(req.get('input_video_file') or '')
+            input_video_name = Path(str(req.get('input_video_file') or '')).name
+            ltx_input_video = None
+            retake_strength = float(req.get('retake_strength') or 0.35)
+            regenerate_audio = bool(req.get('regenerate_audio', False))
+            if input_video_raw:
+                if ENGINE != 'ltx25':
+                    raise ValueError('input_video_file is available only to LTX 2.5')
+                if input_video_name != input_video_raw or not input_video_name.endswith('.mp4'):
+                    raise ValueError('input_video_file must be one staged MP4 basename')
+                ltx_input_video = LTX_INPUT_DIR / input_video_name
+                if not ltx_input_video.is_file() or ltx_input_video.stat().st_size <= 0:
+                    raise ValueError('staged LTX input video is missing')
+                if not 0.0 < retake_strength <= 1.0:
+                    raise ValueError('retake_strength must be in (0, 1]')
         except Exception as exc:
             return self._send(400, {'ok': False, 'error': f'bad request: {exc}'})
         task = ('ref2va' if ENGINE == 'h3' and (references or video_references) else
@@ -575,6 +591,18 @@ class Handler(BaseHTTPRequestHandler):
                 if ENGINE == 'h3' and steps:
                     extra['sampling_steps'] = steps
                 if ENGINE == 'ltx25':
+                    if ltx_input_video is not None:
+                        # Native LTX retake consumes the whole H3 clip as temporal
+                        # visual conditioning.  Keeping regenerate_audio false
+                        # preserves the source performance soundtrack exactly.
+                        extra['retake_video'] = str(ltx_input_video)
+                        extra['retake_start_frame'] = 0
+                        extra['retake_end_frame'] = -1
+                        extra['retake_strength'] = retake_strength
+                        extra['retake_engine'] = 'native'
+                        extra['regenerate_audio'] = regenerate_audio
+                        print(f'NATIVE_RETAKE {ltx_input_video} strength={retake_strength} '
+                              f'regenerate_audio={regenerate_audio}', flush=True)
                     if modality_scale:
                         extra['modality_scale'] = modality_scale
                     if stg:
