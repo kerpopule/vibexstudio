@@ -2714,6 +2714,10 @@ def auto_requeue():
     failures come back (see INFRA_FAILURE_MARKS) — a bad prompt would just fail
     again — and only while the studio is actually healthy, so a broken box does
     not spin the whole backlog into the same wall."""
+    # The existing operator hold also gates idle residency restoration. Read it
+    # on every pass: suspend automatic retries without rewriting saved work.
+    if ENGINE_MAINTENANCE.exists():
+        return
     if any(j.get("status") in ("running", "queued") for j in jobs.values()):
         return                                   # let the queue drain first
     # LTX is the warm idle default, but retry remains keyed to the exact failed

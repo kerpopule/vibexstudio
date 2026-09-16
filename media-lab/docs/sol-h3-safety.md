@@ -12,6 +12,10 @@ The marker records only reason, exception type, PID, task family, and timestamp.
 
 The memory watchdog retains its marker but can stop a newly active service under pressure again. A stale marker no longer makes it ignore a controller relaunch. This is a last-resort stop, not an admission allocator.
 
+## Operator maintenance hold
+
+The app's existing `.engine-maintenance` marker now also gates `auto_requeue()` on every pass. While present, automatic retries leave job status, retry counters and both queues unchanged; the existing idle-residency restoration is held too. This is not a cancellation and does not pause manually submitted or already queued work. Once this source is loaded, marker changes are observed without another app restart. On older source the marker gates only idle restoration, not automatic retries. Preserve and clear it only under operator-approved recovery.
+
 ## Recovery requires an operator gate
 
 Do not clear a marker merely because a TCP socket opens, systemd reports active, or MemAvailable momentarily rises. Preserve journal, worker diagnostics, memory/pressure samples and queue checkpoints first. Quiesce approved work through the controller. Verify worker groups are gone, driver allocation/hung-task errors are not continuing, and the exact task-family phase budget fits with the approved operating margin. Preserve markers before approved clearing; never delete jobs or media to recover memory.
