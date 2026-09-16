@@ -13,7 +13,7 @@ residency is parallel, generation is one-at-a-time.
 """
 from __future__ import annotations
 
-import base64, json, os, secrets, shutil, subprocess, sys, tempfile, threading, time
+import base64, importlib.util, json, os, secrets, shutil, subprocess, sys, tempfile, threading, time, types
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -44,6 +44,54 @@ import soundfile as sf
 import torch
 from mmgp import offload, quant_router
 from shared.utils import files_locator as fl
+
+
+def _install_decord_compat():
+    """Provide the tiny decord surface LTX native-retake needs via PyAV.
+
+    The pinned Maestro image ships PyAV but omits its optional decord package.
+    Keep this bounded to one short studio clip; do not emulate decord generally.
+    """
+    if importlib.util.find_spec('decord') is not None:
+        return 'native'
+    import av
+
+    class VideoReader:
+        MAX_FRAMES = 512
+        MAX_SIDE = 4096
+
+        def __init__(self, path):
+            container = av.open(str(path))
+            try:
+                stream = container.streams.video[0]
+                self._fps = float(stream.average_rate or 24.0)
+                self._frames = []
+                for frame in container.decode(video=0):
+                    pixels = frame.to_ndarray(format='rgb24')
+                    height, width = pixels.shape[:2]
+                    if height > self.MAX_SIDE or width > self.MAX_SIDE:
+                        raise ValueError('retake input exceeds 4096px compatibility limit')
+                    self._frames.append(pixels)
+                    if len(self._frames) > self.MAX_FRAMES:
+                        raise ValueError('retake input exceeds 512-frame compatibility limit')
+            finally:
+                container.close()
+            if not self._frames:
+                raise ValueError('retake input has no decodable video frames')
+
+        def __len__(self):
+            return len(self._frames)
+
+        def __getitem__(self, index):
+            return self._frames[index]
+
+        def get_avg_fps(self):
+            return self._fps
+
+    module = types.ModuleType('decord')
+    setattr(module, 'VideoReader', VideoReader)
+    sys.modules['decord'] = module
+    return 'pyav-compat'
 
 
 def register_quant_handlers() -> None:
@@ -601,8 +649,9 @@ class Handler(BaseHTTPRequestHandler):
                         extra['retake_strength'] = retake_strength
                         extra['retake_engine'] = 'native'
                         extra['regenerate_audio'] = regenerate_audio
+                        decoder = _install_decord_compat()
                         print(f'NATIVE_RETAKE {ltx_input_video} strength={retake_strength} '
-                              f'regenerate_audio={regenerate_audio}', flush=True)
+                              f'regenerate_audio={regenerate_audio} decoder={decoder}', flush=True)
                     if modality_scale:
                         extra['modality_scale'] = modality_scale
                     if stg:

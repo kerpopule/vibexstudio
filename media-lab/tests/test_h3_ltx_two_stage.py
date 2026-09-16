@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import importlib
 import json
+import sys
+import types
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -156,6 +159,43 @@ def test_ltx_engine_accepts_only_staged_basename_video_inputs():
     assert "extra['retake_video']" in source
     assert "extra['retake_strength']" in source
     assert "extra['regenerate_audio']" in source
+
+
+def test_decord_compat_reader_uses_bounded_installed_pyav(monkeypatch):
+    class Frame:
+        def __init__(self, value):
+            self.value = value
+
+        def to_ndarray(self, format):
+            assert format == "rgb24"
+            return SimpleNamespace(shape=(16, 24, 3), value=self.value)
+
+    class Container:
+        streams = SimpleNamespace(video=[SimpleNamespace(average_rate=24)])
+
+        def decode(self, video):
+            assert video == 0
+            return iter([Frame(1), Frame(2)])
+
+        def close(self):
+            return None
+
+    fake_av = types.ModuleType("av")
+    setattr(fake_av, "open", lambda path: Container())
+    monkeypatch.setitem(sys.modules, "av", fake_av)
+    monkeypatch.delitem(sys.modules, "decord", raising=False)
+    tree = ast.parse(ENGINE.read_text())
+    node = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                and n.name == "_install_decord_compat")
+    namespace = {"importlib": importlib, "sys": sys, "types": types}
+    exec(compile(ast.Module(body=[node], type_ignores=[]), str(ENGINE), "exec"), namespace)
+    install = namespace["_install_decord_compat"]
+    assert install() == "pyav-compat"
+    decord = importlib.import_module("decord")
+    reader = decord.VideoReader("stage-a.mp4")
+    assert len(reader) == 2
+    assert reader.get_avg_fps() == pytest.approx(24.0)
+    assert reader[1].shape == (16, 24, 3)
 
 
 def test_studio_ui_exposes_explicit_two_stage_choice():
