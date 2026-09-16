@@ -1,7 +1,7 @@
 """Execute actual controller functions without importing startup services."""
 import ast
 from pathlib import Path
-import types
+
 import pytest
 
 APP = Path(__file__).parents[1] / 'app.py'
@@ -23,20 +23,20 @@ def test_uncertain_render_never_restarts_or_reissues(tmp_path, message):
         calls.append('restart')
         return 'up'
     def hold(*args):
-        # Independent descriptor must still be excluded when hold is recorded.
-        with (tmp_path/'lock').open('a+') as contender:
-            with pytest.raises(BlockingIOError):
-                fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Ordering is the contract here. Canonical flock exclusion and stale-owner
+        # rejection are exercised by the durable protocol tests.
         calls.append('hold')
-    generate = function('engine_generate', ENGINES={'h3': {'port': 1}},
+    generate = function('_engine_generate_authorized', ENGINES={'h3': {'port': 1}},
                         preflight=lambda e,b:b, INFERENCE_LOCK=str(tmp_path/'lock'),
                         fcntl=fcntl, http_json=request, ensure_engine=restart,
                         H3_ENGINE_HTTP_TIMEOUT_S=100, re=re, H3_MIN_FRAMES=5,
                         H3_MAX_FRAMES=121, save_state=lambda:None,
-                        hold_gpu_recovery=hold, gpu_recovery_pending=lambda:False)
+                        hold_gpu_recovery=hold, gpu_recovery_pending=lambda:False,
+                        gpu_render_ready=lambda e,t: object(),
+                        delegation_headers=lambda lease: {})
     job = {'id':'fixture', 'request':{}}
     result = generate('h3', {'prompt':'fixture'}, job)
-    assert calls == ['request', 'hold'], 'uncertain remote work must be reconciled, not restarted'
+    assert calls == ['restart', 'request', 'hold'], 'uncertain remote work must be reconciled, not restarted or reissued'
     assert result['ok'] is False
     assert job['recovery_required'] is True
     assert job['retryable'] is False
@@ -51,7 +51,7 @@ def test_fail_preserves_unknown_outcome_hold():
 
 def test_admission_refuses_unresolved_previous_request_before_any_mutation():
     calls = []
-    ensure = function('ensure_engine', gpu_recovery_pending=lambda:True,
+    ensure = function('_ensure_engine_under_lease', gpu_recovery_pending=lambda:True,
                       stand_down_other_companions=lambda *a:calls.append('evict'))
     job = {}
     assert ensure('h3', job) == 'busy'
@@ -60,7 +60,8 @@ def test_admission_refuses_unresolved_previous_request_before_any_mutation():
 
 def test_queued_job_stays_visible_under_recovery_hold():
     job = {'id':'next','status':'queued'}
-    run = function('run_queued_job', jobs={'next':job}, gpu_recovery_pending=lambda:True)
+    run = function('run_queued_job', jobs={'next':job}, gpu_recovery_pending=lambda:True,
+                   _gpu_cutover_ready=True)
     assert run('next') is False
     assert job['status'] == 'queued'
 
@@ -110,3 +111,22 @@ def test_partial_hold_file_is_fail_closed(tmp_path):
     pending = function('gpu_recovery_pending', GPU_RECOVERY_HOLD=marker,
                        _gpu_recovery_blocked=False, jobs={})
     assert pending() is True
+
+
+def test_video_runner_has_no_cold_container_bypass():
+    tree = ast.parse(APP.read_text())
+    node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'run_video')
+    calls = {
+        call.func.id
+        for call in ast.walk(node)
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+    }
+    assert '_run_video_cold' not in calls
+
+
+def test_cold_container_launcher_is_fail_closed():
+    launcher = APP.parent / 'runner' / 'run_lab_render.sh'
+    text = launcher.read_text()
+    retired = text.index('FAIL=retired_unfenced_cold_path')
+    docker_start = text.index('docker start')
+    assert text.index('exit 77', retired) < docker_start

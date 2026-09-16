@@ -4,7 +4,7 @@ Single-flight worker queue, persisted jobs, ETA stats, PIN admin, remix."""
 import asyncio, base64, fcntl, hashlib, hmac, json, math, mimetypes, os, posixpath, random, re, shlex, shutil, subprocess, tempfile, threading, time, urllib.error, urllib.request, uuid
 from pathlib import Path
 from functools import lru_cache
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from typing import Optional, Union
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import Response, FileResponse, HTMLResponse, JSONResponse, StreamingResponse
@@ -16,6 +16,8 @@ from media_lab_core.job_store import JobStore
 from media_lab_core.director_context import project_context_message
 from media_lab_core import installer as engine_installer
 from media_lab_core import cut as cut_core
+from media_lab_core.durable_gpu_protocol import LeaseBusy, StaleFence
+from media_lab_core.gpu_lease_runtime import delegation_env, delegation_headers, open_protocol
 from runner.audio_signal_gate import audio_signal_metrics
 from runner import h3_reference as _h3ref   # H3 Ref2VA / Qwen quality contract
 from runner.maestro_safety import admission_error as maestro_admission_error, reap_orphan_runners as reap_orphan_maestro_runners
@@ -1790,8 +1792,139 @@ H3_VARIANT_RECEIPT.parent.mkdir(parents=True, exist_ok=True)
 COMFY_MUSIC_DIR = Path.home() / "runtime/music3-iso/ComfyUI"
 COMFY_IMAGE_DIR = Path.home() / "runtime/comfy-ltx25/ComfyUI"
 SOL_H3_PORT = 8291
-# Cross-process inference mutex (shared with the engine shims and image_service).
-INFERENCE_LOCK = os.environ.get("MEDIA_LAB_INFERENCE_LOCK") or local_config.inference_lock()   # MEDIA_LAB_INFERENCE_LOCK
+# Legacy in-process mutex; the authoritative durable cross-process lease is
+# /run/user/$UID/spark-gpu.lock, owned by the controller below.
+INFERENCE_LOCK = os.environ.get("MEDIA_LAB_INFERENCE_LOCK") or local_config.inference_lock()
+GPU_CAPACITY_RECEIPTS = SOURCE_DIR / "config/gpu-capacity-receipts.json"
+_gpu_protocol = None
+_gpu_protocol_mutex = threading.RLock()
+_gpu_active_lease = None
+_gpu_thread = threading.local()
+_gpu_cutover_ready = False
+
+
+def gpu_protocol():
+    global _gpu_protocol
+    if _gpu_protocol is None:
+        protocol = open_protocol()
+        for row in json.loads(GPU_CAPACITY_RECEIPTS.read_text()).get("qualifications", []):
+            protocol.qualify(row["engine"], row["task"], peak_gib=row["peak_gib"],
+                             reserve_gib=row["reserve_gib"], evidence=row["evidence"])
+        _gpu_protocol = protocol
+    return _gpu_protocol
+
+
+def initialize_gpu_cutover():
+    """Recover durable ownership before any local worker may admit GPU work."""
+    global _gpu_active_lease, _gpu_cutover_ready
+    protocol = gpu_protocol()
+    recovered = protocol.recover_startup()
+    _gpu_active_lease = recovered
+    lease = protocol.snapshot().get("lease")
+    _gpu_cutover_ready = lease is None
+    if lease is not None:
+        hold_gpu_recovery(f"durable-lease-{lease['state']}:{lease.get('reason') or 'unknown'}")
+        if recovered is not None and recovered._fd is None:
+            def retain_recovery_exclusion():
+                try:
+                    protocol.wait_for_recovery_lock(recovered)
+                except Exception as exc:
+                    print(f"[gpu-lease] recovery lock waiter failed: {exc}", flush=True)
+            threading.Thread(target=retain_recovery_exclusion, daemon=True).start()
+    return _gpu_cutover_ready
+
+
+def _gpu_exact_warm(engine, task):
+    if engine not in ENGINES or not engine_up(engine) or engine_busy(engine):
+        return False
+    if engine == "h3":
+        return (h3_resident_config() or {}).get("task") == task
+    return True
+
+
+def _gpu_warm_proof(engine, task):
+    return {"engine": engine, "task": task,
+            "healthy": _gpu_exact_warm(engine, task), "busy": engine_busy(engine)}
+
+
+def _gpu_reclaim_all(j=None):
+    releaser = globals().get("release_voice_weights")
+    if callable(releaser) and not releaser():
+        raise RuntimeError("loaded TTS weights would not unload")
+    for name in COMPANION_ENGINE_NAMES:
+        if engine_up(name):
+            if engine_busy(name):
+                raise LeaseBusy(f"active companion will not be interrupted: {name}")
+            stop_engine(name)
+    survivors = [name for name in COMPANION_ENGINE_NAMES if engine_up(name)]
+    available = _mem_available_gb()
+    boot_path = Path("/proc/sys/kernel/random/boot_id")
+    return {"processes_gone": not survivors,
+            "memory_recovered": not survivors and available >= 24,
+            "available_gib": available, "survivors": survivors,
+            "boot_id": boot_path.read_text().strip() if boot_path.exists() else "unknown"}
+
+
+@contextmanager
+def gpu_operation(engine, task, j=None):
+    """Own or retarget the canonical GPU lease for one exact local operation."""
+    global _gpu_active_lease
+    job_id = str((j or {}).get("id") or f"internal-{threading.get_ident()}")
+    owner = f"media-lab-simple:{os.getpid()}"
+    with _gpu_protocol_mutex:
+        nested = getattr(_gpu_thread, "lease", None)
+        if nested is not None:
+            if (nested.engine, nested.task) != (engine, task):
+                raise LeaseBusy("nested GPU operation cannot switch engine or task")
+            yield nested
+            return
+        protocol = gpu_protocol(); lease = _gpu_active_lease
+        try:
+            warm = _gpu_warm_proof(engine, task)
+            if lease is None:
+                lease = protocol.acquire(job_id=job_id, engine=engine, task=task, owner=owner)
+                _gpu_active_lease = lease
+                if warm["healthy"] and not warm["busy"]:
+                    protocol.adopt_warm(lease, proof=warm)
+            else:
+                protocol.retarget(lease, job_id=job_id, engine=engine, task=task,
+                                  owner=owner, warm_proof=warm)
+            if lease.phase == "drain":
+                protocol.advance(lease, "unload")
+                proof = _gpu_reclaim_all(j)
+                if proof["processes_gone"] is not True:
+                    raise RuntimeError(f"GPU processes survived unload: {proof['survivors']}")
+                protocol.advance(lease, "reclaim")
+                if proof["memory_recovered"] is not True:
+                    raise RuntimeError(f"GPU memory did not recover: {proof['available_gib']:.2f} GiB")
+                protocol.advance(lease, "load")
+            _gpu_thread.lease = lease
+            yield lease
+            if lease.phase != "render":
+                raise RuntimeError("GPU operation returned without entering fenced render phase")
+            proof = _gpu_warm_proof(engine, task)
+            if proof["healthy"] and not proof["busy"]:
+                protocol.park(lease, proof=proof)
+            else:
+                protocol.mark_recovery(lease, "operation-finished-without-exact-idle-residency")
+                hold_gpu_recovery("operation-finished-without-exact-idle-residency", j)
+        except Exception as exc:
+            if lease is not None and lease.state == "active" and lease.phase != "parked":
+                try: protocol.mark_recovery(lease, f"operation-uncertain:{type(exc).__name__}")
+                except StaleFence: pass
+                hold_gpu_recovery(f"operation-uncertain:{type(exc).__name__}", j)
+            raise
+        finally:
+            _gpu_thread.lease = None
+
+
+def gpu_render_ready(engine, task):
+    lease = getattr(_gpu_thread, "lease", None)
+    if lease is None or (lease.engine, lease.task) != (engine, task):
+        raise LeaseBusy("exact GPU operation is not active")
+    if lease.phase == "load": gpu_protocol().advance(lease, "render")
+    if lease.phase != "render": raise LeaseBusy(f"GPU lease is not render-authorized: {lease.phase}")
+    return lease
 
 GPU_RECOVERY_HOLD = POOL_DIR / "gpu-recovery-hold.json"
 _gpu_recovery_blocked = False
@@ -2034,14 +2167,16 @@ def restore_chat_after_video():
         print("[pool] chat restore did not become healthy; maintenance marker retained", flush=True)
     return ok
 
-def http_json(url, payload=None, timeout=10):
+def http_json(url, payload=None, timeout=10, headers=None):
     """An engine that refuses a render explains WHY in the 500 body. urllib
     raises before anyone reads it, so every engine failure used to be recorded
     as the useless "HTTP Error 500: Internal Server Error" — which is what made
     a one-line frame-count bug take hours to find. Carry the body up."""
     data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(url, data=data,
-        headers={"Content-Type": "application/json"} if data else {})
+    request_headers = dict(headers or {})
+    if data:
+        request_headers.setdefault("Content-Type", "application/json")
+    req = urllib.request.Request(url, data=data, headers=request_headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read())
@@ -2079,7 +2214,8 @@ def h3_resident_config():
         variant = health.get("variant")
         if variant not in _h3ref.H3_VARIANTS:
             return None
-        return {"variant": variant, "turbo_preset": health.get("turbo_preset") or None}
+        return {"variant": variant, "task": health.get("task") or variant,
+                "turbo_preset": health.get("turbo_preset") or None}
     except Exception:
         return None
 
@@ -2104,6 +2240,8 @@ def engine_idle_s(name):
         return None
 
 def pool_cmd(cmd):
+    if getattr(_gpu_thread, "lease", None) is not None:
+        return "OK"
     r = subprocess.run(["bash", str(ROOT / "runner/pool_lock.sh"), cmd],
                        capture_output=True, text=True)
     return (r.stdout or "").strip().splitlines()[-1] if r.stdout else "FAIL"
@@ -2208,12 +2346,15 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None):
     if j is not None and j.get("cancel"):
         return False
     e = ENGINES[name]
+    lease = getattr(_gpu_thread, "lease", None)
+    if lease is None or lease.phase != "load" or lease.engine != name:
+        raise LeaseBusy(f"{name} boot requires its exact load-phase GPU lease")
+    delegated_env = {**os.environ, **delegation_env(lease)}
     if e["kind"] == "docker":
-        env = None
+        env = delegated_env
         if name == "h3" and variant is not None:
             if variant not in _h3ref.H3_VARIANTS:
                 raise ValueError(f"unsupported H3 variant: {variant!r}")
-            env = os.environ.copy()
             env["H3_VARIANT"] = variant
             if turbo_preset is not None:
                 if turbo_preset not in _h3ref.H3_TURBO_PRESETS:
@@ -2225,6 +2366,8 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None):
         subprocess.run(["systemctl", "--user", "reset-failed", e["unit"]],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         setenv = []
+        for key, value in delegation_env(lease).items():
+            setenv.append(f"--setenv={key}={value}")
         if name == "h3" and variant is not None:
             # The Sol server reads its task family and Turbo preset from the
             # unit's environment; systemd-run's --setenv is the only way in.
@@ -2396,7 +2539,7 @@ def _mem_available_gb(*, strict=False):
 
 MEM_FLOOR_GB = 24   # measured safety margin across load, sampler, decode and mux
 
-def ensure_engine(name, j=None):
+def _ensure_engine_under_lease(name, j=None):
     """Bring an engine up (residency). Returns 'up' | 'busy' | 'fail'.
     The pool unit holds the canonical GPU flock while any engine is resident;
     compute stays strictly serialized through the app's single worker.
@@ -2496,6 +2639,72 @@ def ensure_engine(name, j=None):
             maybe_release_pool()
             return "cancelled" if j is not None and j.get("cancel") else "fail"
         return verify_pplx_after_companion_load(name, j)
+
+
+def _gpu_task_for_engine(name, j=None):
+    job = j or {}
+    request = (job.get("request") or {})
+    if job.get("_gpu_task"):
+        return str(job["_gpu_task"])
+    if name == "h3":
+        if request.get("references") or request.get("video_references"):
+            return "ref2va"
+        if request.get("start_image") or request.get("start_image_b64"):
+            return "fl2va"
+        return "t2va"
+    if name == "ltx":
+        return "t2va"
+    return "generate"
+
+
+def _gpu_finish_job_operation(exc_type=None, exc=None, tb=None):
+    ctx = getattr(_gpu_thread, "job_context", None)
+    if ctx is None:
+        return
+    _gpu_thread.job_context = None
+    _gpu_thread.job_target = None
+    ctx.__exit__(exc_type, exc, tb)
+
+
+def ensure_engine(name, j=None):
+    """Load/reuse an engine only while its exact durable GPU lease is live."""
+    task = _gpu_task_for_engine(name, j)
+    active = getattr(_gpu_thread, "lease", None)
+    if active is not None:
+        if (active.engine, active.task) != (name, task):
+            raise LeaseBusy(f"active GPU lease is {active.engine}/{active.task}, not {name}/{task}")
+        state = _ensure_engine_under_lease(name, j)
+        if state == "up":
+            gpu_render_ready(name, task)
+        return state
+
+    if j is None or not j.get("id"):
+        with gpu_operation(name, task, j):
+            state = _ensure_engine_under_lease(name, j)
+            if state == "up":
+                gpu_render_ready(name, task)
+            return state
+
+    target = (name, task)
+    if getattr(_gpu_thread, "job_context", None) is not None:
+        if getattr(_gpu_thread, "job_target", None) == target:
+            raise LeaseBusy("queued GPU context exists without its live lease")
+        _gpu_finish_job_operation()
+    ctx = gpu_operation(name, task, j)
+    ctx.__enter__()
+    _gpu_thread.job_context = ctx
+    _gpu_thread.job_target = target
+    try:
+        state = _ensure_engine_under_lease(name, j)
+        if state == "up":
+            gpu_render_ready(name, task)
+        else:
+            failure = RuntimeError(f"engine admission: {state}")
+            _gpu_finish_job_operation(type(failure), failure, None)
+        return state
+    except Exception as exc:
+        _gpu_finish_job_operation(type(exc), exc, exc.__traceback__)
+        raise
 
 
 class _ResidencyRuntime:
@@ -3470,18 +3679,18 @@ def run_video(j):
                 j["stage"] = "encoding"
                 return _finish_video(j, out)
             r = {"ok": False, "error": "engine output missing"}
-        # Warm path broke — drop the engine and fall back to the proven cold path.
+        # Warm path broke. Do not bypass the durable controller through the
+        # retired cold-container launcher: its independent shell lock cannot
+        # carry this request's fence and could overlap another GPU owner.
         j["stage"] = "loading models"
-        j["detail"] = f"warm engine fallback: {r.get('error','')}"[:400]
+        j["detail"] = f"warm engine failed: {r.get('error','')}"[:400]
         stop_engine(eng)
         maybe_release_pool()
     else:
         maybe_release_pool()
-    if start_b64 or references or staged_video_refs:
-        return fail(j, "The film crew is down, so your picture can't be animated right now and "
-                       "your reference media can't be conditioned from the cold path — "
-                       "try again in a minute.")
-    _run_video_cold(j)
+    return fail(j, "The fenced film engine is unavailable; the retired cold path will not be "
+                   "used because it cannot prove canonical GPU ownership. Try again after the "
+                   "engine is healthy.")
 
 def _music_engine_for(j) -> str:
     """'yue2' | 'music3' for a music-family job. New songs default to YuE2;
@@ -3546,10 +3755,7 @@ def _yue2_url(path: str) -> str:
 
 
 def _yue2_generate(body: dict, j=None, timeout=3600):
-    """POST /generate to the YuE2 shim under the canonical inference lock — the
-    same contract as engine_generate() for Sol/LTX. (The shim used to take the
-    lock itself; that collided with residency transactions and would deadlock
-    against this caller, so it no longer does.) A stop is forwarded as /interrupt."""
+    """POST /generate with exact fenced delegation; forward cooperative stop."""
     stop = threading.Event()
 
     def watch():
@@ -3563,18 +3769,36 @@ def _yue2_generate(body: dict, j=None, timeout=3600):
     watcher = threading.Thread(target=watch, daemon=True)
     watcher.start()
     try:
-        with open(INFERENCE_LOCK, "a+") as gate:
-            fcntl.flock(gate, fcntl.LOCK_EX)
-            return http_json(_yue2_url("/generate"), body, timeout=timeout)
+        if j is not None:
+            j["_gpu_task"] = "generate"
+        if ensure_engine("yue2", j) != "up":
+            raise RuntimeError("YuE2 admission failed")
+        lease = gpu_render_ready("yue2", "generate")
+        return http_json(_yue2_url("/generate"), body, timeout=timeout,
+                         headers=delegation_headers(lease))
     finally:
+        if j is not None:
+            j.pop("_gpu_task", None)
         stop.set()
 
 
-def _yue2_transcribe(song: Path, request_id: str, max_seconds=None, task="melody-full"):
+def _yue2_transcribe(song: Path, request_id: str, max_seconds=None, task="melody-full", j=None):
     body = {"audio_path": str(song), "task": task, "request_id": request_id}
     if max_seconds:
         body["max_seconds"] = int(max_seconds)
-    return http_json(_yue2_url("/transcribe"), body, timeout=1900)
+    if j is not None:
+        j["_gpu_task"] = "transcribe"
+    try:
+        if getattr(_gpu_thread, "lease", None) is not None:
+            _gpu_finish_job_operation()
+        if ensure_engine("yue2", j) != "up":
+            raise RuntimeError("YuE2 transcription admission failed")
+        lease = gpu_render_ready("yue2", "transcribe")
+        return http_json(_yue2_url("/transcribe"), body, timeout=1900,
+                         headers=delegation_headers(lease))
+    finally:
+        if j is not None:
+            j.pop("_gpu_task", None)
 
 
 def run_music(j, finalize: bool = True):
@@ -3715,7 +3939,7 @@ def run_music(j, finalize: bool = True):
             return fail(j, "The reference song is no longer in the library.")
         j["stage"] = "transcribing"
         try:
-            res = _yue2_transcribe(song, f"{j['id']}-ref", max_seconds=secs)
+            res = _yue2_transcribe(song, f"{j['id']}-ref", max_seconds=secs, j=j)
         except Exception as e:
             return fail(j, "The reference song could not be transcribed — try again.", str(e))
         if not res.get("ok") or not res.get("abc"):
@@ -6383,6 +6607,13 @@ def preflight(eng, body):
     return b
 
 def engine_generate(eng, body, j=None, timeout=7200):
+    task = ("ref2va" if eng == "h3" and (body.get("references") or body.get("video_references")) else
+            "fl2va" if eng == "h3" and body.get("start_image_b64") else "t2va")
+    with gpu_operation(eng, task, j):
+        return _engine_generate_authorized(eng, body, j=j, timeout=timeout, task=task)
+
+
+def _engine_generate_authorized(eng, body, j=None, timeout=7200, task="t2va"):
     """Call a video engine, and CORRECT the request rather than failing it.
 
     Every engine has contracts the app can get wrong (H3: frames must be 17k+5
@@ -6398,28 +6629,29 @@ def engine_generate(eng, body, j=None, timeout=7200):
     body = preflight(eng, body)
     if j is not None and j.get("id"):
         body.setdefault("request_id", str(j["id"]))
+    state = ensure_engine(eng, j)
+    if state != "up":
+        return {"ok": False, "error": f"engine admission failed: {state}"}
+    lease = gpu_render_ready(eng, task)
+    request_headers = delegation_headers(lease)
     if eng == "h3":
         timeout = max(timeout, H3_ENGINE_HTTP_TIMEOUT_S)
     for attempt in (1, 2, 3):
         if j is not None and j.get("cancel"):
             return {"ok": False, "error": "stopped by the studio"}
         try:
-            # Cross-process inference mutex shared with image_service.py closes
-            # the health-check -> render TOCTOU window. It is separate from the
-            # canonical residency lock and is held only during actual inference.
-            with open(INFERENCE_LOCK, "a+") as gate:
-                fcntl.flock(gate, fcntl.LOCK_EX)
-                if gpu_recovery_pending():
-                    return {"ok": False, "error": "GPU recovery hold", "recovery_required": True}
-                try:
-                    return http_json(url, body, timeout=timeout)
-                except Exception as transport_error:
-                    problem = str(transport_error).lower()
-                    if (isinstance(transport_error, TimeoutError) or "connection" in problem
-                            or "timed out" in problem or "remote end" in problem):
-                        # Persist exclusion BEFORE releasing the transaction lock.
-                        hold_gpu_recovery("engine-request-outcome-unknown", j)
-                    raise
+            if gpu_recovery_pending():
+                return {"ok": False, "error": "GPU recovery hold", "recovery_required": True}
+            try:
+                return http_json(url, body, timeout=timeout, headers=request_headers)
+            except Exception as transport_error:
+                problem = str(transport_error).lower()
+                if (isinstance(transport_error, TimeoutError) or "connection" in problem
+                        or "timed out" in problem or "remote end" in problem):
+                    # Persist exclusion before gpu_operation can release or park
+                    # the canonical live flock.
+                    hold_gpu_recovery("engine-request-outcome-unknown", j)
+                raise
         except Exception as e:
             msg = str(e)
             if j is not None and j.get("cancel"):
@@ -7478,12 +7710,23 @@ def run_maestro(j):
     if not pause_chat_for_video(j):
         return fail(j, "Could not safely pause the managed Qwen runtimes for Maestro.")
 
-    cmd = ["docker", "exec", "-e", "HF_HUB_OFFLINE=0", "maestro-gui",
-           "python3", container_runner, container_settings, container_receipt]
+    lease = gpu_render_ready("maestro", "generate")
+    delegated = delegation_env(lease)
+    cmd = ["docker", "exec", "-e", "HF_HUB_OFFLINE=0"]
+    for key, value in sorted(delegated.items()):
+        cmd.extend(["-e", f"{key}={value}"])
+    cmd.extend(["maestro-gui", "python3", container_runner,
+                container_settings, container_receipt])
     j["stage"] = "loading Maestro"
     save_state()
     with host_log.open("w", encoding="utf-8") as log:
-        p = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, text=True)
+        # The docker-exec client inherits the canonical flock descriptor. If the
+        # controller crashes, exclusion remains held until the in-container GPU
+        # process exits and docker exec returns.
+        if lease._fd is None:
+            raise LeaseBusy("Maestro lease lost its live flock")
+        p = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, text=True,
+                             pass_fds=(lease._fd.fileno(),))
         last_stage = ""
         while p.poll() is None:
             if j.get("cancel"):
@@ -7562,6 +7805,13 @@ def run_maestro(j):
                     engine=j["engine_used"])
         return
     return _finish_video(j, source)
+
+
+def run_maestro_fenced(j):
+    """Fence the entire external Maestro load/render/unload transaction."""
+    with gpu_operation("maestro", "generate", j):
+        gpu_render_ready("maestro", "generate")
+        return run_maestro(j)
 
 
 def _melband_cli():
@@ -7646,7 +7896,7 @@ def run_stems(j):
     save_state()
 
 
-RUNNERS = {"video": run_video, "maestro": run_maestro, "music": run_music, "stems": run_stems,
+RUNNERS = {"video": run_video, "maestro": run_maestro_fenced, "music": run_music, "stems": run_stems,
            "screenshotsong": run_screenshot_song, "image": run_image,
            "charsheets": run_charsheets,
            "character": run_character, "storyboard": run_storyboard, "assemble": run_assemble,
@@ -7765,6 +8015,8 @@ def run_queued_job(job_id):
     waits for an already-started restore; once admitted, the restore cannot enter
     until the job has finished and its output/status have been committed.
     """
+    if not _gpu_cutover_ready:
+        return False
     j = jobs.get(job_id)
     if not j or j.get("status") != "queued":
         return False
@@ -7787,6 +8039,8 @@ def run_queued_job(job_id):
             # Unknown code defects are deliberately NOT retried. A broad retry
             # loop turned one missing-directory bug into 18 immediate failures.
             fail(j, "Something went wrong — the studio stopped this job safely.", e)
+        finally:
+            _gpu_finish_job_operation()
         if j.get("cancel"):
             # A runner may unwind through packaging after its engine has already
             # been killed. Cancellation wins over any late success/error write.
@@ -7873,6 +8127,7 @@ except Exception as _recovery_error:
 # MEDIA_LAB_DISABLE_BACKGROUND_WORKERS=1 is for isolated API tests and CLI drives
 # under a disposable HOME: the routes stay up, nothing renders or reconciles.
 if os.getenv("MEDIA_LAB_DISABLE_BACKGROUND_WORKERS") != "1":
+    initialize_gpu_cutover()
     threading.Thread(target=worker, daemon=True).start()
     threading.Thread(target=online_worker, daemon=True).start()
     threading.Thread(target=reaper, daemon=True).start()
@@ -8302,15 +8557,18 @@ def music_plan(r: MusicPlanReq):
     cot = r.cot.strip().lower() or "full"
     if cot not in ("full", "melody"):
         return JSONResponse({"error": "plan needs cot=full or melody"}, status_code=400)
-    st = ensure_engine("yue2")
-    if st == "busy":
-        return JSONResponse({"error": BUSY_MSG}, status_code=409)
-    if st != "up":
-        return JSONResponse({"error": friendly("comfy_boot")}, status_code=503)
     body = {"style": style, "lyrics": r.lyrics.strip() or "[Instrumental]", "cot": cot,
             "seed": int(r.seed or 0), "request_id": f"plan-{uuid.uuid4().hex[:12]}"}
     try:
-        res = http_json(_yue2_url("/plan"), body, timeout=900)
+        with gpu_operation("yue2", "plan"):
+            st = _ensure_engine_under_lease("yue2")
+            if st == "busy":
+                return JSONResponse({"error": BUSY_MSG}, status_code=409)
+            if st != "up":
+                return JSONResponse({"error": friendly("comfy_boot")}, status_code=503)
+            lease = gpu_render_ready("yue2", "plan")
+            res = http_json(_yue2_url("/plan"), body, timeout=900,
+                            headers=delegation_headers(lease))
     except Exception as e:
         code = 409 if "HTTP 409" in str(e) else 502
         return JSONResponse({"error": "YuE2 could not plan the score", "detail": str(e)[:300]},

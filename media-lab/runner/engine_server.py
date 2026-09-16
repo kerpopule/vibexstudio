@@ -22,6 +22,7 @@ sys.path.insert(0, str(APP))
 os.chdir(APP)
 
 ENGINE = os.environ.get('ENGINE', 'ltx25')
+LEASE_ENGINE = 'ltx' if ENGINE == 'ltx25' else ENGINE
 PORT = int(os.environ.get('PORT', '8290'))
 LTX_PIPELINE = os.environ.get('LTX_PIPELINE', 'distilled').strip().lower()
 if LTX_PIPELINE not in ('distilled', 'dev'):
@@ -460,6 +461,12 @@ class Handler(BaseHTTPRequestHandler):
             ref_pipe = bool(req.get('reference_pipeline'))
         except Exception as exc:
             return self._send(400, {'ok': False, 'error': f'bad request: {exc}'})
+        task = ('ref2va' if ENGINE == 'h3' and (references or video_references) else
+                'fl2va' if ENGINE == 'h3' and image_b64 else 't2va')
+        from media_lab_core.gpu_lease_runtime import authorize_values, open_protocol
+        if not authorize_values(open_protocol(), dict(self.headers.items()),
+                                engine=LEASE_ENGINE, task=task):
+            return self._send(403, {'ok': False, 'error': 'exact GPU lease delegation required'})
         started = time.time()
         with _busy:  # strict single-flight generation
             # A caller can lose its HTTP connection while a multi-hour H3 render

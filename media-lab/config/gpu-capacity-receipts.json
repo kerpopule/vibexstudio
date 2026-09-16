@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "reserve_basis": "existing production envelopes plus explicit OS/headroom reserve; remeasure on every runtime or model revision",
+  "qualifications": [
+    {"engine":"h3","task":"fl2va","peak_gib":60.38,"reserve_gib":24.0,"evidence":"2026-09-16 live media-lab-sol-h3.service MemoryPeak 64824205312 bytes after seven completed renders"},
+    {"engine":"h3","task":"t2va","peak_gib":115.0,"reserve_gib":5.0,"evidence":"config/model-residency-policy.json h3 measured decode envelope"},
+    {"engine":"h3","task":"ref2va","peak_gib":115.0,"reserve_gib":5.0,"evidence":"config/model-residency-policy.json h3 measured decode envelope; exact Ref2VA requalification still required on revision change"},
+    {"engine":"ltx","task":"t2va","peak_gib":46.0,"reserve_gib":24.0,"evidence":"config/model-residency-policy.json ltx measured decode envelope"},
+    {"engine":"image","task":"generate","peak_gib":15.0,"reserve_gib":24.0,"evidence":"existing production image ComfyUI budget in app.py; exact graph-specific requalification remains required on revision change"},
+    {"engine":"music","task":"generate","peak_gib":15.0,"reserve_gib":24.0,"evidence":"existing production music ComfyUI budget in app.py; exact workflow-specific requalification remains required on revision change"},
+    {"engine":"maestro","task":"generate","peak_gib":115.0,"reserve_gib":5.0,"evidence":"whole-box conservative envelope inherited from the largest currently admitted Maestro H3 workflow; exact model-specific qualification is still required before promotion"},
+    {"engine":"yue2","task":"generate","peak_gib":18.0,"reserve_gib":24.0,"evidence":"existing production YuE2 budget in app.py"},
+    {"engine":"yue2","task":"plan","peak_gib":18.0,"reserve_gib":24.0,"evidence":"existing production YuE2 budget in app.py"},
+    {"engine":"yue2","task":"transcribe","peak_gib":18.0,"reserve_gib":24.0,"evidence":"existing production YuE2 budget in app.py"}
+  ]
+}

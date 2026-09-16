@@ -15,10 +15,12 @@ import hashlib
 import json
 import os
 import sqlite3
+import subprocess
 import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO, Any, Callable, Mapping, Sequence
+from typing import IO, Any, ClassVar
 
 
 class LeaseBusy(RuntimeError):
@@ -50,12 +52,13 @@ class Lease:
 class DurableGpuProtocol:
     """One durable local-GPU owner plus an independent durable job queue."""
 
-    _NEXT_PHASES = {
+    _NEXT_PHASES: ClassVar[dict[str, set[str]]] = {
         "drain": {"unload"},
         "unload": {"reclaim"},
         "reclaim": {"load", "released"},
         "load": {"render"},
         "render": {"unload"},
+        "parked": {"drain", "render"},
     }
 
     def __init__(
@@ -80,13 +83,42 @@ class DurableGpuProtocol:
 
     @staticmethod
     def _read_boot_id() -> str:
-        return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+        linux = Path("/proc/sys/kernel/random/boot_id")
+        if linux.exists():
+            return linux.read_text().strip()
+        # macOS has no /proc boot UUID. kern.boottime is stable for one boot and
+        # changes on reboot; hash it with the host name so receipts stay opaque.
+        try:
+            boot = subprocess.check_output(
+                ["sysctl", "-n", "kern.boottime"], text=True, timeout=5
+            ).strip()
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise RuntimeError("stable boot identity is unavailable") from exc
+        return hashlib.sha256(f"{os.uname().nodename}:{boot}".encode()).hexdigest()
 
     @staticmethod
     def _read_available_gib() -> float:
-        for line in Path("/proc/meminfo").read_text().splitlines():
-            if line.startswith("MemAvailable:"):
-                return int(line.split()[1]) / 1024 / 1024
+        meminfo = Path("/proc/meminfo")
+        if meminfo.exists():
+            for line in meminfo.read_text().splitlines():
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) / 1024 / 1024
+        try:
+            text = subprocess.check_output(["vm_stat"], text=True, timeout=5)
+            page_size = 4096
+            first = text.splitlines()[0] if text else ""
+            digits = "".join(ch for ch in first if ch.isdigit())
+            if digits:
+                page_size = int(digits)
+            pages = 0
+            for line in text.splitlines()[1:]:
+                label, _, value = line.partition(":")
+                if label in {"Pages free", "Pages inactive", "Pages speculative"}:
+                    pages += int(value.strip().rstrip("."))
+            if pages:
+                return pages * page_size / (1024 ** 3)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            raise RuntimeError("MemAvailable is unavailable") from exc
         raise RuntimeError("MemAvailable is unavailable")
 
     @staticmethod
@@ -155,6 +187,14 @@ class DurableGpuProtocol:
                 );
                 CREATE INDEX IF NOT EXISTS jobs_lane_state_created
                     ON jobs(lane, state, created, job_id);
+                CREATE TABLE IF NOT EXISTS events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts REAL NOT NULL,
+                    event TEXT NOT NULL,
+                    job_id TEXT,
+                    fence INTEGER,
+                    detail TEXT NOT NULL DEFAULT '{}'
+                );
                 """
             )
 
@@ -216,7 +256,6 @@ class DurableGpuProtocol:
                         f"GPU lease {current['fence']} is {current['state']} "
                         f"for {current['owner']}:{current['job_id']}"
                     )
-                self._check_capacity(db, engine, task)
                 fence = self._next_fence(db, "gpu_fence")
                 boot = self._boot_id()
                 now = self._now()
@@ -252,6 +291,8 @@ class DurableGpuProtocol:
                     raise LeaseBusy("recovery lease cannot advance")
                 if phase not in self._NEXT_PHASES.get(row["phase"], set()):
                     raise ValueError(f"invalid GPU phase transition {row['phase']} -> {phase}")
+                if phase == "load":
+                    self._check_capacity(db, row["engine"], row["task"])
                 db.execute("UPDATE gpu_lease SET phase=?,updated=? WHERE singleton=1",
                            (phase, self._now()))
                 db.execute("COMMIT")
@@ -260,6 +301,70 @@ class DurableGpuProtocol:
                     db.execute("ROLLBACK")
                 raise
         lease.phase = phase
+        return lease
+
+    def park(self, lease: Lease, *, proof: Mapping[str, object]) -> Lease:
+        if proof.get("engine") != lease.engine or proof.get("healthy") is not True or proof.get("busy") is not False:
+            raise ValueError("park requires exact healthy idle engine proof")
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._exact(db, lease)
+                if row["state"] != "active" or row["phase"] != "render":
+                    raise LeaseBusy("only a rendering lease can become parked residency")
+                now = self._now()
+                db.execute("UPDATE gpu_lease SET phase='parked',updated=? WHERE singleton=1", (now,))
+                db.execute("INSERT INTO events(ts,event,job_id,fence,detail) VALUES(?,?,?,?,?)",
+                           (now, "parked", lease.job_id, lease.fence,
+                            json.dumps({"engine": lease.engine, "task": lease.task}, sort_keys=True)))
+                db.execute("COMMIT")
+            except Exception:
+                if db.in_transaction: db.execute("ROLLBACK")
+                raise
+        lease.phase = "parked"
+        return lease
+
+    def adopt_warm(self, lease: Lease, *, proof: Mapping[str, object]) -> Lease:
+        if (proof.get("engine") != lease.engine or proof.get("task") != lease.task or
+                proof.get("healthy") is not True or proof.get("busy") is not False):
+            raise ValueError("warm adoption requires exact healthy idle engine/task proof")
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._exact(db, lease)
+                if row["state"] != "active" or row["phase"] != "drain":
+                    raise LeaseBusy("warm residency may be adopted only during drain")
+                db.execute("UPDATE gpu_lease SET phase='render',updated=? WHERE singleton=1", (self._now(),))
+                db.execute("COMMIT")
+            except Exception:
+                if db.in_transaction: db.execute("ROLLBACK")
+                raise
+        lease.phase = "render"
+        return lease
+
+    def retarget(self, lease: Lease, *, job_id: str, engine: str, task: str,
+                 owner: str, warm_proof: Mapping[str, object] | None = None) -> Lease:
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._exact(db, lease)
+                if row["state"] != "active" or row["phase"] != "parked":
+                    raise LeaseBusy("only parked residency can be retargeted")
+                warm = bool(warm_proof and engine == lease.engine and
+                            warm_proof.get("engine") == engine and
+                            warm_proof.get("task") == task and
+                            warm_proof.get("healthy") is True and warm_proof.get("busy") is False)
+                fence = self._next_fence(db, "gpu_fence")
+                phase = "render" if warm else "drain"
+                boot = self._boot_id(); now = self._now()
+                db.execute("UPDATE gpu_lease SET job_id=?,engine=?,task=?,owner=?,fence=?,phase=?,pid=?,boot_id=?,reason=NULL,updated=? WHERE singleton=1",
+                           (job_id, engine, task, owner, fence, phase, os.getpid(), boot, now))
+                db.execute("COMMIT")
+            except Exception:
+                if db.in_transaction: db.execute("ROLLBACK")
+                raise
+        lease.fence, lease.job_id, lease.engine, lease.task = fence, job_id, engine, task
+        lease.owner, lease.pid, lease.boot_id, lease.phase = owner, os.getpid(), boot, phase
         return lease
 
     def mark_recovery(self, lease: Lease, reason: str) -> None:
@@ -290,7 +395,7 @@ class DurableGpuProtocol:
             raise ValueError("current boot proof is required")
 
     def release(self, lease: Lease, *, proof: Mapping[str, object]) -> None:
-        self._validate_reclamation(proof)
+        self._validate_reclamation(proof, boot_id=self._boot_id())
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             try:
@@ -326,43 +431,98 @@ class DurableGpuProtocol:
             lease._fd.close()
             lease._fd = None
 
-    def recover_startup(self) -> None:
+    def recover_startup(self) -> Lease | None:
+        """Quarantine prior ownership and retain/re-take the live exclusion lock."""
         boot = self._boot_id()
+        recovered: Lease | None = None
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 row = db.execute("SELECT * FROM gpu_lease WHERE singleton=1").fetchone()
                 if row is not None:
-                    reason = None
+                    reason = "controller-restarted"
                     if row["boot_id"] != boot:
                         reason = "boot-changed"
                     elif not self._pid_alive(int(row["pid"])):
                         reason = "owner-exited"
-                    if reason:
-                        db.execute(
-                            "UPDATE gpu_lease SET state='recovery',reason=?,updated=? WHERE singleton=1",
-                            (reason, self._now()),
-                        )
+                    db.execute(
+                        "UPDATE gpu_lease SET state='recovery',reason=?,updated=? WHERE singleton=1",
+                        (reason, self._now()),
+                    )
+                    recovered = Lease(
+                        int(row["fence"]), str(row["owner"]), int(row["pid"]),
+                        str(row["boot_id"]), str(row["job_id"]), str(row["engine"]),
+                        str(row["task"]), str(row["phase"]), state="recovery",
+                    )
                 db.execute("COMMIT")
             except Exception:
                 if db.in_transaction:
                     db.execute("ROLLBACK")
                 raise
+        if recovered is None:
+            return None
+        fd = self.lock_path.open("a+")
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            fd.close()
+        else:
+            recovered._fd = fd
+        return recovered
 
-    def authorize(self, *, fence: int, job_id: str, engine: str, task: str) -> bool:
+    def wait_for_recovery_lock(self, lease: Lease) -> bool:
+        """Queue behind a surviving owner, then retain exclusion for recovery."""
+        if lease.state != "recovery":
+            raise LeaseBusy("only a recovery lease may wait for exclusion")
+        if lease._fd is not None:
+            return True
+        fd = self.lock_path.open("a+")
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM gpu_lease WHERE singleton=1").fetchone()
+            exact = bool(
+                row is not None and row["state"] == "recovery"
+                and int(row["fence"]) == lease.fence and row["owner"] == lease.owner
+            )
+        if not exact:
+            fd.close()
+            return False
+        lease._fd = fd
+        return True
+
+    def authorize(self, *, fence: int, job_id: str, engine: str, task: str,
+                  phases: tuple[str, ...] = ("render",)) -> bool:
         """Validate a controller-delegated engine request against the live fence."""
         with self._connect() as db:
-            row = db.execute(
-                "SELECT fence,job_id,engine,task,state FROM gpu_lease WHERE singleton=1"
-            ).fetchone()
-            return bool(
+            row = db.execute("SELECT * FROM gpu_lease WHERE singleton=1").fetchone()
+            exact = bool(
                 row is not None
                 and row["state"] == "active"
+                and row["phase"] in phases
+                and row["boot_id"] == self._boot_id()
                 and int(row["fence"]) == int(fence)
                 and row["job_id"] == job_id
                 and row["engine"] == engine
                 and row["task"] == task
             )
+        if not exact:
+            return False
+        # PID namespaces make host-PID liveness checks invalid inside the LTX
+        # container.  The canonical flock is the process-lifetime proof: a
+        # delegated child must observe it held by the controller.  If this probe
+        # can acquire the file, the owner is gone (or never held it), so the
+        # durable row alone cannot authorize work.
+        probe = self.lock_path.open("a+")
+        try:
+            try:
+                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            else:
+                fcntl.flock(probe, fcntl.LOCK_UN)
+                return False
+        finally:
+            probe.close()
 
     def submit(self, job_id: str, *, lane: str, engine: str, task: str,
                payload_hash: str) -> dict:
@@ -502,6 +662,7 @@ def run_transition_sequence(
             proof = {
                 "processes_gone": final_process.get("processes_gone") is True,
                 "memory_recovered": final_memory.get("memory_recovered") is True,
+                "boot_id": lease.boot_id,
             }
             protocol.release(lease, proof=proof)
         except Exception as exc:

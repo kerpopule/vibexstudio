@@ -1,8 +1,3 @@
-import os
-import sqlite3
-import threading
-from pathlib import Path
-
 import pytest
 
 from media_lab_core.durable_gpu_protocol import (
@@ -40,7 +35,8 @@ def test_fenced_owner_spans_load_render_unload_and_reclaim(tmp_path):
     for phase in ("unload", "reclaim", "load", "render", "unload", "reclaim"):
         lease = p.advance(lease, phase)
         assert lease.phase == phase
-    p.release(lease, proof={"processes_gone": True, "memory_recovered": True})
+    p.release(lease, proof={"processes_gone": True, "memory_recovered": True,
+                            "boot_id": "boot-a"})
     assert p.snapshot()["lease"] is None
 
 
@@ -52,7 +48,8 @@ def test_stale_owner_cannot_release_new_owner(tmp_path):
     p.reconcile(old, proof={"processes_gone": True, "memory_recovered": True, "boot_id": "boot-a"})
     new = p.acquire(job_id="new", engine="h3", task="t2va", owner="worker-b")
     with pytest.raises(StaleFence):
-        p.release(old, proof={"processes_gone": True, "memory_recovered": True})
+        p.release(old, proof={"processes_gone": True, "memory_recovered": True,
+                              "boot_id": "boot-a"})
     assert p.snapshot()["lease"]["fence"] == new.fence
 
 
@@ -78,22 +75,34 @@ def test_reboot_quarantines_preboot_owner(tmp_path):
     )
     p.qualify("h3", "t2va", peak_gib=10.0, reserve_gib=2.0, evidence="fixture")
     lease = p.acquire(job_id="job", engine="h3", task="t2va", owner="worker-a")
+    assert lease._fd is not None
+    lease._fd.close()
+    lease._fd = None
     state["boot"] = "boot-b"
-    p.recover_startup()
+    recovered = p.recover_startup()
     snap = p.snapshot()["lease"]
     assert snap["state"] == "recovery"
     assert snap["reason"] == "boot-changed"
+    assert recovered is not None and recovered.state == "recovery"
+    assert recovered._fd is not None
     with pytest.raises(LeaseBusy):
         p.acquire(job_id="new", engine="h3", task="t2va", owner="worker-b")
 
 
 def test_task_specific_capacity_is_required_and_includes_reserve(tmp_path):
     p = protocol(tmp_path, available_gib=115.0)
+    lease = p.acquire(job_id="ref", engine="h3", task="ref2va", owner="worker-a")
+    p.advance(lease, "unload"); p.advance(lease, "reclaim")
     with pytest.raises(CapacityUnqualified, match="h3/ref2va"):
-        p.acquire(job_id="ref", engine="h3", task="ref2va", owner="worker-a")
+        p.advance(lease, "load")
+    p.mark_recovery(lease, "fixture-end")
+    p.reconcile(lease, proof={"processes_gone": True, "memory_recovered": True,
+                              "boot_id": "boot-a"})
     p.qualify("h3", "ref2va", peak_gib=104.0, reserve_gib=12.0, evidence="measured-ref")
+    lease = p.acquire(job_id="ref-2", engine="h3", task="ref2va", owner="worker-a")
+    p.advance(lease, "unload"); p.advance(lease, "reclaim")
     with pytest.raises(CapacityUnqualified, match="requires 116.0 GiB"):
-        p.acquire(job_id="ref", engine="h3", task="ref2va", owner="worker-a")
+        p.advance(lease, "load")
 
 
 def test_cancel_and_stale_callback_are_fenced(tmp_path):
@@ -131,6 +140,9 @@ def test_engine_admission_requires_exact_delegated_fence(tmp_path):
     p = protocol(tmp_path)
     p.qualify("h3", "fl2va", peak_gib=10.0, reserve_gib=2.0, evidence="fixture")
     lease = p.acquire(job_id="job", engine="h3", task="fl2va", owner="controller")
+    assert p.authorize(fence=lease.fence, job_id="job", engine="h3", task="fl2va") is False
+    for phase in ("unload", "reclaim", "load", "render"):
+        p.advance(lease, phase)
     assert p.authorize(fence=lease.fence, job_id="job", engine="h3", task="fl2va") is True
     assert p.authorize(fence=lease.fence - 1, job_id="job", engine="h3", task="fl2va") is False
     assert p.authorize(fence=lease.fence, job_id="other", engine="h3", task="fl2va") is False
