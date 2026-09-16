@@ -7,20 +7,45 @@ Paths in settings must be container-visible (normally /data/...).
 from __future__ import annotations
 
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path("/opt/maestro/app/app")
-sys.path.insert(0, str(ROOT))
-from shared.api import init  # noqa: E402
 
 
 def main() -> int:
-    if len(sys.argv) != 3:
-        print("usage: maestro_queue_runner.py SETTINGS_JSON RECEIPT_JSON", flush=True)
+    if len(sys.argv) != 4:
+        print("usage: maestro_queue_runner.py SETTINGS_JSON RECEIPT_JSON GPU_DELEGATION_JSON", flush=True)
         return 2
     settings_path = Path(sys.argv[1])
     receipt_path = Path(sys.argv[2])
+    delegation_path = Path(sys.argv[3])
+    try:
+        delegated = json.loads(delegation_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError) as exc:
+        raise PermissionError("exact Maestro GPU lease delegation is required") from exc
+    supplied = {
+        "fence": os.environ.get("MEDIA_LAB_GPU_FENCE", ""),
+        "job_id": os.environ.get("MEDIA_LAB_GPU_JOB_ID", ""),
+        "engine": os.environ.get("MEDIA_LAB_GPU_ENGINE", ""),
+        "task": os.environ.get("MEDIA_LAB_GPU_TASK", ""),
+    }
+    exact = {key: delegated.get(key) for key in supplied}
+    try:
+        fresh = 0 <= time.time() - float(delegated.get("issued_at")) <= 120
+    except (TypeError, ValueError):
+        fresh = False
+    if (exact != supplied or not fresh or supplied["engine"] != "maestro"
+            or supplied["task"] != "generate" or not supplied["fence"].isdigit()
+            or not supplied["job_id"]):
+        raise PermissionError("exact Maestro GPU lease delegation is required")
+    # One invocation consumes one controller-staged delegation. A stale runner
+    # cannot replay it after this process has started.
+    delegation_path.unlink()
+    sys.path.insert(0, str(ROOT))
+    from shared.api import init
     settings = json.loads(settings_path.read_text(encoding="utf-8"))
     if not isinstance(settings, dict) or not settings.get("model_type"):
         raise ValueError("Maestro settings require model_type")

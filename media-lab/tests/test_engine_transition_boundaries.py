@@ -130,3 +130,67 @@ def test_cold_container_launcher_is_fail_closed():
     retired = text.index('FAIL=retired_unfenced_cold_path')
     docker_start = text.index('docker start')
     assert text.index('exit 77', retired) < docker_start
+
+
+@pytest.mark.parametrize(('name', 'engine', 'task'), [
+    ('run_music', 'music', 'generate'),
+    ('_run_image', 'image', 'generate'),
+    ('vb_generate', 'voice', 'generate'),
+    ('run_stems', 'stems', 'separate'),
+])
+def test_every_local_gpu_family_enters_canonical_operation(name, engine, task):
+    tree = ast.parse(APP.read_text())
+    node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
+    calls = [call for call in ast.walk(node)
+             if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+             and call.func.id == 'gpu_operation']
+    assert any(len(call.args) >= 2
+               and isinstance(call.args[0], ast.Constant) and call.args[0].value == engine
+               and isinstance(call.args[1], ast.Constant) and call.args[1].value == task
+               for call in calls)
+
+
+def test_startup_adopts_exact_idle_runtime_or_fails_closed():
+    text = ast.get_source_segment(APP.read_text(), next(
+        n for n in ast.parse(APP.read_text()).body
+        if isinstance(n, ast.FunctionDef) and n.name == 'initialize_gpu_cutover'))
+    assert text is not None
+    assert 'protocol.adopt_recovered(' in text
+    assert '_gpu_restart_adoption_proof(recovered)' in text
+    assert 'hold_gpu_recovery(' in text
+    assert '_gpu_cutover_ready = False' in text
+
+
+def test_maestro_runner_consumes_exact_delegation_before_model_init():
+    runner = (APP.parent / 'runner' / 'maestro_queue_runner.py').read_text()
+    assert 'exact Maestro GPU lease delegation is required' in runner
+    assert 'time.time() - float(delegated.get("issued_at")) <= 120' in runner
+    assert runner.index('delegation_path.unlink()') < runner.index('session = init(')
+
+
+def test_comfy_idle_proof_requires_empty_running_and_pending_queues():
+    idle = function('_gpu_exact_idle', ENGINES={'image': {'port': 8195, 'health': '/system_stats'}},
+                    http_json=lambda *_args, **_kwargs: {
+                        'queue_running': [], 'queue_pending': []})
+    assert idle('image') is True
+
+    active = function('_gpu_exact_idle', ENGINES={'music': {'port': 8196, 'health': '/system_stats'}},
+                      http_json=lambda *_args, **_kwargs: {
+                          'queue_running': [[1, 'prompt']], 'queue_pending': []})
+    assert active('music') is False
+
+
+def test_comfy_system_stats_without_queue_evidence_is_not_idle():
+    idle = function('_gpu_exact_idle', ENGINES={'image': {'port': 8195, 'health': '/system_stats'}},
+                    http_json=lambda *_args, **_kwargs: {'devices': []})
+    assert idle('image') is False
+
+
+def test_direct_gpu_stage_closes_prior_queued_job_context_before_switch():
+    text = ast.get_source_segment(APP.read_text(), next(
+        n for n in ast.parse(APP.read_text()).body
+        if isinstance(n, ast.FunctionDef) and n.name == 'gpu_operation'))
+    assert text is not None
+    close_at = text.index('_gpu_finish_job_operation()')
+    refuse_at = text.index('nested GPU operation cannot switch engine or task')
+    assert close_at < refuse_at

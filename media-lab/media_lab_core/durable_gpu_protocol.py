@@ -161,6 +161,8 @@ class DurableGpuProtocol:
                     phase TEXT NOT NULL,
                     state TEXT NOT NULL CHECK(state IN ('active','recovery')),
                     reason TEXT,
+                    runtime_pid INTEGER,
+                    runtime_identity TEXT,
                     updated REAL NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS capacity (
@@ -197,6 +199,11 @@ class DurableGpuProtocol:
                 );
                 """
             )
+            columns = {row[1] for row in db.execute("PRAGMA table_info(gpu_lease)")}
+            if "runtime_pid" not in columns:
+                db.execute("ALTER TABLE gpu_lease ADD COLUMN runtime_pid INTEGER")
+            if "runtime_identity" not in columns:
+                db.execute("ALTER TABLE gpu_lease ADD COLUMN runtime_identity TEXT")
 
     @staticmethod
     def _row_lease(row: sqlite3.Row, fd: IO[Any] | None = None) -> Lease:
@@ -334,12 +341,81 @@ class DurableGpuProtocol:
                 row = self._exact(db, lease)
                 if row["state"] != "active" or row["phase"] != "drain":
                     raise LeaseBusy("warm residency may be adopted only during drain")
+                self._check_capacity(db, row["engine"], row["task"])
                 db.execute("UPDATE gpu_lease SET phase='render',updated=? WHERE singleton=1", (self._now(),))
                 db.execute("COMMIT")
             except Exception:
                 if db.in_transaction: db.execute("ROLLBACK")
                 raise
         lease.phase = "render"
+        return lease
+
+    def bind_process(self, lease: Lease, *, pid: int, identity: str) -> None:
+        """Persist the exact engine process that received this render fence."""
+        if int(pid) <= 0 or not str(identity).strip():
+            raise ValueError("exact runtime pid and process identity are required")
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._exact(db, lease)
+                if row["state"] != "active" or row["phase"] not in ("load", "render"):
+                    raise LeaseBusy("runtime identity may be bound only during load/render")
+                db.execute(
+                    "UPDATE gpu_lease SET runtime_pid=?,runtime_identity=?,updated=? WHERE singleton=1",
+                    (int(pid), str(identity), self._now()),
+                )
+                db.execute("COMMIT")
+            except Exception:
+                if db.in_transaction:
+                    db.execute("ROLLBACK")
+                raise
+
+    def adopt_recovered(self, lease: Lease, *, owner: str,
+                        proof: Mapping[str, object]) -> Lease:
+        """Resume only the same job on the same proven idle runtime after restart."""
+        if lease.state != "recovery" or lease._fd is None:
+            raise LeaseBusy("recovery adoption requires the retained live exclusion lock")
+        required = {"boot_id": lease.boot_id, "job_id": lease.job_id,
+                    "engine": lease.engine, "task": lease.task}
+        if any(proof.get(key) != value for key, value in required.items()):
+            raise ValueError("recovery proof does not identify the exact prior operation")
+        if proof.get("healthy") is not True or proof.get("busy") is not False:
+            raise ValueError("recovery adoption requires a healthy idle runtime")
+        try:
+            proof_pid = int(proof.get("pid") or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("recovery process pid is invalid") from exc
+        if proof.get("boot_id") != self._boot_id() or not self._pid_alive(proof_pid):
+            raise ValueError("current-boot live process proof is required")
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._exact(db, lease)
+                if row["state"] != "recovery" or row["phase"] not in ("render", "parked"):
+                    raise LeaseBusy("only an idle render/parked recovery lease may be adopted")
+                if (row["runtime_pid"] is None or int(row["runtime_pid"]) != proof_pid or
+                        not row["runtime_identity"] or
+                        row["runtime_identity"] != proof.get("process_identity")):
+                    raise ValueError("runtime process identity is missing or changed")
+                fence = self._next_fence(db, "gpu_fence")
+                now = self._now()
+                boot = self._boot_id()
+                db.execute(
+                    "UPDATE gpu_lease SET fence=?,owner=?,pid=?,boot_id=?,phase='render',"
+                    "state='active',reason=NULL,updated=? WHERE singleton=1",
+                    (fence, owner, os.getpid(), boot, now),
+                )
+                db.execute("INSERT INTO events(ts,event,job_id,fence,detail) VALUES(?,?,?,?,?)",
+                           (now, "recovery-adopted", lease.job_id, fence,
+                            json.dumps({"engine": lease.engine, "task": lease.task,
+                                        "runtime_pid": proof_pid}, sort_keys=True)))
+                db.execute("COMMIT")
+            except Exception:
+                if db.in_transaction:
+                    db.execute("ROLLBACK")
+                raise
+        lease.fence, lease.owner, lease.pid = fence, owner, os.getpid()
+        lease.boot_id, lease.phase, lease.state = boot, "render", "active"
         return lease
 
     def retarget(self, lease: Lease, *, job_id: str, engine: str, task: str,
@@ -354,10 +430,12 @@ class DurableGpuProtocol:
                             warm_proof.get("engine") == engine and
                             warm_proof.get("task") == task and
                             warm_proof.get("healthy") is True and warm_proof.get("busy") is False)
+                if warm:
+                    self._check_capacity(db, engine, task)
                 fence = self._next_fence(db, "gpu_fence")
                 phase = "render" if warm else "drain"
                 boot = self._boot_id(); now = self._now()
-                db.execute("UPDATE gpu_lease SET job_id=?,engine=?,task=?,owner=?,fence=?,phase=?,pid=?,boot_id=?,reason=NULL,updated=? WHERE singleton=1",
+                db.execute("UPDATE gpu_lease SET job_id=?,engine=?,task=?,owner=?,fence=?,phase=?,pid=?,boot_id=?,reason=NULL,runtime_pid=NULL,runtime_identity=NULL,updated=? WHERE singleton=1",
                            (job_id, engine, task, owner, fence, phase, os.getpid(), boot, now))
                 db.execute("COMMIT")
             except Exception:

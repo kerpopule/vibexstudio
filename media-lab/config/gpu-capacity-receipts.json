@@ -11,6 +11,8 @@
     {"engine":"maestro","task":"generate","peak_gib":115.0,"reserve_gib":5.0,"evidence":"whole-box conservative envelope inherited from the largest currently admitted Maestro H3 workflow; exact model-specific qualification is still required before promotion"},
     {"engine":"yue2","task":"generate","peak_gib":18.0,"reserve_gib":24.0,"evidence":"existing production YuE2 budget in app.py"},
     {"engine":"yue2","task":"plan","peak_gib":18.0,"reserve_gib":24.0,"evidence":"existing production YuE2 budget in app.py"},
-    {"engine":"yue2","task":"transcribe","peak_gib":18.0,"reserve_gib":24.0,"evidence":"existing production YuE2 budget in app.py"}
+    {"engine":"yue2","task":"transcribe","peak_gib":18.0,"reserve_gib":24.0,"evidence":"existing production YuE2 budget in app.py"},
+    {"engine":"voice","task":"generate","peak_gib":18.0,"reserve_gib":24.0,"evidence":"existing production Voicebox companion envelope; remeasure before any runtime or model revision"},
+    {"engine":"stems","task":"separate","peak_gib":18.0,"reserve_gib":24.0,"evidence":"existing production Mel-Band RoFormer companion envelope; remeasure before any runtime or model revision"}
   ]
 }

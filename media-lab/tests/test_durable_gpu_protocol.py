@@ -40,6 +40,36 @@ def test_fenced_owner_spans_load_render_unload_and_reclaim(tmp_path):
     assert p.snapshot()["lease"] is None
 
 
+def test_warm_adoption_still_requires_capacity(tmp_path):
+    p = protocol(tmp_path, available_gib=8.0)
+    p.qualify("h3", "fl2va", peak_gib=7.0, reserve_gib=2.0, evidence="fixture")
+    lease = p.acquire(job_id="warm", engine="h3", task="fl2va", owner="controller")
+    with pytest.raises(CapacityUnqualified):
+        p.adopt_warm(lease, proof={"engine": "h3", "task": "fl2va",
+                                  "healthy": True, "busy": False})
+    assert lease.phase == "drain"
+
+
+def test_warm_retarget_still_requires_capacity(tmp_path):
+    available = {"gib": 12.0}
+    p = DurableGpuProtocol(
+        tmp_path / "gpu.sqlite3", tmp_path / "gpu.lock",
+        boot_id=lambda: "boot-a", available_gib=lambda: available["gib"],
+        pid_alive=lambda _pid: True,
+    )
+    p.qualify("h3", "fl2va", peak_gib=7.0, reserve_gib=2.0, evidence="fixture")
+    lease = p.acquire(job_id="old", engine="h3", task="fl2va", owner="controller")
+    for phase in ("unload", "reclaim", "load", "render"):
+        p.advance(lease, phase)
+    p.park(lease, proof={"engine": "h3", "healthy": True, "busy": False})
+    available["gib"] = 8.0
+    with pytest.raises(CapacityUnqualified):
+        p.retarget(lease, job_id="new", engine="h3", task="fl2va",
+                   owner="controller", warm_proof={"engine": "h3", "task": "fl2va",
+                                                    "healthy": True, "busy": False})
+    assert lease.phase == "parked"
+
+
 def test_stale_owner_cannot_release_new_owner(tmp_path):
     p = protocol(tmp_path)
     p.qualify("h3", "t2va", peak_gib=10.0, reserve_gib=2.0, evidence="fixture")
@@ -87,6 +117,50 @@ def test_reboot_quarantines_preboot_owner(tmp_path):
     assert recovered._fd is not None
     with pytest.raises(LeaseBusy):
         p.acquire(job_id="new", engine="h3", task="t2va", owner="worker-b")
+
+
+def test_exact_idle_runtime_can_be_adopted_after_controller_restart(tmp_path):
+    p = protocol(tmp_path)
+    p.qualify("h3", "t2va", peak_gib=10.0, reserve_gib=2.0, evidence="fixture")
+    lease = p.acquire(job_id="same-job", engine="h3", task="t2va", owner="old-controller")
+    for phase in ("unload", "reclaim", "load", "render"):
+        p.advance(lease, phase)
+    p.bind_process(lease, pid=4242, identity="boot-a:4242:991")
+    lease._fd.close(); lease._fd = None
+
+    recovered = p.recover_startup()
+    adopted = p.adopt_recovered(recovered, owner="new-controller", proof={
+        "boot_id": "boot-a", "job_id": "same-job", "engine": "h3", "task": "t2va",
+        "pid": 4242, "process_identity": "boot-a:4242:991",
+        "healthy": True, "busy": False,
+    })
+
+    assert adopted.state == "active" and adopted.phase == "render"
+    assert adopted.owner == "new-controller" and adopted.fence > lease.fence
+    assert p.snapshot()["lease"]["state"] == "active"
+
+
+@pytest.mark.parametrize("changed", [
+    {"boot_id": "boot-b"}, {"pid": 9999}, {"process_identity": "boot-a:4242:stale"},
+    {"job_id": "other"}, {"engine": "ltx"}, {"task": "fl2va"},
+    {"healthy": False}, {"busy": True},
+])
+def test_ambiguous_restart_adoption_fails_closed(tmp_path, changed):
+    p = protocol(tmp_path)
+    p.qualify("h3", "t2va", peak_gib=10.0, reserve_gib=2.0, evidence="fixture")
+    lease = p.acquire(job_id="same-job", engine="h3", task="t2va", owner="old-controller")
+    for phase in ("unload", "reclaim", "load", "render"):
+        p.advance(lease, phase)
+    p.bind_process(lease, pid=4242, identity="boot-a:4242:991")
+    lease._fd.close(); lease._fd = None
+    recovered = p.recover_startup()
+    proof = {"boot_id": "boot-a", "job_id": "same-job", "engine": "h3", "task": "t2va",
+             "pid": 4242, "process_identity": "boot-a:4242:991",
+             "healthy": True, "busy": False}
+    proof.update(changed)
+    with pytest.raises((ValueError, LeaseBusy)):
+        p.adopt_recovered(recovered, owner="new-controller", proof=proof)
+    assert p.snapshot()["lease"]["state"] == "recovery"
 
 
 def test_task_specific_capacity_is_required_and_includes_reserve(tmp_path):
