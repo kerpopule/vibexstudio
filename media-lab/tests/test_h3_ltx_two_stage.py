@@ -220,13 +220,42 @@ def test_retake_dtype_compat_casts_hidden_states_at_both_projection_boundaries(m
 
     setattr(base_module, "_apply_feature_extractor", original)
 
+    class GateProjection:
+        def __init__(self):
+            self.weight = SimpleNamespace(dtype="bfloat16")
+            self._forward_pre_hooks = []
+
+        def register_forward_pre_hook(self, hook):
+            self._forward_pre_hooks.append(hook)
+
+        def __call__(self, hidden_states):
+            args = (hidden_states,)
+            for hook in self._forward_pre_hooks:
+                replacement = hook(self, args)
+                if replacement is not None:
+                    args = replacement
+            calls.append(("gate", args[0]))
+            return args[0]
+
+    class Attention:
+        def __init__(self):
+            self.to_gate_logits = GateProjection()
+
     class Embeddings1DConnector:
+        def __init__(self):
+            self.attention = Attention()
+
         def parameters(self):
             return iter([SimpleNamespace(dtype="bfloat16")])
 
+        def modules(self):
+            return iter([self, self.attention])
+
         def forward(self, hidden_states, attention_mask=None):
             calls.append((hidden_states, attention_mask))
-            return "connected"
+            # Maestro's cached retake path rebuilds this gate input as float32
+            # after the connector boundary has already been aligned.
+            return self.attention.to_gate_logits(Tensor("float32"))
 
     setattr(connector_module, "Embeddings1DConnector", Embeddings1DConnector)
 
@@ -240,15 +269,18 @@ def test_retake_dtype_compat_casts_hidden_states_at_both_projection_boundaries(m
     namespace = {"importlib": importlib}
     exec(compile(ast.Module(body=[node], type_ignores=[]), str(ENGINE), "exec"), namespace)
     install = namespace["_install_ltx_retake_dtype_compat"]
-    assert install() == "hidden-state-and-connector-dtype-aligned"
+    assert install() == "hidden-state-connector-and-gate-dtype-aligned"
     result = base_module._apply_feature_extractor(
         (Tensor("float32"), Tensor("float32")), "mask", "right", FeatureExtractor())
     assert result == "ok"
     assert [tensor.dtype for tensor in calls[0][0]] == ["bfloat16", "bfloat16"]
     connector = connector_module.Embeddings1DConnector()
-    assert connector.forward(Tensor("float32"), "connector-mask") == "connected"
+    gate_result = connector.forward(Tensor("float32"), "connector-mask")
     assert calls[1][0].dtype == "bfloat16"
-    assert install() == "hidden-state-and-connector-dtype-aligned"
+    assert gate_result.dtype == "bfloat16"
+    assert calls[2][0] == "gate"
+    assert calls[2][1].dtype == "bfloat16"
+    assert install() == "hidden-state-connector-and-gate-dtype-aligned"
 
 
 def test_studio_ui_exposes_explicit_two_stage_choice():

@@ -95,12 +95,13 @@ def _install_decord_compat():
 
 
 def _install_ltx_retake_dtype_compat():
-    """Align cached Gemma states at both native-retake projection boundaries.
+    """Align cached Gemma states at native-retake projection boundaries.
 
     Maestro's retake cache materializes float32 text states while its pinned LTX
-    connector weights are bfloat16.  The ordinary text-to-video path does not
-    cross this cached post-processing boundary, so keep the shim local to native
-    retake setup and cast only to each receiving module's own parameter dtype.
+    connector weights are bfloat16.  The connector's attention blocks also retain
+    a float32 gate input after the outer hidden state has been aligned.  Keep the
+    shim local to native retake setup and cast each input only to its receiving
+    projection's own weight dtype.
     """
     base_module = importlib.import_module(
         'models.ltx2.ltx_core.text_encoders.gemma.encoders.base_encoder')
@@ -124,7 +125,23 @@ def _install_ltx_retake_dtype_compat():
     connector_class = connector_module.Embeddings1DConnector
     connector_forward = connector_class.forward
     if not getattr(connector_forward, '_media_lab_dtype_compat', False):
+        def align_gate_input(module, args):
+            weight = getattr(module, 'weight', None)
+            dtype = getattr(weight, 'dtype', None)
+            if not args or dtype is None:
+                return None
+            hidden_states = args[0]
+            if getattr(hidden_states, 'dtype', None) == dtype:
+                return None
+            return (hidden_states.to(dtype=dtype), *args[1:])
+
         def aligned_connector(self, hidden_states, attention_mask=None):
+            for block in self.modules():
+                gate = getattr(block, 'to_gate_logits', None)
+                if gate is None or getattr(gate, '_media_lab_dtype_compat', False):
+                    continue
+                gate.register_forward_pre_hook(align_gate_input)
+                setattr(gate, '_media_lab_dtype_compat', True)
             parameter = next(self.parameters(), None)
             dtype = getattr(parameter, 'dtype', None)
             if dtype is not None and getattr(hidden_states, 'dtype', None) != dtype:
@@ -133,7 +150,7 @@ def _install_ltx_retake_dtype_compat():
 
         setattr(aligned_connector, '_media_lab_dtype_compat', True)
         setattr(connector_class, 'forward', aligned_connector)
-    return 'hidden-state-and-connector-dtype-aligned'
+    return 'hidden-state-connector-and-gate-dtype-aligned'
 
 
 def register_quant_handlers() -> None:
