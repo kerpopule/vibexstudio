@@ -2453,10 +2453,13 @@ def h3_resident_config():
     e = ENGINES["h3"]
     try:
         health = http_json(f"http://127.0.0.1:{e['port']}{e['health']}", timeout=3) or {}
-        variant = health.get("variant")
-        if variant not in _h3ref.H3_VARIANTS:
+        if health.get("loaded") is not True:
             return None
-        return {"variant": variant, "task": health.get("task") or variant,
+        variant = health.get("variant")
+        task = health.get("task")
+        if variant not in _h3ref.H3_VARIANTS or not isinstance(task, str) or not task:
+            return None
+        return {"variant": variant, "task": task,
                 "turbo_preset": health.get("turbo_preset") or None}
     except Exception:
         return None
@@ -3120,6 +3123,12 @@ class _ResidencyRuntime:
         if lease is not None:
             if lease.phase != "load" or lease.engine != model:
                 raise LeaseBusy(f"idle restore lease is {lease.engine}/{lease.phase}, not {model}/load")
+            if model == "h3":
+                target = {**_h3ref.required_runtime_config({}), "task": lease.task}
+                return _boot_engine(
+                    model, variant=target["variant"],
+                    turbo_preset=target["turbo_preset"], task=target["task"],
+                )
             return _boot_engine(model)
         st = pool_cmd("acquire")
         for _ in range(6):

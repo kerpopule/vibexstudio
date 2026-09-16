@@ -233,6 +233,32 @@ def test_h3_warm_reuse_requires_complete_runtime_configuration():
     assert exact("h3", "t2va", job) is False
 
 
+@pytest.mark.parametrize("health", [
+    {"loaded": False, "busy": False, "variant": "fl2va", "task": "fl2va"},
+    {"loaded": True, "busy": False, "variant": "fl2va", "task": None},
+])
+def test_h3_residency_rejects_cold_or_taskless_health(health):
+    class H3Ref:
+        H3_VARIANTS = ("fl2va", "ref2va", "fused_r1024")
+
+    resident = function(
+        'h3_resident_config',
+        ENGINES={"h3": {"port": 8291, "health": "/health"}},
+        http_json=lambda *_args, **_kwargs: dict(health),
+        _h3ref=H3Ref,
+    )
+    assert resident() is None
+
+
+def test_idle_h3_restore_passes_exact_preload_configuration():
+    source = APP.read_text()
+    block = source[source.index("    def start_model(self, model, detail):"):
+                   source.index("    def model_healthy(self, model):")]
+    assert '_h3ref.required_runtime_config({})' in block
+    assert '"task": lease.task' in block
+    assert '_boot_engine(\n                    model, variant=target["variant"]' in block
+
+
 def test_reclaim_does_not_treat_unreachable_live_process_as_gone():
     stopped = []
     reclaim = function('_gpu_reclaim_all', COMPANION_ENGINE_NAMES=('h3',),
