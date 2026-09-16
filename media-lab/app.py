@@ -3918,6 +3918,27 @@ def _write_h3_ltx_receipt(job_dir, payload):
     os.replace(temp, target)
 
 
+def _mux_h3_audio_onto_ltx(refined_video, stage_a, output):
+    """Stream-copy LTX video with the exact H3 soundtrack; fail closed."""
+    refined_video = Path(refined_video)
+    stage_a = Path(stage_a)
+    output = Path(output)
+    temp = output.with_suffix(".muxing.mp4")
+    result = subprocess.run([
+        "ffmpeg", "-nostdin", "-v", "error", "-y",
+        "-i", str(refined_video), "-i", str(stage_a),
+        "-map", "0:v:0", "-map", "1:a:0",
+        "-c:v", "copy", "-c:a", "copy",
+        "-movflags", "+faststart", str(temp),
+    ], capture_output=True, text=True)
+    if result.returncode != 0 or not temp.is_file() or temp.stat().st_size <= 0:
+        temp.unlink(missing_ok=True)
+        detail = (result.stderr or "ffmpeg produced no remuxed artifact").strip()
+        raise RuntimeError(f"H3 soundtrack remux failed: {detail[:300]}")
+    os.replace(temp, output)
+    return output
+
+
 def _run_h3_ltx_video(j, *, references, staged_video_refs, start_b64):
     """Run one durable queue job through H3 draft then native LTX retake.
 
@@ -4035,6 +4056,17 @@ def _run_h3_ltx_video(j, *, references, staged_video_refs, start_b64):
         _write_h3_ltx_receipt(job_dir, receipt)
         return fail(j, "Stage 2/2 LTX refinement failed — its output artifact is missing; the H3 draft was preserved.")
 
+    raw_ltx_hash = _sha256_file(ltx_out)
+    muxed_out = job_dir / "stage-b-ltx-with-h3-audio.mp4"
+    try:
+        _mux_h3_audio_onto_ltx(ltx_out, stage_a, muxed_out)
+    except Exception as exc:
+        j.pop("active_engine", None)
+        receipt.update(status="failed", failed_stage="audio-remux", error=str(exc)[:400])
+        _write_h3_ltx_receipt(job_dir, receipt)
+        return fail(j, "Stage 2/2 refinement finished, but preserving the H3 soundtrack failed.", receipt["error"])
+
+    muxed_hash = _sha256_file(muxed_out)
     receipt["stages"].append({
         "stage": "refine", "engine": "ltx25", "seed": seed,
         "frames_requested": ltx_body["frames"],
@@ -4042,14 +4074,16 @@ def _run_h3_ltx_video(j, *, references, staged_video_refs, start_b64):
         "retake_strength": ltx_body["retake_strength"],
         "regenerate_audio": False,
         "source_sha256": stage_a_hash,
-        "artifact": ltx_out.name, "sha256": _sha256_file(ltx_out),
+        "raw_ltx_artifact": ltx_out.name, "raw_ltx_sha256": raw_ltx_hash,
+        "audio_source_artifact": stage_a.name, "audio_source_sha256": stage_a_hash,
+        "artifact": muxed_out.name, "sha256": muxed_hash,
     })
     receipt["status"] = "complete"
     _write_h3_ltx_receipt(job_dir, receipt)
     j["h3_ltx_receipt"] = str(job_dir / "h3-ltx-receipt.json")
     j.pop("active_engine", None)
     j["stage"] = "encoding"
-    _finish_video(j, ltx_out)
+    _finish_video(j, muxed_out)
 
 
 def run_video(j):

@@ -81,6 +81,10 @@ def test_two_stage_runner_preserves_stage_a_and_passes_same_seed(tmp_path):
         (out_dir / name).write_bytes((engine + "-artifact").encode())
         return {"ok": True, "file": name, "seed": body["seed"]}
 
+    def mux_audio(refined_video, stage_a, output):
+        output.write_bytes(b"ltx-video+h3-audio")
+        return output
+
     run = function(
         "_run_h3_ltx_video",
         Path=Path,
@@ -99,6 +103,7 @@ def test_two_stage_runner_preserves_stage_a_and_passes_same_seed(tmp_path):
         fail=lambda job, message, detail="": job.update(status="error", message=message, detail=str(detail)),
         save_state=lambda: None,
         _finish_video=lambda job, out: finished.append(Path(out)),
+        _mux_h3_audio_onto_ltx=mux_audio,
         _sha256_file=lambda path: hashlib.sha256(Path(path).read_bytes()).hexdigest(),
         _write_h3_ltx_receipt=lambda job_dir, payload: (job_dir / "h3-ltx-receipt.json").write_text(
             json.dumps(payload, sort_keys=True)),
@@ -121,7 +126,44 @@ def test_two_stage_runner_preserves_stage_a_and_passes_same_seed(tmp_path):
     assert receipt["status"] == "complete"
     assert receipt["stages"][0]["engine"] == "h3"
     assert receipt["stages"][1]["engine"] == "ltx25"
-    assert finished == [ltx_out / "job-abc123.mp4"]
+    assert receipt["stages"][1]["raw_ltx_artifact"] == "job-abc123.mp4"
+    assert receipt["stages"][1]["audio_source_artifact"] == "stage-a-h3.mp4"
+    assert receipt["stages"][1]["artifact"] == "stage-b-ltx-with-h3-audio.mp4"
+    muxed = jobs_dir / "abc123" / "stage-b-ltx-with-h3-audio.mp4"
+    assert muxed.read_bytes() == b"ltx-video+h3-audio"
+    assert finished == [muxed]
+
+
+def test_h3_audio_remux_copies_refined_video_and_stage_a_audio(tmp_path):
+    refined = tmp_path / "refined.mp4"
+    stage_a = tmp_path / "stage-a.mp4"
+    output = tmp_path / "muxed.mp4"
+    refined.write_bytes(b"video")
+    stage_a.write_bytes(b"audio")
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        Path(command[-1]).write_bytes(b"muxed")
+        return SimpleNamespace(returncode=0, stderr="")
+
+    mux = function(
+        "_mux_h3_audio_onto_ltx",
+        Path=Path,
+        subprocess=SimpleNamespace(run=run),
+        os=__import__("os"),
+    )
+    assert mux(refined, stage_a, output) == output
+    command, kwargs = calls[0]
+    assert command[:6] == ["ffmpeg", "-nostdin", "-v", "error", "-y", "-i"]
+    assert command[6] == str(refined)
+    assert command[7:9] == ["-i", str(stage_a)]
+    assert ["-map", "0:v:0"] == command[9:11]
+    assert ["-map", "1:a:0"] == command[11:13]
+    assert ["-c:v", "copy", "-c:a", "copy"] == command[13:17]
+    assert "-shortest" not in command
+    assert kwargs == {"capture_output": True, "text": True}
+    assert output.read_bytes() == b"muxed"
 
 
 def test_stage_a_failure_never_starts_ltx(tmp_path):

@@ -15,9 +15,12 @@ the idle residency target.
    container cannot accept an arbitrary path.
 4. The normal fenced engine transition parks H3, verifies cleanup/capacity, then
    starts LTX 2.5. LTX uses its installed native `retake_video` pipeline over the
-   complete H3 clip. `regenerate_audio=false` preserves the H3 soundtrack while
-   LTX refines visual detail and material fidelity.
-5. The final MP4 passes through the existing `_finish_video` publication path.
+   complete H3 clip. `regenerate_audio=false` prevents LTX soundtrack generation.
+5. Media Lab then stream-copies the refined LTX video with the Stage A H3 audio
+   track into `jobs/<job-id>/stage-b-ltx-with-h3-audio.mp4`. A missing source
+   audio track or failed remux fails closed; raw LTX audio is never published as
+   the preserved H3 soundtrack.
+6. The muxed MP4 passes through the existing `_finish_video` publication path.
    Media Lab returns the durable controller to its configured idle residency
    using the existing queue finalizer.
 
@@ -37,7 +40,8 @@ The value is clamped to `0.01..1.0`; invalid text falls back to `0.35`.
 - exact prompt and seed;
 - requested dimensions/frame counts;
 - stage engine names and refinement settings;
-- Stage A and Stage B artifact names and SHA-256 values;
+- Stage A, raw LTX, and remuxed Stage B artifact names and SHA-256 values;
+- the Stage A audio source artifact/hash used by the remux;
 - status, failed stage, and bounded error detail.
 
 Stage A failure never starts LTX. Stage B failure preserves
