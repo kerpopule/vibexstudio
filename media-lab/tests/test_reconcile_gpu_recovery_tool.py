@@ -41,3 +41,15 @@ def test_recovery_tool_accepts_only_exact_terminal_parked_restart_hold():
     assert 'marker.get("job_id") is None' in text
     assert 'and not terminal_parked_recovery' in text
     assert 'durable-lease-recovery:' in text
+
+
+def test_recovery_tool_accepts_exact_internal_residency_lease_without_queue_job():
+    text = TOOL.read_text()
+    ast.parse(text)
+    assert 'internal_residency_recovery' in text
+    assert 'lease.job_id.startswith("internal-")' in text
+    assert 'marker.get("job_id") == args.job_id' in text
+    assert 'and not internal_residency_recovery' in text
+    assert text.index('proof = app._gpu_reclaim_all(job)') < text.index(
+        'app.gpu_protocol().reconcile(lease, proof=proof)'
+    )

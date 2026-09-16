@@ -1969,6 +1969,22 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
             return
         protocol = gpu_protocol(); lease = _gpu_active_lease
         reclaim_proof = None
+        managed_qwen_paused = False
+
+        def restore_managed_qwen():
+            nonlocal managed_qwen_paused
+            if not managed_qwen_paused:
+                return True
+            try:
+                restored = restore_chat_after_video()
+            except Exception as restore_exc:
+                if j is not None:
+                    j["detail"] = f"managed Qwen restoration failed: {restore_exc}"
+                restored = False
+            if restored:
+                managed_qwen_paused = False
+            return restored
+
         try:
             warm = _gpu_warm_proof(engine, task, j)
             if lease is None:
@@ -1995,6 +2011,15 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
                                   owner=owner, warm_proof=warm)
             if lease.phase == "drain":
                 protocol.advance(lease, "unload")
+                if engine == "maestro":
+                    # Qwen is capacity relevant to Maestro even though it is not
+                    # an ENGINES companion. Evict it only after the durable fence
+                    # owns the unload phase, and before reclaim proof/cold-load
+                    # capacity admission. Set the flag before the call because a
+                    # failed pause deliberately leaves a restoration receipt.
+                    managed_qwen_paused = True
+                    if not pause_chat_for_video(j):
+                        raise LeaseBusy("could not safely pause managed Qwen for Maestro")
                 reclaim_proof = _gpu_reclaim_all(j)
                 if reclaim_proof["processes_gone"] is not True:
                     raise RuntimeError(f"GPU processes survived unload: {reclaim_proof['survivors']}")
@@ -2011,6 +2036,8 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
                 protocol.advance(lease, "unload")
                 reclaimed = _gpu_reclaim_all(j)
                 protocol.advance(lease, "reclaim")
+                if not restore_managed_qwen():
+                    raise LeaseBusy("managed Qwen restoration failed after Maestro")
                 protocol.release(lease, proof=reclaimed)
                 _gpu_active_lease = None
             elif proof["healthy"] and not proof["busy"]:
@@ -2026,6 +2053,11 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
                     and reclaim_proof is not None
                     and reclaim_proof.get("processes_gone") is True
                     and reclaim_proof.get("memory_recovered") is True):
+                if not restore_managed_qwen():
+                    try: protocol.mark_recovery(lease, "managed-qwen-restore-failed")
+                    except StaleFence: pass
+                    hold_gpu_recovery("managed-qwen-restore-failed", j)
+                    raise LeaseBusy("managed Qwen restoration failed after capacity rejection") from exc
                 protocol.release(lease, proof=reclaim_proof)
                 _gpu_active_lease = None
                 if pool_cmd("acquire") != "OK":
@@ -2039,10 +2071,15 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
                     hold_gpu_recovery("capacity-rejected-before-safe-release", j)
             raise
         except Exception as exc:
+            restore_failed = managed_qwen_paused and not restore_managed_qwen()
             if lease is not None and lease.state == "active" and lease.phase != "parked":
-                try: protocol.mark_recovery(lease, f"operation-uncertain:{type(exc).__name__}")
+                reason = ("managed-qwen-restore-failed" if restore_failed
+                          else f"operation-uncertain:{type(exc).__name__}")
+                try: protocol.mark_recovery(lease, reason)
                 except StaleFence: pass
-                hold_gpu_recovery(f"operation-uncertain:{type(exc).__name__}", j)
+                hold_gpu_recovery(reason, j)
+            if restore_failed:
+                raise LeaseBusy("managed Qwen restoration failed while unwinding Maestro") from exc
             raise
         finally:
             _gpu_thread.lease = None
@@ -7906,30 +7943,8 @@ def run_maestro(j):
         if cp.returncode:
             return fail(j, f"Could not stage Maestro job: {(cp.stderr or cp.stdout)[:220]}")
 
-    # Maestro's in-container H3/LTX loader is outside the warm-engine pool, so
-    # it must explicitly make the companion slot cold before loading. Pausing
-    # chat alone is insufficient: a warm LTX plus Maestro H3 exhausts unified
-    # GPU memory even when Qwen was paused correctly.
-    if not release_voice_weights():
-        return fail(j, "Could not unload Voicebox weights for Maestro.")
-    released_image = release_image_weights("Maestro render")
-    if released_image is None and engine_up("image"):
-        return fail(j, "Could not unload image weights for Maestro.")
-    for music_engine in ("music", "yue2"):
-        if engine_up(music_engine):
-            if engine_busy(music_engine):
-                return fail(j, "Music is active; refusing to interrupt it for Maestro.")
-            stop_engine(music_engine)
-    release_video_engines("Maestro render")
-    remaining = [name for name in VIDEO_ENGINE_NAMES if engine_up(name)]
-    if remaining:
-        return fail(j, f"Could not make the video slot cold for Maestro: {remaining}")
-
-    # Maestro video gets the box. The ordinary post-job settle thread restores
-    # the committed Qwen/LTX idle profile after this queue item finishes.
-    if not pause_chat_for_video(j):
-        return fail(j, "Could not safely pause the managed Qwen runtimes for Maestro.")
-
+    # gpu_operation owns the complete unload/reclaim transaction, including the
+    # receipt-backed managed-Qwen pause, before cold-load capacity is admitted.
     lease = gpu_render_ready("maestro", "generate")
     delegated = delegation_env(lease)
     host_delegation.write_text(json.dumps({

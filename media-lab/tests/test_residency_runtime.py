@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import threading
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from unittest import mock
 
@@ -336,17 +337,150 @@ class MaestroExclusiveResidencyTests(unittest.TestCase):
             ["docker", "stop", "--time", "45", "qwen38-vllm"],
             stdout=studio.subprocess.DEVNULL, stderr=studio.subprocess.DEVNULL)
 
-    def test_maestro_preflight_source_colds_video_before_pausing_chat(self):
+    def test_maestro_pause_is_inside_fenced_unload_before_reclaim_and_load(self):
         source = (SRC / "app.py").read_text()
-        block = source[source.index("def run_maestro"):source.index("RUNNERS =")]
-        release_at = block.index('release_video_engines("Maestro render")')
-        verify_at = block.index('remaining = [name for name in VIDEO_ENGINE_NAMES')
+        block = source[source.index("def gpu_operation"):source.index("def gpu_render_ready")]
+        unload_at = block.index('protocol.advance(lease, "unload")')
         pause_at = block.index("pause_chat_for_video(j)")
-        launch_at = block.index("subprocess.Popen")
-        self.assertLess(release_at, verify_at)
-        self.assertLess(verify_at, pause_at)
-        self.assertLess(pause_at, launch_at)
-        self.assertIn('if remaining:', block)
+        reclaim_at = block.index("reclaim_proof = _gpu_reclaim_all(j)")
+        load_at = block.index('protocol.advance(lease, "load")')
+        self.assertLess(unload_at, pause_at)
+        self.assertLess(pause_at, reclaim_at)
+        self.assertLess(reclaim_at, load_at)
+
+        maestro = source[source.index("def run_maestro"):source.index("def run_maestro_fenced")]
+        self.assertNotIn("pause_chat_for_video(j)", maestro)
+
+    def test_maestro_capacity_failure_restores_managed_qwen(self):
+        lease = SimpleNamespace(
+            state="active", phase="drain", job_id="maestro-job",
+            engine="maestro", task="generate", _fd=None,
+        )
+        events = []
+
+        class Protocol:
+            def acquire(self, **_kwargs):
+                return lease
+
+            def advance(self, current, phase):
+                events.append(phase)
+                if phase == "load":
+                    raise studio.CapacityUnqualified("fixture capacity")
+                current.phase = phase
+                return current
+
+            def release(self, current, proof):
+                events.append("release")
+                current.state = "released"
+
+        previous = studio._gpu_active_lease
+        studio._gpu_active_lease = None
+        try:
+            with mock.patch.object(studio, "gpu_protocol", return_value=Protocol()), \
+                 mock.patch.object(studio, "pool_cmd", return_value="OK"), \
+                 mock.patch.object(studio, "_gpu_warm_proof", return_value={
+                     "healthy": False, "busy": False}), \
+                 mock.patch.object(studio, "pause_chat_for_video", return_value=True) as pause, \
+                 mock.patch.object(studio, "_gpu_reclaim_all", return_value={
+                     "processes_gone": True, "memory_recovered": True,
+                     "available_gib": 120.0, "survivors": []}), \
+                 mock.patch.object(studio, "restore_chat_after_video", return_value=True) as restore:
+                with self.assertRaises(studio.CapacityUnqualified):
+                    with studio.gpu_operation("maestro", "generate", {"id": "maestro-job"},
+                                              ephemeral=True):
+                        self.fail("capacity failure must happen before render admission")
+        finally:
+            studio._gpu_active_lease = previous
+
+        pause.assert_called_once()
+        restore.assert_called_once_with()
+        self.assertEqual(["unload", "reclaim", "load", "release"], events)
+
+    def test_maestro_pause_failure_restores_receipt_and_never_reclaims_or_loads(self):
+        lease = SimpleNamespace(
+            state="active", phase="drain", job_id="maestro-job",
+            engine="maestro", task="generate", _fd=None,
+        )
+        events = []
+
+        class Protocol:
+            def acquire(self, **_kwargs):
+                return lease
+
+            def advance(self, current, phase):
+                events.append(phase)
+                current.phase = phase
+                return current
+
+            def mark_recovery(self, current, _reason):
+                current.state = "recovery"
+
+        previous = studio._gpu_active_lease
+        studio._gpu_active_lease = None
+        try:
+            with mock.patch.object(studio, "gpu_protocol", return_value=Protocol()), \
+                 mock.patch.object(studio, "pool_cmd", return_value="OK"), \
+                 mock.patch.object(studio, "_gpu_warm_proof", return_value={
+                     "healthy": False, "busy": False}), \
+                 mock.patch.object(studio, "pause_chat_for_video", return_value=False), \
+                 mock.patch.object(studio, "_gpu_reclaim_all") as reclaim, \
+                 mock.patch.object(studio, "restore_chat_after_video", return_value=True) as restore, \
+                 mock.patch.object(studio, "hold_gpu_recovery"):
+                with self.assertRaisesRegex(studio.LeaseBusy, "pause"):
+                    with studio.gpu_operation("maestro", "generate", {"id": "maestro-job"},
+                                              ephemeral=True):
+                        self.fail("pause failure must happen before render admission")
+        finally:
+            studio._gpu_active_lease = previous
+
+        restore.assert_called_once_with()
+        reclaim.assert_not_called()
+        self.assertEqual(["unload"], events)
+
+    def test_maestro_render_exception_attempts_qwen_restore_before_quarantine(self):
+        lease = SimpleNamespace(
+            state="active", phase="drain", job_id="maestro-job",
+            engine="maestro", task="generate", _fd=None,
+        )
+
+        class Protocol:
+            def acquire(self, **_kwargs):
+                return lease
+
+            def advance(self, current, phase):
+                current.phase = phase
+                return current
+
+            def bind_process(self, *_args, **_kwargs):
+                return None
+
+            def mark_recovery(self, current, _reason):
+                current.state = "recovery"
+
+        previous = studio._gpu_active_lease
+        studio._gpu_active_lease = None
+        try:
+            with mock.patch.object(studio, "gpu_protocol", return_value=Protocol()), \
+                 mock.patch.object(studio, "pool_cmd", return_value="OK"), \
+                 mock.patch.object(studio, "_gpu_warm_proof", return_value={
+                     "healthy": False, "busy": False}), \
+                 mock.patch.object(studio, "pause_chat_for_video", return_value=True), \
+                 mock.patch.object(studio, "_gpu_reclaim_all", return_value={
+                     "processes_gone": True, "memory_recovered": True,
+                     "available_gib": 120.0, "survivors": []}), \
+                 mock.patch.object(studio, "_gpu_process_identity", return_value=None), \
+                 mock.patch.object(studio, "restore_chat_after_video", return_value=True) as restore, \
+                 mock.patch.object(studio, "hold_gpu_recovery"):
+                with self.assertRaisesRegex(RuntimeError, "fixture render failure"):
+                    with studio.gpu_operation("maestro", "generate", {"id": "maestro-job"},
+                                              ephemeral=True):
+                        studio.gpu_render_ready("maestro", "generate")
+                        raise RuntimeError("fixture render failure")
+        finally:
+            studio._gpu_active_lease = previous
+
+        restore.assert_called_once_with()
+        self.assertEqual("recovery", lease.state)
 
 
 if __name__ == "__main__":

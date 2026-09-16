@@ -53,6 +53,13 @@ def main() -> int:
             marker = json.loads(app.GPU_RECOVERY_HOLD.read_text())
 
         job = app.jobs.get(args.job_id)
+        internal_residency_recovery = bool(
+            lease is not None and lease.state == "recovery"
+            and lease.job_id == args.job_id and job is None
+            and (lease.job_id.startswith("internal-")
+                 or lease.job_id.startswith("idle-restore-"))
+            and marker is not None and marker.get("job_id") == args.job_id
+        )
         terminal_parked_recovery = bool(
             lease is not None and lease.state == "recovery" and lease.phase == "parked"
             and lease.job_id == args.job_id and job
@@ -60,10 +67,12 @@ def main() -> int:
             and marker is not None and marker.get("job_id") is None
             and str(marker.get("reason") or "").startswith("durable-lease-recovery:")
         )
-        if not job or (job.get("recovery_required") is not True
-                       and not terminal_parked_recovery):
+        if ((not job and not internal_residency_recovery) or
+                (job and job.get("recovery_required") is not True
+                 and not terminal_parked_recovery)):
             raise RuntimeError(
-                "matching job is neither recovery_required nor an exact terminal parked restart"
+                "matching target is neither recovery_required, an exact internal residency lease, "
+                "nor an exact terminal parked restart"
             )
 
         if lease is None:
@@ -95,9 +104,10 @@ def main() -> int:
         if lease is not None:
             app.gpu_protocol().reconcile(lease, proof=proof)
         app._gpu_active_lease = None
-        for key in ("recovery_required", "recovery_reason"):
-            job.pop(key, None)
-        app.save_state()
+        if job is not None:
+            for key in ("recovery_required", "recovery_reason"):
+                job.pop(key, None)
+            app.save_state()
         if marker is not None:
             app.GPU_RECOVERY_HOLD.unlink()
         if app.pool_cmd("acquire") != "OK":
@@ -106,6 +116,7 @@ def main() -> int:
         print(json.dumps({
             "reconciled_job": args.job_id,
             "orphan_recovery_job": orphan_recovery_job,
+            "internal_residency_recovery": internal_residency_recovery,
             "terminal_parked_recovery": terminal_parked_recovery,
             "proof": proof,
             "lease": app.gpu_protocol().snapshot().get("lease"),
