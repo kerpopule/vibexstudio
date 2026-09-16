@@ -1809,7 +1809,8 @@ def gpu_protocol():
         protocol = open_protocol()
         for row in json.loads(GPU_CAPACITY_RECEIPTS.read_text()).get("qualifications", []):
             protocol.qualify(row["engine"], row["task"], peak_gib=row["peak_gib"],
-                             reserve_gib=row["reserve_gib"], evidence=row["evidence"])
+                             reserve_gib=row["reserve_gib"], evidence=row["evidence"],
+                             warm_render_gib=row.get("warm_render_gib"))
         _gpu_protocol = protocol
     return _gpu_protocol
 
@@ -1840,7 +1841,7 @@ def _gpu_restart_adoption_proof(recovered):
     row = gpu_protocol().snapshot().get("lease") or {}
     identity = _gpu_process_identity(recovered.engine)
     job = jobs.get(recovered.job_id)
-    warm = _gpu_warm_proof(recovered.engine, recovered.task)
+    warm = _gpu_warm_proof(recovered.engine, recovered.task, job)
     if (identity is None or not job or job.get("status") != "queued" or
             row.get("runtime_pid") != identity[0] or
             row.get("runtime_identity") != identity[1]):
@@ -1900,17 +1901,19 @@ def _gpu_exact_idle(engine):
         return False
 
 
-def _gpu_exact_warm(engine, task):
+def _gpu_exact_warm(engine, task, j=None):
     if not _gpu_exact_idle(engine):
         return False
     if engine == "h3":
-        return (h3_resident_config() or {}).get("task") == task
+        request = ((j or {}).get("request") or {})
+        target = {**_h3ref.required_runtime_config(request), "task": task}
+        return h3_resident_config() == target
     return True
 
 
-def _gpu_warm_proof(engine, task):
+def _gpu_warm_proof(engine, task, j=None):
     return {"engine": engine, "task": task,
-            "healthy": _gpu_exact_warm(engine, task), "busy": engine_busy(engine)}
+            "healthy": _gpu_exact_warm(engine, task, j), "busy": engine_busy(engine)}
 
 
 def _gpu_reclaim_all(j=None):
@@ -1954,7 +1957,7 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
         protocol = gpu_protocol(); lease = _gpu_active_lease
         reclaim_proof = None
         try:
-            warm = _gpu_warm_proof(engine, task)
+            warm = _gpu_warm_proof(engine, task, j)
             if lease is None:
                 handoff = pool_cmd("handoff")
                 if handoff != "OK":
@@ -1990,7 +1993,7 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
             yield lease
             if lease.phase != "render":
                 raise RuntimeError("GPU operation returned without entering fenced render phase")
-            proof = _gpu_warm_proof(engine, task)
+            proof = _gpu_warm_proof(engine, task, j)
             if ephemeral:
                 protocol.advance(lease, "unload")
                 reclaimed = _gpu_reclaim_all(j)

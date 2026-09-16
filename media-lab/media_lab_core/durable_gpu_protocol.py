@@ -169,6 +169,7 @@ class DurableGpuProtocol:
                     engine TEXT NOT NULL,
                     task TEXT NOT NULL,
                     peak_gib REAL NOT NULL CHECK(peak_gib > 0),
+                    warm_render_gib REAL CHECK(warm_render_gib > 0),
                     reserve_gib REAL NOT NULL CHECK(reserve_gib >= 0),
                     evidence TEXT NOT NULL,
                     measured REAL NOT NULL,
@@ -204,6 +205,9 @@ class DurableGpuProtocol:
                 db.execute("ALTER TABLE gpu_lease ADD COLUMN runtime_pid INTEGER")
             if "runtime_identity" not in columns:
                 db.execute("ALTER TABLE gpu_lease ADD COLUMN runtime_identity TEXT")
+            capacity_columns = {row[1] for row in db.execute("PRAGMA table_info(capacity)")}
+            if "warm_render_gib" not in capacity_columns:
+                db.execute("ALTER TABLE capacity ADD COLUMN warm_render_gib REAL")
 
     @staticmethod
     def _row_lease(row: sqlite3.Row, fd: IO[Any] | None = None) -> Lease:
@@ -220,26 +224,38 @@ class DurableGpuProtocol:
         return int(row[0])
 
     def qualify(self, engine: str, task: str, *, peak_gib: float,
-                reserve_gib: float, evidence: str) -> None:
-        if not evidence.strip():
+                reserve_gib: float, evidence: str,
+                warm_render_gib: float | None = None) -> None:
+        if (not evidence.strip() or peak_gib <= 0 or reserve_gib < 0
+                or (warm_render_gib is not None and warm_render_gib <= 0)):
             raise ValueError("capacity evidence is required")
         with self._connect() as db:
             db.execute(
-                "INSERT INTO capacity(engine,task,peak_gib,reserve_gib,evidence,measured) "
-                "VALUES(?,?,?,?,?,?) ON CONFLICT(engine,task) DO UPDATE SET "
-                "peak_gib=excluded.peak_gib,reserve_gib=excluded.reserve_gib,"
+                "INSERT INTO capacity(engine,task,peak_gib,warm_render_gib,reserve_gib,evidence,measured) "
+                "VALUES(?,?,?,?,?,?,?) ON CONFLICT(engine,task) DO UPDATE SET "
+                "peak_gib=excluded.peak_gib,warm_render_gib=excluded.warm_render_gib,"
+                "reserve_gib=excluded.reserve_gib,"
                 "evidence=excluded.evidence,measured=excluded.measured",
-                (engine, task, float(peak_gib), float(reserve_gib), evidence, self._now()),
+                (engine, task, float(peak_gib),
+                 float(warm_render_gib) if warm_render_gib is not None else None,
+                 float(reserve_gib), evidence, self._now()),
             )
 
-    def _check_capacity(self, db: sqlite3.Connection, engine: str, task: str) -> None:
+    def _check_capacity(self, db: sqlite3.Connection, engine: str, task: str,
+                        *, warm: bool = False) -> None:
         row = db.execute(
-            "SELECT peak_gib,reserve_gib FROM capacity WHERE engine=? AND task=?",
+            "SELECT peak_gib,warm_render_gib,reserve_gib FROM capacity "
+            "WHERE engine=? AND task=?",
             (engine, task),
         ).fetchone()
         if row is None:
             raise CapacityUnqualified(f"no measured capacity for {engine}/{task}")
-        required = float(row["peak_gib"]) + float(row["reserve_gib"])
+        if warm and row["warm_render_gib"] is None:
+            raise CapacityUnqualified(
+                f"no measured warm-render capacity for {engine}/{task}"
+            )
+        envelope = row["warm_render_gib"] if warm else row["peak_gib"]
+        required = float(envelope) + float(row["reserve_gib"])
         available = float(self._available_gib())
         if available < required:
             raise CapacityUnqualified(
@@ -341,7 +357,7 @@ class DurableGpuProtocol:
                 row = self._exact(db, lease)
                 if row["state"] != "active" or row["phase"] != "drain":
                     raise LeaseBusy("warm residency may be adopted only during drain")
-                self._check_capacity(db, row["engine"], row["task"])
+                self._check_capacity(db, row["engine"], row["task"], warm=True)
                 db.execute("UPDATE gpu_lease SET phase='render',updated=? WHERE singleton=1", (self._now(),))
                 db.execute("COMMIT")
             except Exception:
@@ -427,11 +443,11 @@ class DurableGpuProtocol:
                 if row["state"] != "active" or row["phase"] != "parked":
                     raise LeaseBusy("only parked residency can be retargeted")
                 warm = bool(warm_proof and engine == lease.engine and
-                            warm_proof.get("engine") == engine and
+                            task == lease.task and warm_proof.get("engine") == engine and
                             warm_proof.get("task") == task and
                             warm_proof.get("healthy") is True and warm_proof.get("busy") is False)
                 if warm:
-                    self._check_capacity(db, engine, task)
+                    self._check_capacity(db, engine, task, warm=True)
                 fence = self._next_fence(db, "gpu_fence")
                 phase = "render" if warm else "drain"
                 boot = self._boot_id(); now = self._now()

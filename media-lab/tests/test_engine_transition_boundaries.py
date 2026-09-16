@@ -213,6 +213,23 @@ def test_h3_boot_binds_and_waits_for_exact_task_family():
     assert 'task=current.get("task")' in switch
 
 
+def test_h3_warm_reuse_requires_complete_runtime_configuration():
+    class H3Ref:
+        @staticmethod
+        def required_runtime_config(request):
+            return {"variant": request.get("variant", "fl2va"),
+                    "turbo_preset": request.get("turbo_preset")}
+
+    live = {"variant": "fl2va", "task": "t2va", "turbo_preset": "turbo-a"}
+    exact = function('_gpu_exact_warm', _gpu_exact_idle=lambda _engine: True,
+                     _h3ref=H3Ref,
+                     h3_resident_config=lambda: dict(live))
+    job = {"request": {"variant": "fl2va", "turbo_preset": "turbo-a"}}
+    assert exact("h3", "t2va", job) is True
+    job["request"]["turbo_preset"] = "turbo-b"
+    assert exact("h3", "t2va", job) is False
+
+
 def test_h3_gpu_task_classifies_media_source_as_fl2va_before_admission():
     text = APP.read_text()
     task = ast.get_source_segment(text, next(

@@ -40,34 +40,44 @@ def test_fenced_owner_spans_load_render_unload_and_reclaim(tmp_path):
     assert p.snapshot()["lease"] is None
 
 
-def test_warm_adoption_still_requires_capacity(tmp_path):
+def test_warm_adoption_uses_qualified_incremental_capacity(tmp_path):
     p = protocol(tmp_path, available_gib=8.0)
+    p.qualify("h3", "fl2va", peak_gib=7.0, warm_render_gib=3.0,
+              reserve_gib=2.0, evidence="fixture")
+    lease = p.acquire(job_id="warm", engine="h3", task="fl2va", owner="controller")
+    p.adopt_warm(lease, proof={"engine": "h3", "task": "fl2va",
+                               "healthy": True, "busy": False})
+    assert lease.phase == "render"
+
+
+def test_warm_adoption_fails_closed_without_warm_receipt(tmp_path):
+    p = protocol(tmp_path, available_gib=120.0)
     p.qualify("h3", "fl2va", peak_gib=7.0, reserve_gib=2.0, evidence="fixture")
     lease = p.acquire(job_id="warm", engine="h3", task="fl2va", owner="controller")
-    with pytest.raises(CapacityUnqualified):
+    with pytest.raises(CapacityUnqualified, match="warm-render"):
         p.adopt_warm(lease, proof={"engine": "h3", "task": "fl2va",
                                   "healthy": True, "busy": False})
     assert lease.phase == "drain"
 
 
-def test_warm_retarget_still_requires_capacity(tmp_path):
+def test_warm_retarget_uses_qualified_incremental_capacity(tmp_path):
     available = {"gib": 12.0}
     p = DurableGpuProtocol(
         tmp_path / "gpu.sqlite3", tmp_path / "gpu.lock",
         boot_id=lambda: "boot-a", available_gib=lambda: available["gib"],
         pid_alive=lambda _pid: True,
     )
-    p.qualify("h3", "fl2va", peak_gib=7.0, reserve_gib=2.0, evidence="fixture")
+    p.qualify("h3", "fl2va", peak_gib=7.0, warm_render_gib=3.0,
+              reserve_gib=2.0, evidence="fixture")
     lease = p.acquire(job_id="old", engine="h3", task="fl2va", owner="controller")
     for phase in ("unload", "reclaim", "load", "render"):
         p.advance(lease, phase)
     p.park(lease, proof={"engine": "h3", "healthy": True, "busy": False})
     available["gib"] = 8.0
-    with pytest.raises(CapacityUnqualified):
-        p.retarget(lease, job_id="new", engine="h3", task="fl2va",
-                   owner="controller", warm_proof={"engine": "h3", "task": "fl2va",
-                                                    "healthy": True, "busy": False})
-    assert lease.phase == "parked"
+    lease = p.retarget(lease, job_id="new", engine="h3", task="fl2va",
+                       owner="controller", warm_proof={"engine": "h3", "task": "fl2va",
+                                                        "healthy": True, "busy": False})
+    assert lease.phase == "render"
 
 
 def test_stale_owner_cannot_release_new_owner(tmp_path):
