@@ -39,4 +39,5 @@ def test_recovery_tool_accepts_only_exact_terminal_parked_restart_hold():
     assert 'lease.phase == "parked"' in text
     assert 'job.get("status") in ("done", "error", "cancelled")' in text
     assert 'marker.get("job_id") is None' in text
+    assert 'and not terminal_parked_recovery' in text
     assert 'durable-lease-recovery:' in text

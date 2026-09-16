@@ -80,7 +80,8 @@ def main() -> int:
                     f"exact recovery lease not found for {args.job_id}: "
                     f"{(lease.job_id, lease.state)}"
                 )
-            if marker is None or marker.get("job_id") != args.job_id:
+            if (marker is None or
+                    (marker.get("job_id") != args.job_id and not terminal_parked_recovery)):
                 raise RuntimeError(
                     f"recovery marker belongs to {None if marker is None else marker.get('job_id')!r}"
                 )
