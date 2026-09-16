@@ -161,6 +161,27 @@ def test_startup_adopts_exact_idle_runtime_or_fails_closed():
     assert '_gpu_cutover_ready = False' in text
 
 
+def test_first_gpu_acquire_hands_legacy_pool_to_durable_controller():
+    text = ast.get_source_segment(APP.read_text(), next(
+        n for n in ast.parse(APP.read_text()).body
+        if isinstance(n, ast.FunctionDef) and n.name == 'gpu_operation'))
+    assert text is not None
+    handoff = text.index('pool_cmd("handoff")')
+    acquire = text.index('protocol.acquire(')
+    assert handoff < acquire
+    assert 'pool_cmd("acquire")' in text[acquire:], 'failed durable acquire must restore legacy exclusion'
+
+
+def test_pool_lock_manager_has_fail_closed_controller_handoff():
+    text = (APP.parent / 'runner' / 'pool_lock.sh').read_text()
+    handoff = text.index('handoff)')
+    block = text[handoff:]
+    assert 'stop media-lab-pool.service' in block
+    assert 'stop media-lab-gpu-reservation.service' in block
+    assert 'flock -n "$LOCK" -c true' in block
+    assert 'echo BUSY; exit 62' in block
+
+
 def test_maestro_runner_consumes_exact_delegation_before_model_init():
     runner = (APP.parent / 'runner' / 'maestro_queue_runner.py').read_text()
     assert 'exact Maestro GPU lease delegation is required' in runner

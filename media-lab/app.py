@@ -1955,7 +1955,16 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
         try:
             warm = _gpu_warm_proof(engine, task)
             if lease is None:
-                lease = protocol.acquire(job_id=job_id, engine=engine, task=task, owner=owner)
+                handoff = pool_cmd("handoff")
+                if handoff != "OK":
+                    raise LeaseBusy(f"legacy GPU pool handoff failed: {handoff}")
+                try:
+                    lease = protocol.acquire(job_id=job_id, engine=engine, task=task, owner=owner)
+                except Exception:
+                    # Handoff released the old holder but the durable acquire
+                    # did not complete. Restore exclusion before propagating.
+                    pool_cmd("acquire")
+                    raise
                 _gpu_active_lease = lease
                 if warm["healthy"] and not warm["busy"]:
                     protocol.adopt_warm(lease, proof=warm)
