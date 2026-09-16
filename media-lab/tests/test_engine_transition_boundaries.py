@@ -197,6 +197,22 @@ def test_pool_lock_manager_has_fail_closed_controller_handoff():
     assert 'echo BUSY; exit 62' in block
 
 
+def test_h3_boot_binds_and_waits_for_exact_task_family():
+    text = APP.read_text()
+    boot = ast.get_source_segment(text, next(
+        n for n in ast.parse(text).body
+        if isinstance(n, ast.FunctionDef) and n.name == '_boot_engine'))
+    switch = ast.get_source_segment(text, next(
+        n for n in ast.parse(text).body
+        if isinstance(n, ast.FunctionDef) and n.name == 'ensure_h3_variant'))
+    assert boot is not None and switch is not None
+    assert '--setenv=SOL_PRELOAD=' in boot
+    assert 'health.get("loaded") is not True' in boot
+    assert '"task": _gpu_task_for_engine("h3", j)' in switch
+    assert 'task=target["task"]' in switch
+    assert 'task=current.get("task")' in switch
+
+
 def test_maestro_runner_consumes_exact_delegation_before_model_init():
     runner = (APP.parent / 'runner' / 'maestro_queue_runner.py').read_text()
     assert 'exact Maestro GPU lease delegation is required' in runner

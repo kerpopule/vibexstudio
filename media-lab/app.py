@@ -2465,7 +2465,7 @@ def maybe_release_pool():
     if not gpu_recovery_pending() and not resident_engines():
         pool_cmd("release")
 
-def _boot_engine(name, j=None, variant=None, turbo_preset=None):
+def _boot_engine(name, j=None, variant=None, turbo_preset=None, task=None):
     if gpu_recovery_pending():
         return False
     # Stop is cooperative even while a heavyweight container is warming. Before
@@ -2484,6 +2484,10 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None):
             if variant not in _h3ref.H3_VARIANTS:
                 raise ValueError(f"unsupported H3 variant: {variant!r}")
             env["H3_VARIANT"] = variant
+            if task is not None:
+                if task not in ("t2va", "fl2va", "ref2va"):
+                    raise ValueError(f"unsupported H3 task family: {task!r}")
+                env["SOL_PRELOAD"] = task
             if turbo_preset is not None:
                 if turbo_preset not in _h3ref.H3_TURBO_PRESETS:
                     raise ValueError(f"unsupported H3 Turbo preset: {turbo_preset!r}")
@@ -2500,6 +2504,10 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None):
             # The Sol server reads its task family and Turbo preset from the
             # unit's environment; systemd-run's --setenv is the only way in.
             setenv.append(f"--setenv=H3_VARIANT={variant}")
+            if task is not None:
+                if task not in ("t2va", "fl2va", "ref2va"):
+                    raise ValueError(f"unsupported H3 task family: {task!r}")
+                setenv.append(f"--setenv=SOL_PRELOAD={task}")
             if turbo_preset is not None:
                 setenv.append(f"--setenv=H3_TURBO_PRESET={turbo_preset}")
         subprocess.run(["systemd-run", "--user", f"--unit={e['unit']}", *setenv,
@@ -2512,6 +2520,17 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None):
             maybe_release_pool()
             return False
         if engine_up(name):
+            if name == "h3" and task is not None:
+                try:
+                    health = http_json(
+                        f"http://127.0.0.1:{e['port']}{e['health']}", timeout=3) or {}
+                except Exception:
+                    health = {}
+                expected = {"variant": variant, "task": task,
+                            "turbo_preset": turbo_preset or None}
+                if health.get("loaded") is not True or h3_resident_config() != expected:
+                    time.sleep(3)
+                    continue
             touch_engine(name)
             return True
         time.sleep(3)
@@ -2531,7 +2550,8 @@ def ensure_h3_variant(j=None):
     if gpu_recovery_pending():
         return "busy"
     request = ((j or {}).get("request") or {})
-    target = _h3ref.required_runtime_config(request)
+    target = {**_h3ref.required_runtime_config(request),
+              "task": _gpu_task_for_engine("h3", j)}
     current = h3_resident_config()
     if current == target:
         return "up"
@@ -2560,7 +2580,8 @@ def ensure_h3_variant(j=None):
                 j["stage"] = f"loading H3 {target['variant']}{turbo_label}…"
                 save_state()
             if not _boot_engine("h3", j, variant=target["variant"],
-                                turbo_preset=target["turbo_preset"]):
+                                turbo_preset=target["turbo_preset"],
+                                task=target["task"]):
                 raise RuntimeError(f"H3 {target} did not become healthy")
             live = h3_resident_config()
             if live != target:
@@ -2576,7 +2597,8 @@ def ensure_h3_variant(j=None):
             if current and current.get("variant") in _h3ref.H3_VARIANTS:
                 restored = (_boot_engine(
                     "h3", None, variant=current["variant"],
-                    turbo_preset=current.get("turbo_preset")) and
+                    turbo_preset=current.get("turbo_preset"),
+                    task=current.get("task")) and
                     h3_resident_config() == current)
             if not current:
                 maybe_release_pool()
