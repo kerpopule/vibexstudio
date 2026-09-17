@@ -1976,6 +1976,52 @@ def _gpu_reclaim_all(j=None):
 
 
 @contextmanager
+def _exact_warm_video_admission(protocol, lease, engine, task, warm, j=None):
+    """Reclaim proven-idle image weights before exact-warm video admission.
+
+    The parked lease still owns the canonical durable flock/fence.  When its
+    measured warm envelope is short, also claim the independent inference
+    transaction lock, prove the image queue idle under that lock, and release
+    only those weights.  ``retarget`` remains inside this context and performs
+    the authoritative fresh capacity check; no envelope or reserve is relaxed.
+    """
+    exact_parked = (
+        lease is not None
+        and lease.state == "active"
+        and lease.phase == "parked"
+        and (lease.engine, lease.task) == (engine, task)
+        and engine in ("h3", "ltx")
+        and warm.get("healthy") is True
+        and warm.get("busy") is False
+    )
+    if not exact_parked:
+        yield
+        return
+    if protocol.capacity_deficit_gib(engine, task, warm=True) <= 0:
+        yield
+        return
+
+    gate = RESIDENCY.hooks.begin_residency_transaction()
+    try:
+        if engine_up("image"):
+            if not _gpu_exact_idle("image"):
+                raise LeaseBusy(
+                    "warm video admission needs image capacity but image is not proven idle"
+                )
+            if j is not None:
+                j["stage"] = "releasing idle image weights for warm video admission…"
+                save_state()
+            released = RESIDENCY.hooks.release_image_weights(
+                f"exact-warm preflight for {engine}/{task} video admission"
+            )
+            if released is None:
+                raise LeaseBusy("image engine would not release proven-idle weights")
+        yield
+    finally:
+        RESIDENCY.hooks.end_residency_transaction(gate)
+
+
+@contextmanager
 def gpu_operation(engine, task, j=None, *, ephemeral=False):
     """Own or retarget the canonical GPU lease for one exact local operation."""
     global _gpu_active_lease
@@ -2044,8 +2090,10 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
                 # only this persisted job; every other target must retarget from parked.
                 pass
             else:
-                protocol.retarget(lease, job_id=job_id, engine=engine, task=task,
-                                  owner=owner, warm_proof=warm)
+                with _exact_warm_video_admission(
+                        protocol, lease, engine, task, warm, j):
+                    protocol.retarget(lease, job_id=job_id, engine=engine, task=task,
+                                      owner=owner, warm_proof=warm)
             if lease.phase == "drain":
                 protocol.advance(lease, "unload")
                 if engine == "maestro":

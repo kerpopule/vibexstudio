@@ -263,6 +263,29 @@ class DurableGpuProtocol:
                 f"only {available:.1f} GiB available"
             )
 
+    def capacity_deficit_gib(self, engine: str, task: str, *, warm: bool = False) -> float:
+        """Return the measured admission deficit without weakening admission.
+
+        Callers may use this before ``acquire``/``retarget`` to reclaim only
+        known-idle capacity consumers.  Admission still calls ``_check_capacity``
+        against a fresh measurement, so this observation is never an approval.
+        """
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT peak_gib,warm_render_gib,reserve_gib FROM capacity "
+                "WHERE engine=? AND task=?",
+                (engine, task),
+            ).fetchone()
+        if row is None:
+            raise CapacityUnqualified(f"no measured capacity for {engine}/{task}")
+        if warm and row["warm_render_gib"] is None:
+            raise CapacityUnqualified(
+                f"no measured warm-render capacity for {engine}/{task}"
+            )
+        envelope = row["warm_render_gib"] if warm else row["peak_gib"]
+        required = float(envelope) + float(row["reserve_gib"])
+        return max(0.0, required - float(self._available_gib()))
+
     def acquire(self, *, job_id: str, engine: str, task: str, owner: str) -> Lease:
         fd = self.lock_path.open("a+")
         try:

@@ -181,6 +181,134 @@ class VideoResidencyAdmissionTests(unittest.TestCase):
         apply.assert_not_called()
 
 
+class ExactWarmVideoAdmissionTests(unittest.TestCase):
+    def setUp(self):
+        self.previous_lease = studio._gpu_active_lease
+        self.previous_thread_lease = getattr(studio._gpu_thread, "lease", None)
+        studio._gpu_thread.lease = None
+
+    def tearDown(self):
+        studio._gpu_active_lease = self.previous_lease
+        studio._gpu_thread.lease = self.previous_thread_lease
+
+    @staticmethod
+    def _lease(**changes):
+        values = dict(state="active", phase="parked", job_id="prior",
+                      engine="h3", task="t2va", fence=41, owner="controller",
+                      pid=123, boot_id="boot-a", _fd=object())
+        values.update(changes)
+        return SimpleNamespace(**values)
+
+    def test_parked_exact_warm_h3_releases_idle_image_before_retarget(self):
+        lease = self._lease()
+        studio._gpu_active_lease = lease
+        events = []
+        gate = object()
+
+        class Protocol:
+            def capacity_deficit_gib(self, engine, task, *, warm=False):
+                events.append(("capacity", engine, task, warm))
+                return 11.2
+
+            def retarget(self, current, **kwargs):
+                events.append("retarget")
+                self_outer.assertIn("release-image", events)
+                current.job_id = kwargs["job_id"]
+                current.phase = "render"
+
+            def park(self, current, proof):
+                events.append("park")
+                current.phase = "parked"
+
+        self_outer = self
+        with mock.patch.object(studio, "gpu_protocol", return_value=Protocol()), \
+             mock.patch.object(studio, "_gpu_warm_proof", return_value={
+                 "engine": "h3", "task": "t2va", "healthy": True, "busy": False}), \
+             mock.patch.object(studio, "engine_up", side_effect=lambda name: name == "image"), \
+             mock.patch.object(studio, "_gpu_exact_idle", side_effect=lambda name: name == "image"), \
+             mock.patch.object(studio.RESIDENCY.hooks, "begin_residency_transaction",
+                               side_effect=lambda: events.append("inference-lock") or gate), \
+             mock.patch.object(studio.RESIDENCY.hooks, "end_residency_transaction",
+                               side_effect=lambda actual: events.append(("unlock", actual))), \
+             mock.patch.object(studio.RESIDENCY.hooks, "release_image_weights",
+                               side_effect=lambda _why: events.append("release-image") or 11.5), \
+             mock.patch.object(studio, "save_state"):
+            with studio.gpu_operation("h3", "t2va", {"id": "next"}):
+                events.append("body")
+
+        self.assertLess(events.index("inference-lock"), events.index("release-image"))
+        self.assertLess(events.index("release-image"), events.index("retarget"))
+        self.assertLess(events.index("retarget"), events.index(("unlock", gate)))
+        self.assertIn("body", events)
+
+    def test_busy_image_fails_closed_before_release_or_retarget(self):
+        lease = self._lease()
+        studio._gpu_active_lease = lease
+
+        class Protocol:
+            def capacity_deficit_gib(self, *_args, **_kwargs):
+                return 11.2
+
+            def retarget(self, *_args, **_kwargs):
+                raise AssertionError("must not retarget")
+
+        with mock.patch.object(studio, "gpu_protocol", return_value=Protocol()), \
+             mock.patch.object(studio, "_gpu_warm_proof", return_value={
+                 "engine": "h3", "task": "t2va", "healthy": True, "busy": False}), \
+             mock.patch.object(studio, "engine_up", return_value=True), \
+             mock.patch.object(studio, "_gpu_exact_idle", return_value=False), \
+             mock.patch.object(studio.RESIDENCY.hooks, "begin_residency_transaction",
+                               return_value=object()), \
+             mock.patch.object(studio.RESIDENCY.hooks, "end_residency_transaction"), \
+             mock.patch.object(studio.RESIDENCY.hooks, "release_image_weights") as release:
+            with self.assertRaisesRegex(studio.LeaseBusy, "not proven idle"):
+                with studio.gpu_operation("h3", "t2va", {"id": "next"}):
+                    self.fail("busy image must block warm admission")
+        release.assert_not_called()
+        self.assertEqual("parked", lease.phase)
+
+    def test_idle_image_release_failure_stays_parked_and_never_retargets(self):
+        lease = self._lease()
+        studio._gpu_active_lease = lease
+
+        protocol = mock.Mock()
+        protocol.capacity_deficit_gib.return_value = 11.2
+        warm = {"engine": "h3", "task": "t2va", "healthy": True, "busy": False}
+        with mock.patch.object(studio, "gpu_protocol", return_value=protocol), \
+             mock.patch.object(studio, "_gpu_warm_proof", return_value=warm), \
+             mock.patch.object(studio, "engine_up", return_value=True), \
+             mock.patch.object(studio, "_gpu_exact_idle", return_value=True), \
+             mock.patch.object(studio.RESIDENCY.hooks, "begin_residency_transaction",
+                               return_value=object()), \
+             mock.patch.object(studio.RESIDENCY.hooks, "end_residency_transaction"), \
+             mock.patch.object(studio.RESIDENCY.hooks, "release_image_weights",
+                               return_value=None), \
+             mock.patch.object(studio, "save_state"):
+            with self.assertRaisesRegex(studio.LeaseBusy, "would not release"):
+                with studio.gpu_operation("h3", "t2va", {"id": "next"}):
+                    self.fail("failed release must block warm admission")
+        protocol.retarget.assert_not_called()
+        self.assertEqual("parked", lease.phase)
+
+    def test_cold_unrelated_and_recovery_paths_do_not_release_image(self):
+        exact = {"engine": "h3", "task": "t2va", "healthy": True, "busy": False}
+        cases = (
+            (None, exact, "h3", "t2va"),
+            (self._lease(), {**exact, "healthy": False}, "h3", "fl2va"),
+            (self._lease(state="recovery"), exact, "h3", "t2va"),
+        )
+        for lease, proof, engine, task in cases:
+            with self.subTest(lease=lease, engine=engine, task=task):
+                protocol = mock.Mock()
+                with mock.patch.object(studio.RESIDENCY.hooks,
+                                       "release_image_weights") as release:
+                    with studio._exact_warm_video_admission(
+                            protocol, lease, engine, task, proof, {}):
+                        pass
+                release.assert_not_called()
+                protocol.capacity_deficit_gib.assert_not_called()
+
+
 class OneCompanionContractTests(unittest.TestCase):
     def test_music_stands_down_every_other_idle_companion_but_never_pplx(self):
         up = {"ltx", "h3", "music", "image"}

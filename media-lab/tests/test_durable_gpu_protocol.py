@@ -80,6 +80,21 @@ def test_warm_retarget_uses_qualified_incremental_capacity(tmp_path):
     assert lease.phase == "render"
 
 
+def test_warm_capacity_deficit_preserves_measured_envelope_and_reserve(tmp_path):
+    available = {"gib": 12.8}
+    p = DurableGpuProtocol(
+        tmp_path / "gpu.sqlite3", tmp_path / "gpu.lock",
+        boot_id=lambda: "boot-a", available_gib=lambda: available["gib"],
+        pid_alive=lambda _pid: True,
+    )
+    p.qualify("h3", "t2va", peak_gib=108.0, warm_render_gib=22.0,
+              reserve_gib=2.0, evidence="measured Spark receipt")
+
+    assert p.capacity_deficit_gib("h3", "t2va", warm=True) == pytest.approx(11.2)
+    available["gib"] = 24.0
+    assert p.capacity_deficit_gib("h3", "t2va", warm=True) == 0.0
+
+
 def test_stale_owner_cannot_release_new_owner(tmp_path):
     p = protocol(tmp_path)
     p.qualify("h3", "t2va", peak_gib=10.0, reserve_gib=2.0, evidence="fixture")
