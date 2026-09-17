@@ -18,6 +18,7 @@ from media_lab_core import installer as engine_installer
 from media_lab_core import cut as cut_core
 from media_lab_core.durable_gpu_protocol import CapacityUnqualified, LeaseBusy, StaleFence
 from media_lab_core.gpu_lease_runtime import delegation_env, delegation_headers, open_protocol
+from media_lab_core.solh3_control_guard import current_heartbeat_allows_h3, write_runtime_environment
 from runner.audio_signal_gate import audio_signal_metrics
 from runner import h3_reference as _h3ref   # H3 Ref2VA / Qwen quality contract
 from runner.maestro_safety import admission_error as maestro_admission_error, reap_orphan_runners as reap_orphan_maestro_runners
@@ -2280,44 +2281,18 @@ def _yue2_command() -> str:
     return f"exec bash {shlex.quote(str(SOURCE_DIR / 'runner/start_yue2_engine.sh'))}"
 
 
-def _sol_h3_command() -> str:
-    """The shell line systemd-run executes for the Sol-H3-Spark engine.
-
-    Everything host-specific is a SOL_* key from config/local.env: the model
-    package, its install root (whose envs/stage2 interpreter runs the server),
-    the runtime scratch root and the Qwen sidecar image/weights. The server
-    script itself ships in this checkout's runner/.
-    """
-    sol = local_config.sol()
-    if not sol.get("SOL_PKG"):
-        return "echo 'Sol-H3-Spark is not configured: set SOL_PKG in config/local.env' >&2; exit 78"
-    runtime_root = sol.get("SOL_H3_SPARK_RUNTIME_ROOT") or f"{sol['SOL_ROOT']}/runtime"
-    exports = " ".join(f"{k}={shlex.quote(v)}" for k, v in (
-        ("SOL_PKG", sol["SOL_PKG"]),
-        ("SOL_ROOT", sol["SOL_ROOT"]),
-        ("SOL_H3_SPARK_RUNTIME_ROOT", runtime_root),
-        ("SOL_H3_SPARK_QWEN_IMAGE", sol["SOL_H3_SPARK_QWEN_IMAGE"]),
-        ("SOL_H3_SPARK_QWEN_WEIGHTS_ROOT", sol["SOL_H3_SPARK_QWEN_WEIGHTS_ROOT"]),
-        ("SOL_PORT", str(SOL_H3_PORT)),
-    ))
-    python = f"{sol['SOL_ROOT']}/envs/stage2/bin/python"
-    server = ROOT / "runner/sol_engine_server.py"
-    return (f"export {exports}; cd \"$SOL_PKG\" && exec {shlex.quote(python)} "
-            f"{shlex.quote(str(server))}")
-
-
 ENGINES = {
     "ltx":   {"port": 8290, "kind": "docker", "start": "start_ltx_engine.sh",
               "container": "media-lab-ltx-engine", "health": "/health", "gb": 40,
               "boot_wait": 420},
-    # Sol-H3-Spark: the whole-box H3 engine (runner/sol_engine_server.py) run as
-    # a transient user unit. It takes ~110 GB of the 121 GiB unified pool, so it
-    # never co-resides with Qwen (QWEN_GB is 0 while Qwen is served remotely)
-    # and the first boot can spend most of half an hour loading. Paths come from
-    # the SOL_* keys in config/local.env; an unset SOL_PKG means "not installed".
+    # Sol-H3-Spark: the whole-box H3 engine runs only through a dormant static
+    # user unit guarded by the independent control-plane observer. It takes
+    # ~110 GB of the 121 GiB unified pool, so it never co-resides with Qwen
+    # (QWEN_GB is 0 while Qwen is served remotely), and the first boot can spend
+    # most of half an hour loading. Host paths come from config/local.env and
+    # are written to a private per-load EnvironmentFile after lease admission.
     "h3":    {"port": 8291, "kind": "unit", "unit": "media-lab-sol-h3.service",
-              "cmd": _sol_h3_command(), "health": "/health", "gb": 110,
-              "boot_wait": 1800},
+              "health": "/health", "gb": 110, "boot_wait": 1800},
     "music": {"port": 8196, "kind": "unit", "unit": "media-lab-comfy-music.service",
               "health": "/system_stats", "gb": 15, "boot_wait": 150,
               "cmd": f"cd {COMFY_MUSIC_DIR} && exec .venv/bin/python main.py --disable-api-nodes --listen 127.0.0.1 --port 8196 --disable-auto-launch --extra-model-paths-config extra_model_paths.yaml"},
@@ -2644,6 +2619,12 @@ def maybe_release_pool():
     if not gpu_recovery_pending() and not resident_engines():
         pool_cmd("release")
 
+
+def sol_h3_control_guard_ready():
+    """Require a fresh, same-boot observer before any whole-box H3 load."""
+    return current_heartbeat_allows_h3()
+
+
 def _boot_engine(name, j=None, variant=None, turbo_preset=None, task=None):
     if gpu_recovery_pending():
         return False
@@ -2651,6 +2632,10 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None, task=None):
     # this check, a queued job cancelled during the worker handoff could spend the
     # entire boot timeout in "warming up" after its exact engine had been removed.
     if j is not None and j.get("cancel"):
+        return False
+    if name == "h3" and not sol_h3_control_guard_ready():
+        if j is not None:
+            j["detail"] = "H3 control-plane guard is missing, stale, quarantined, or from another boot"
         return False
     e = ENGINES[name]
     lease = getattr(_gpu_thread, "lease", None)
@@ -2676,24 +2661,61 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None, task=None):
     else:
         subprocess.run(["systemctl", "--user", "reset-failed", e["unit"]],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        setenv = []
-        for key, value in delegation_env(lease).items():
-            setenv.append(f"--setenv={key}={value}")
-        if name == "h3" and variant is not None:
-            # The Sol server reads its task family and Turbo preset from the
-            # unit's environment; systemd-run's --setenv is the only way in.
-            setenv.append(f"--setenv=H3_VARIANT={variant}")
+        if name == "h3":
+            if variant is not None and variant not in _h3ref.H3_VARIANTS:
+                raise ValueError(f"unsupported H3 variant: {variant!r}")
+            if task is not None and task not in ("t2va", "fl2va", "ref2va"):
+                raise ValueError(f"unsupported H3 task family: {task!r}")
+            if turbo_preset is not None and turbo_preset not in _h3ref.H3_TURBO_PRESETS:
+                raise ValueError(f"unsupported H3 Turbo preset: {turbo_preset!r}")
+            sol = local_config.sol()
+            if not sol.get("SOL_PKG"):
+                if j is not None:
+                    j["detail"] = "Sol-H3-Spark is not configured"
+                return False
+            runtime_root = sol.get("SOL_H3_SPARK_RUNTIME_ROOT") or f"{sol['SOL_ROOT']}/runtime"
+            runtime_env = {
+                **delegation_env(lease),
+                "SOL_PKG": sol["SOL_PKG"],
+                "SOL_ROOT": sol["SOL_ROOT"],
+                "SOL_H3_SPARK_RUNTIME_ROOT": runtime_root,
+                "SOL_H3_SPARK_QWEN_IMAGE": sol["SOL_H3_SPARK_QWEN_IMAGE"],
+                "SOL_H3_SPARK_QWEN_WEIGHTS_ROOT": sol["SOL_H3_SPARK_QWEN_WEIGHTS_ROOT"],
+                "SOL_PORT": str(SOL_H3_PORT),
+                "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+            }
+            if variant is not None:
+                runtime_env["H3_VARIANT"] = variant
             if task is not None:
-                if task not in ("t2va", "fl2va", "ref2va"):
-                    raise ValueError(f"unsupported H3 task family: {task!r}")
-                setenv.append(f"--setenv=SOL_PRELOAD={task}")
+                runtime_env["SOL_PRELOAD"] = task
             if turbo_preset is not None:
-                setenv.append(f"--setenv=H3_TURBO_PRESET={turbo_preset}")
-        subprocess.run(["systemd-run", "--user", f"--unit={e['unit']}", *setenv,
-                        "bash", "-lc", e["cmd"]],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                runtime_env["H3_TURBO_PRESET"] = turbo_preset
+            runtime_dir = Path(os.getenv("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+            write_runtime_environment(runtime_dir / "media-lab-sol-h3.env", runtime_env)
+            launched = subprocess.run(
+                ["systemctl", "--user", "start", e["unit"]],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        else:
+            setenv = [f"--setenv={key}={value}"
+                      for key, value in delegation_env(lease).items()]
+            launched = subprocess.run(
+                ["systemd-run", "--user", f"--unit={e['unit']}", *setenv,
+                 "bash", "-lc", e["cmd"]],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        if launched.returncode != 0:
+            if j is not None:
+                j["detail"] = f"{name} unit failed to start"
+            return False
     deadline = time.time() + e["boot_wait"]
     while time.time() < deadline:
+        if name == "h3" and not sol_h3_control_guard_ready():
+            stop_engine(name)
+            if j is not None:
+                j["detail"] = "H3 control-plane guard heartbeat was lost during cold load"
+            maybe_release_pool()
+            return False
         if j is not None and j.get("cancel"):
             stop_engine(name)
             maybe_release_pool()

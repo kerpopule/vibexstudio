@@ -18,6 +18,7 @@ State between runs lives in watchdog-state.json next to this script's data dir.
 Never restarts more often than RESTART_COOLDOWN_MIN.
 """
 import json, os, subprocess, sys, time, urllib.error, urllib.request
+from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from media_lab_core import local_config   # config/local.env, stdlib only
 
@@ -33,6 +34,7 @@ TUNNEL_PROBE_UA = "MediaLabWatchdog/1.0"
 TUNNEL_ORIGIN_FAILURE_CODES = (0, 502, 503, 504, 521, 522, 523, 530)
 POOL_LOCK = "/run/user/1000/spark-gpu.lock"
 POOL_SH = os.path.join(ROOT, "runner", "pool_lock.sh")
+GPU_RECOVERY_HOLD = Path(ROOT) / "pool" / "gpu-recovery-hold.json"
 
 STALL_IDLE_CHECKS = 2        # consecutive checks with queued>0, running==0
 STALL_RUNNING_MIN = 45       # minutes a running job may sit on one stage
@@ -97,6 +99,16 @@ def ensure_pool_lock():
         log(f"pool holder was missing — re-acquired: {(r.stdout or '').strip() or 'OK'}")
     elif r.returncode == 63:
         log(f"pool lock acquire FAILED: {r.stdout} {r.stderr}")
+
+
+def gpu_recovery_held():
+    """A durable recovery hold explains a queued/no-running row.
+
+    The worker deliberately leaves the row queued until an exact reconciliation.
+    Restarting the controller cannot clear that fence and only disrupts a load or
+    destroys incident chronology.
+    """
+    return GPU_RECOVERY_HOLD.is_file()
 
 
 def an_engine_is_working():
@@ -196,6 +208,12 @@ def main():
         with LOCAL_OPENER.open(queue_request(), timeout=15) as resp:
             d = json.load(resp)
     except Exception as e:
+        if gpu_recovery_held():
+            st["idle_strikes"] = 0
+            st.pop("run_seen", None)
+            log(f"/api/queue unreachable ({e}) but durable GPU recovery is held — standing clear")
+            save_state(st)
+            return
         active_state = subprocess.run(
             ["systemctl", "--user", "is-active", "media-lab-simple.service"],
             env=ENV, capture_output=True, text=True).stdout.strip()
@@ -215,6 +233,16 @@ def main():
     active = d.get("active", [])
     running = [j for j in active if j.get("status") == "running"]
     queued = [j for j in active if j.get("status") == "queued"]
+
+    # A durable recovery hold means the prior GPU ownership outcome is unknown.
+    # No watchdog path may restart the controller until an operator reconciles
+    # that evidence, including API-failure and stalled-running paths.
+    if gpu_recovery_held():
+        st["idle_strikes"] = 0
+        st.pop("run_seen", None)
+        log(f"queued={len(queued)} running={len(running)} but durable GPU recovery is held — standing clear")
+        save_state(st)
+        return
 
     # --- case D: make sure the GPU pool lock has a holder (post-reboot gap) ---
     ensure_pool_lock()
