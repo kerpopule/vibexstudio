@@ -3631,22 +3631,148 @@ def gallery_add(item_id, prompt, kind, url, poster, style="", engine="", license
     g.insert(0, row)
     _save(ROOT / "gallery.json", g[:500])
 
-def _finish_video(j, out: Path, kind="video"):
+def _artifact_fingerprint(path):
+    """Content fingerprint used to reject an unchanged pre-run cache artifact."""
+    path = Path(path)
+    if not path.is_file() or path.stat().st_size <= 0:
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {"size": path.stat().st_size, "sha256": digest.hexdigest()}
+
+
+def _artifact_inventory(directory):
+    """Snapshot existing MP4s before an engine call for stale-cache detection."""
+    directory = Path(directory)
+    if not directory.is_dir():
+        return {}
+    return {path.name: fingerprint for path in directory.glob("*.mp4")
+            if (fingerprint := _artifact_fingerprint(path)) is not None}
+
+
+def _validate_media_artifact(path, *, require_audio, expected_dimensions=None, prior=None):
+    """Decode and inspect an MP4; reject broken, blank, frozen, noisy, or stale output.
+
+    This is deliberately independent of file size and container metadata.  A
+    bounded sequence of decoded luma frames supplies the visual signal gate,
+    and required soundtracks must themselves decode to PCM.
+    """
+    path = Path(path)
+    fingerprint = _artifact_fingerprint(path)
+    if fingerprint is None:
+        raise RuntimeError("artifact is missing or empty")
+    if prior is not None and fingerprint == prior:
+        raise RuntimeError("stale-cache artifact is byte-identical to the pre-run output")
+    probe = subprocess.run([
+        "ffprobe", "-v", "error", "-show_streams", "-show_format",
+        "-of", "json", str(path),
+    ], capture_output=True, text=True, timeout=120)
+    try:
+        metadata = json.loads(probe.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"media probe returned invalid JSON: {exc}") from exc
+    streams = metadata.get("streams") or []
+    video = next((stream for stream in streams if stream.get("codec_type") == "video"), None)
+    if probe.returncode != 0 or not video:
+        raise RuntimeError(f"media probe found no decodable video stream: {(probe.stderr or '').strip()[:240]}")
+    width, height = int(video.get("width") or 0), int(video.get("height") or 0)
+    if expected_dimensions and (width, height) != tuple(expected_dimensions):
+        raise RuntimeError(f"video geometry {width}x{height} does not match expected "
+                           f"{expected_dimensions[0]}x{expected_dimensions[1]}")
+
+    decoded = subprocess.run([
+        "ffmpeg", "-nostdin", "-v", "error", "-i", str(path),
+        "-map", "0:v:0", "-vf", "fps=8,scale=64:36:flags=area",
+        "-frames:v", "40", "-pix_fmt", "gray", "-f", "rawvideo", "-",
+    ], capture_output=True, timeout=180)
+    frame_size = 64 * 36
+    frame_count = len(decoded.stdout) // frame_size
+    if decoded.returncode != 0 or frame_count < 4 or len(decoded.stdout) % frame_size:
+        detail = decoded.stderr.decode(errors="replace") if isinstance(decoded.stderr, bytes) else str(decoded.stderr or "")
+        raise RuntimeError(f"video decode failed or produced too few complete frames: {detail[-240:]}")
+    frames = [decoded.stdout[i * frame_size:(i + 1) * frame_size]
+              for i in range(frame_count)]
+    all_pixels = b"".join(frames)
+    mean_luma = sum(all_pixels) / len(all_pixels)
+    luma_range = max(all_pixels) - min(all_pixels)
+    if mean_luma < 8.0 and luma_range < 20:
+        raise RuntimeError(f"decoded video is effectively black (mean={mean_luma:.2f}, range={luma_range})")
+    temporal = [sum(abs(a - b) for a, b in zip(frames[i - 1], frames[i])) / frame_size
+                for i in range(1, frame_count)]
+    temporal_mean = sum(temporal) / len(temporal)
+    if temporal_mean < 0.50:
+        raise RuntimeError(f"decoded video is constant/frozen (temporal delta={temporal_mean:.3f})")
+    spatial = []
+    for frame in frames:
+        spatial.append(sum(abs(frame[row * 64 + col] - frame[row * 64 + col - 1])
+                           for row in range(36) for col in range(1, 64)) / (36 * 63))
+    spatial_mean = sum(spatial) / len(spatial)
+    if temporal_mean > 45.0 and spatial_mean > 35.0:
+        raise RuntimeError(f"decoded video is noise-like (temporal={temporal_mean:.2f}, spatial={spatial_mean:.2f})")
+
+    audio_bytes = 0
+    audio = next((stream for stream in streams if stream.get("codec_type") == "audio"), None)
+    if require_audio:
+        if audio is None:
+            raise RuntimeError("required audio stream is missing")
+        decoded_audio = subprocess.run([
+            "ffmpeg", "-nostdin", "-v", "error", "-i", str(path),
+            "-map", "0:a:0", "-t", "6", "-ac", "1", "-ar", "8000",
+            "-f", "s16le", "-",
+        ], capture_output=True, timeout=180)
+        audio_bytes = len(decoded_audio.stdout)
+        if decoded_audio.returncode != 0 or audio_bytes < 1600:
+            detail = decoded_audio.stderr.decode(errors="replace") if isinstance(decoded_audio.stderr, bytes) else str(decoded_audio.stderr or "")
+            raise RuntimeError(f"required audio stream failed PCM decode: {detail[-240:]}")
+    return {
+        "sha256": fingerprint["sha256"], "size": fingerprint["size"],
+        "width": width, "height": height,
+        "video_frames_decoded": frame_count,
+        "mean_luma": round(mean_luma, 3),
+        "temporal_delta": round(temporal_mean, 3),
+        "spatial_delta": round(spatial_mean, 3),
+        "audio_required": bool(require_audio), "audio_bytes_decoded": audio_bytes,
+    }
+
+
+def _finish_video(j, out: Path, kind="video", *, validate_audio=False,
+                  expected_dimensions=None, validate_media=False):
     if j.get("cancel"):
         # stopped mid-render: the engine finished its take, but the user said no
         return fail(j, "Stopped by you — the take was discarded.")
     final = MEDIA / f"{j['id']}.mp4"
-    subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(out), "-c:v", "libx264",
-                    "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p", "-c:a", "aac",
-                    "-b:a", "128k", "-movflags", "+faststart", str(final)], check=False)
-    if not final.exists() or final.stat().st_size == 0:
-        final.write_bytes(out.read_bytes())
+    temp = final.with_suffix(".publishing.mp4")
+    temp.unlink(missing_ok=True)
+    if validate_media:
+        try:
+            _validate_media_artifact(out, require_audio=validate_audio,
+                                     expected_dimensions=expected_dimensions)
+        except Exception as exc:
+            return fail(j, "The generated video failed decoded media QA and was not published.", str(exc))
+    encoded = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(out), "-c:v", "libx264",
+                              "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                              "-b:a", "128k", "-movflags", "+faststart", str(temp)], check=False)
+    if encoded.returncode != 0 or not temp.exists() or temp.stat().st_size == 0:
+        temp.unlink(missing_ok=True)
+        shutil.copy2(out, temp)
+    published_validation = None
+    if validate_media:
+        try:
+            published_validation = _validate_media_artifact(
+                temp, require_audio=validate_audio, expected_dimensions=expected_dimensions)
+        except Exception as exc:
+            temp.unlink(missing_ok=True)
+            return fail(j, "The published video failed decoded media QA and was discarded.", str(exc))
+    os.replace(temp, final)
     _maybe_face_fix(j, final)
     subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", "1", "-i", str(final),
                     "-frames:v", "1", str(MEDIA / f"{j['id']}.jpg")], check=False)
     j["status"] = "done"; j["stage"] = "done"
     j["url"] = f"/media/{j['id']}.mp4"; j["poster"] = f"/media/{j['id']}.jpg"
     gallery_add(j["id"], j["prompt"], kind, j["url"], j["poster"], style=j.get("style", ""))
+    return published_validation
 
 def _run_video_cold(j):
     """Original v1 cold-container path (fallback when the warm engine is down)."""
@@ -3984,6 +4110,7 @@ def _run_h3_ltx_video(j, *, references, staged_video_refs, start_b64):
     j["active_engine"] = "h3"
     j["stage"] = "stage 1/2 · H3 draft"
     save_state()
+    h3_inventory = _artifact_inventory(POOL_DIR / "h3-out")
     try:
         h3_result = engine_generate("h3", h3_body, j, timeout=5400)
     except Exception as exc:
@@ -4001,6 +4128,17 @@ def _run_h3_ltx_video(j, *, references, staged_video_refs, start_b64):
         receipt.update(status="failed", failed_stage="h3", error="H3 output missing")
         _write_h3_ltx_receipt(job_dir, receipt)
         return fail(j, "Stage 1/2 H3 draft failed — its output artifact is missing.")
+    try:
+        h3_validation = _validate_media_artifact(
+            h3_out, require_audio=True,
+            expected_dimensions=(h3_body["width"], h3_body["height"]),
+            prior=h3_inventory.get(h3_out.name),
+        )
+    except Exception as exc:
+        j.pop("active_engine", None)
+        receipt.update(status="failed", failed_stage="h3-media-qa", error=str(exc)[:400])
+        _write_h3_ltx_receipt(job_dir, receipt)
+        return fail(j, "Stage 1/2 H3 draft failed decoded video/audio QA — LTX was not started.", receipt["error"])
 
     stage_a = job_dir / "stage-a-h3.mp4"
     shutil.copy2(h3_out, stage_a)
@@ -4010,6 +4148,7 @@ def _run_h3_ltx_video(j, *, references, staged_video_refs, start_b64):
         "frames_requested": h3_body["frames"],
         "width": h3_body["width"], "height": h3_body["height"],
         "artifact": stage_a.name, "sha256": stage_a_hash,
+        "validation": h3_validation,
     })
     receipt["status"] = "stage-b"
     _write_h3_ltx_receipt(job_dir, receipt)
@@ -4035,6 +4174,7 @@ def _run_h3_ltx_video(j, *, references, staged_video_refs, start_b64):
     j["active_engine"] = "ltx"
     j["stage"] = "stage 2/2 · LTX refinement"
     save_state()
+    ltx_inventory = _artifact_inventory(POOL_DIR / "ltx-out")
     try:
         try:
             ltx_result = engine_generate("ltx", ltx_body, j, timeout=5400)
@@ -4055,11 +4195,26 @@ def _run_h3_ltx_video(j, *, references, staged_video_refs, start_b64):
         receipt.update(status="failed", failed_stage="ltx25", error="LTX output missing")
         _write_h3_ltx_receipt(job_dir, receipt)
         return fail(j, "Stage 2/2 LTX refinement failed — its output artifact is missing; the H3 draft was preserved.")
+    try:
+        ltx_validation = _validate_media_artifact(
+            ltx_out, require_audio=False,
+            expected_dimensions=(ltx_body["width"], ltx_body["height"]),
+            prior=ltx_inventory.get(ltx_out.name),
+        )
+    except Exception as exc:
+        j.pop("active_engine", None)
+        receipt.update(status="failed", failed_stage="ltx25-media-qa", error=str(exc)[:400])
+        _write_h3_ltx_receipt(job_dir, receipt)
+        return fail(j, "Stage 2/2 LTX refinement failed decoded video QA; the H3 draft was preserved.", receipt["error"])
 
     raw_ltx_hash = _sha256_file(ltx_out)
     muxed_out = job_dir / "stage-b-ltx-with-h3-audio.mp4"
     try:
         _mux_h3_audio_onto_ltx(ltx_out, stage_a, muxed_out)
+        mux_validation = _validate_media_artifact(
+            muxed_out, require_audio=True,
+            expected_dimensions=(ltx_body["width"], ltx_body["height"]),
+        )
     except Exception as exc:
         j.pop("active_engine", None)
         receipt.update(status="failed", failed_stage="audio-remux", error=str(exc)[:400])
@@ -4075,15 +4230,32 @@ def _run_h3_ltx_video(j, *, references, staged_video_refs, start_b64):
         "regenerate_audio": False,
         "source_sha256": stage_a_hash,
         "raw_ltx_artifact": ltx_out.name, "raw_ltx_sha256": raw_ltx_hash,
+        "raw_ltx_validation": ltx_validation,
         "audio_source_artifact": stage_a.name, "audio_source_sha256": stage_a_hash,
         "artifact": muxed_out.name, "sha256": muxed_hash,
+        "validation": mux_validation,
     })
-    receipt["status"] = "complete"
+    receipt["status"] = "publishing"
     _write_h3_ltx_receipt(job_dir, receipt)
     j["h3_ltx_receipt"] = str(job_dir / "h3-ltx-receipt.json")
     j.pop("active_engine", None)
     j["stage"] = "encoding"
-    _finish_video(j, muxed_out)
+    published_validation = _finish_video(
+        j, muxed_out, validate_audio=True,
+        expected_dimensions=(ltx_body["width"], ltx_body["height"]),
+        validate_media=True,
+    )
+    if j.get("status") != "done" or not published_validation:
+        receipt.update(status="failed", failed_stage="publication-media-qa",
+                       error=str(j.get("detail") or j.get("message") or "publication failed")[:400])
+        _write_h3_ltx_receipt(job_dir, receipt)
+        return
+    receipt["published"] = {
+        "artifact": f"{j['id']}.mp4", "url": j.get("url"),
+        "validation": published_validation,
+    }
+    receipt["status"] = "complete"
+    _write_h3_ltx_receipt(job_dir, receipt)
 
 
 def run_video(j):

@@ -5,6 +5,8 @@ import ast
 import hashlib
 import importlib
 import json
+import shutil
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -22,6 +24,80 @@ def function(name, **namespace):
     node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
     exec(compile(ast.Module(body=[node], type_ignores=[]), str(APP), "exec"), namespace)
     return namespace[name]
+
+
+def media_validator():
+    fingerprint = function("_artifact_fingerprint", Path=Path, hashlib=hashlib)
+    validate = function(
+        "_validate_media_artifact",
+        Path=Path,
+        subprocess=subprocess,
+        json=json,
+        math=__import__("math"),
+        _artifact_fingerprint=fingerprint,
+    )
+    return fingerprint, validate
+
+
+def make_video(path, video_filter, *, audio=True):
+    command = [
+        "ffmpeg", "-nostdin", "-v", "error", "-y",
+        "-f", "lavfi", "-i", video_filter,
+    ]
+    if audio:
+        command += ["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=8000:d=1"]
+    command += ["-t", "1", "-c:v", "libx264", "-threads", "1", "-pix_fmt", "yuv420p"]
+    if audio:
+        command += ["-c:a", "aac", "-shortest"]
+    else:
+        command += ["-an"]
+    command.append(str(path))
+    result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg") or not shutil.which("ffprobe"),
+                    reason="ffmpeg and ffprobe are required")
+def test_media_validation_accepts_decoded_motion_and_audio(tmp_path):
+    _, validate = media_validator()
+    artifact = tmp_path / "valid.mp4"
+    make_video(artifact, "testsrc2=s=320x180:r=8:d=1")
+    metrics = validate(artifact, require_audio=True, expected_dimensions=(320, 180))
+    assert metrics["video_frames_decoded"] >= 4
+    assert metrics["audio_bytes_decoded"] > 0
+    assert metrics["width"] == 320 and metrics["height"] == 180
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg") or not shutil.which("ffprobe"),
+                    reason="ffmpeg and ffprobe are required")
+@pytest.mark.parametrize("kind", ["broken", "black", "constant", "noise", "missing-audio", "stale-cache"])
+def test_media_validation_rejects_bad_artifacts(tmp_path, kind):
+    fingerprint, validate = media_validator()
+    artifact = tmp_path / f"{kind}.mp4"
+    prior = None
+    if kind == "broken":
+        artifact.write_bytes(b"not an mp4")
+    elif kind == "black":
+        make_video(artifact, "color=black:s=64x36:r=8:d=1")
+    elif kind == "constant":
+        make_video(artifact, "color=blue:s=64x36:r=8:d=1")
+    elif kind == "noise":
+        make_video(artifact, "nullsrc=s=64x36:r=8:d=1,geq=random(1)*255:128:128")
+    elif kind == "missing-audio":
+        make_video(artifact, "testsrc2=s=320x180:r=8:d=1", audio=False)
+    else:
+        make_video(artifact, "testsrc2=s=320x180:r=8:d=1")
+        prior = fingerprint(artifact)
+    expected = (320, 180) if kind in ("missing-audio", "stale-cache") else (64, 36)
+    with pytest.raises(RuntimeError, match={
+        "broken": "probe|decode",
+        "black": "black",
+        "constant": "constant",
+        "noise": "noise",
+        "missing-audio": "audio",
+        "stale-cache": "stale",
+    }[kind]):
+        validate(artifact, require_audio=True, expected_dimensions=expected, prior=prior)
 
 
 def make_composite_job(request):
@@ -85,6 +161,12 @@ def test_two_stage_runner_preserves_stage_a_and_passes_same_seed(tmp_path):
         output.write_bytes(b"ltx-video+h3-audio")
         return output
 
+    def finish(job, out, **kwargs):
+        finished.append(Path(out))
+        job.update(status="done", url=f"/media/{job['id']}.mp4")
+        return {"sha256": "published", "video_frames_decoded": 40,
+                "audio_bytes_decoded": 80000}
+
     run = function(
         "_run_h3_ltx_video",
         Path=Path,
@@ -102,8 +184,14 @@ def test_two_stage_runner_preserves_stage_a_and_passes_same_seed(tmp_path):
         touch_engine=lambda engine: None,
         fail=lambda job, message, detail="": job.update(status="error", message=message, detail=str(detail)),
         save_state=lambda: None,
-        _finish_video=lambda job, out: finished.append(Path(out)),
+        _finish_video=finish,
         _mux_h3_audio_onto_ltx=mux_audio,
+        _artifact_inventory=lambda directory: {},
+        _validate_media_artifact=lambda path, **kwargs: {
+            "sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest(),
+            "video_frames_decoded": 40,
+            "audio_bytes_decoded": 80000 if kwargs.get("require_audio") else 0,
+        },
         _sha256_file=lambda path: hashlib.sha256(Path(path).read_bytes()).hexdigest(),
         _write_h3_ltx_receipt=lambda job_dir, payload: (job_dir / "h3-ltx-receipt.json").write_text(
             json.dumps(payload, sort_keys=True)),
@@ -129,6 +217,10 @@ def test_two_stage_runner_preserves_stage_a_and_passes_same_seed(tmp_path):
     assert receipt["stages"][1]["raw_ltx_artifact"] == "job-abc123.mp4"
     assert receipt["stages"][1]["audio_source_artifact"] == "stage-a-h3.mp4"
     assert receipt["stages"][1]["artifact"] == "stage-b-ltx-with-h3-audio.mp4"
+    assert receipt["stages"][0]["validation"]["video_frames_decoded"] == 40
+    assert receipt["stages"][1]["raw_ltx_validation"]["video_frames_decoded"] == 40
+    assert receipt["stages"][1]["validation"]["audio_bytes_decoded"] == 80000
+    assert receipt["published"]["validation"]["sha256"] == "published"
     muxed = jobs_dir / "abc123" / "stage-b-ltx-with-h3-audio.mp4"
     assert muxed.read_bytes() == b"ltx-video+h3-audio"
     assert finished == [muxed]
@@ -182,6 +274,8 @@ def test_stage_a_failure_never_starts_ltx(tmp_path):
         touch_engine=lambda engine: None,
         fail=lambda job, message, detail="": job.update(status="error", message=message, detail=str(detail)),
         save_state=lambda: None, _finish_video=lambda *args: None,
+        _artifact_inventory=lambda directory: {},
+        _validate_media_artifact=lambda path, **kwargs: {},
         _sha256_file=lambda path: "unused",
         _write_h3_ltx_receipt=lambda *args: None,
     )
@@ -191,6 +285,40 @@ def test_stage_a_failure_never_starts_ltx(tmp_path):
     assert calls == ["h3"]
     assert job["status"] == "error"
     assert "H3 draft failed" in job["message"]
+
+
+def test_stage_a_decoded_media_failure_never_starts_ltx(tmp_path):
+    pool = tmp_path / "pool"
+    (pool / "h3-out").mkdir(parents=True)
+    calls = []
+
+    def generate(engine, body, job, timeout=0):
+        calls.append(engine)
+        output = pool / "h3-out" / "bad.mp4"
+        output.write_bytes(b"nonempty-but-broken")
+        return {"ok": True, "file": output.name}
+
+    run = function(
+        "_run_h3_ltx_video",
+        Path=Path, base64=__import__("base64"), json=json,
+        shutil=__import__("shutil"), hashlib=hashlib,
+        subprocess=subprocess, POOL_DIR=pool, JOBS_DIR=tmp_path / "jobs",
+        H3_LTX_RETAKE_STRENGTH=0.35, H3_LTX_REFINEMENT_PROMPT="Preserve continuity.",
+        h3_prompt=lambda prompt, **kwargs: prompt, engine_generate=generate,
+        touch_engine=lambda engine: None, save_state=lambda: None,
+        fail=lambda job, message, detail="": job.update(status="error", message=message, detail=str(detail)),
+        _artifact_inventory=lambda directory: {},
+        _validate_media_artifact=lambda path, **kwargs: (_ for _ in ()).throw(RuntimeError("video decode failed")),
+        _write_h3_ltx_receipt=lambda *args: None,
+        _sha256_file=lambda path: "unused", _finish_video=lambda *args, **kwargs: None,
+        _mux_h3_audio_onto_ltx=lambda *args: None,
+    )
+    job = {"id": "badmedia", "engine": "h3-ltx25", "frames": 124,
+           "w": 1344, "h": 768, "full_prompt": "fixture", "request": {"seed": 9}}
+    run(job, references=[], staged_video_refs=[], start_b64="")
+    assert calls == ["h3"]
+    assert job["status"] == "error"
+    assert "decoded video/audio QA" in job["message"]
 
 
 def test_ltx_engine_accepts_only_staged_basename_video_inputs():
