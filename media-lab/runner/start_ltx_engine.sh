@@ -4,6 +4,12 @@
 # published on 127.0.0.1 only, all other hardening kept from run_lab_render.sh.
 set -Eeuo pipefail
 NAME=media-lab-ltx-engine
+: "${MEDIA_LAB_GPU_LEASE_DB:?controller GPU lease DB is required}"
+: "${MEDIA_LAB_GPU_LOCK:?controller GPU lock is required}"
+: "${MEDIA_LAB_GPU_TASK:?controller GPU task is required}"
+[[ "$MEDIA_LAB_GPU_TASK" == t2va ]] || { echo "LTX requires t2va lease" >&2; exit 77; }
+PYTHONPATH="$HOME/media-lab-simple" python3 -c \
+  'from media_lab_core.gpu_lease_runtime import authorize_environment,open_protocol; raise SystemExit(0 if authorize_environment(open_protocol(),engine="ltx",task="t2va",phases=("load",)) else 77)'
 PIPELINE_STATE=$HOME/media-lab-simple/pool/residency/ltx-pipeline
 if [[ -n ${LTX_PIPELINE:-} ]]; then
   PIPELINE=$LTX_PIPELINE
@@ -34,9 +40,14 @@ docker run -d --name "$NAME" --restart no --gpus all --ipc host --user 1000:1000
   --env HOME=/tmp --env PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   --env HF_HUB_OFFLINE=1 --env TRANSFORMERS_OFFLINE=1 \
   --env ENGINE=ltx25 --env PORT=8290 \
+  --env MEDIA_LAB_GPU_LEASE_DB=/lease/gpu-lease.sqlite3 \
+  --env MEDIA_LAB_GPU_LOCK=/lease/spark-gpu.lock \
   --env LTX_PIPELINE="$PIPELINE" --env LTX_TRANSFORMER="$TRANSFORMER" \
   --mount "type=bind,src=$L,dst=/models,readonly" \
   --mount "type=bind,src=$HOME/media-lab-simple/runner/engine_server.py,dst=/work/server.py,readonly" \
+  --mount "type=bind,src=$HOME/media-lab-simple/media_lab_core,dst=/work/media_lab_core,readonly" \
+  --mount "type=bind,src=$(dirname "$MEDIA_LAB_GPU_LEASE_DB"),dst=/lease" \
+  --mount "type=bind,src=$MEDIA_LAB_GPU_LOCK,dst=/lease/spark-gpu.lock" \
   --mount "type=bind,src=$OUT,dst=/work/out" \
   --entrypoint python3 maestro-current-ltx25:t_1d1610d /work/server.py >/dev/null
 echo STARTED

@@ -50,6 +50,7 @@ DEFAULTS: dict[str, str] = {
     # plans against. 0 = the chat model is served remotely, nothing resident.
     "MEDIA_LAB_QWEN_GB": "0",
     "MEDIA_LAB_MEM_CAP_GB": "120",
+    "MEDIA_LAB_H3_LTX_RETAKE_STRENGTH": "0.35",
     # Sol-H3-Spark (the whole-box H3 video engine). Empty SOL_PKG = not installed.
     "SOL_PKG": "",
     "SOL_ROOT": "~/.local/share/sol-h3-spark",

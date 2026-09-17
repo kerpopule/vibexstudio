@@ -54,20 +54,34 @@ The in-process latch also remains set for the life of that controller process.
 | Cloud queue | Existing separate worker; CPU fixture proves it advances while local hold exists. Provider wait must stay off GPU lease; any local GPU postprocess needs separate admission. |
 | Raw Docker/CLI | A cooperative lease cannot stop an unrestricted runtime owner bypassing it. Managed launch paths and their authorization must be enumerated/controlled; do not claim OS isolation. |
 
+## Durable protocol candidate
+
+`media_lab_core/durable_gpu_protocol.py` now supplies the fenced SQLite + flock
+owner, strict transition phases, fail-closed measured-capacity admission,
+idempotent durable local/cloud jobs, cancellation and restart reconciliation.
+`tests/test_durable_gpu_protocol.py` exercises the mixed
+T2VA -> FL2VA -> Ref2VA -> LTX sequence and the fault matrix. See
+[`gpu-queue-rollout.md`](gpu-queue-rollout.md) for the complete route inventory,
+source/terms evidence, kernel/RDMA gate and exact gated activation/rollback
+packet.
+
+This is still not activated. Wiring only the app while resident servers and shell
+launchers retain their own lock behavior could deadlock or create a third advisory
+lock. All listed paths and the pool reservation must move in one reviewed cutover.
+
 ## Open acceptance (not implemented or not proven)
 
-1. One authoritative owner/fence spanning load -> render -> unload -> reclamation
-   for every path above, including delegated engine ownership after HTTP timeout.
-2. Transactional durable queue claims, idempotency across duplicate submissions,
-   stale-callback rejection, cancellation and restart recovery across processes.
-3. Task-specific measured cold/warm peaks plus OS reserve for T2VA, FL2VA,
-   Ref2VA (reference budgets included), and every additional admitted local engine.
-   Current static GB estimates and text-only results are not qualification.
-4. Complete synthetic mixed task/engine sequence, actual cloud overlap under local
-   blockage, crash-owner, stale-fence and reboot-quarantine fault matrix using the
-   final integrated protocol. Current unit tests are narrower; they are not this proof.
-5. Reviewed live qualification on a safely quiesced host, exact boot/process/memory
-   receipts, output decode/QA, and restoration. No mid-denoise resume is promised.
+1. Wire the tested owner/fence through every route above, including delegated
+   engine ownership after HTTP timeout, and remove the replaced lock paths in the
+   same cutover.
+2. Import measured cold/warm peaks plus OS reserve for T2VA, FL2VA, Ref2VA
+   reference budgets and every additional admitted local engine. The protocol
+   refuses unqualified pairs; current static GB estimates are not receipts.
+3. Run the synthetic suite against the final adapters, then perform the separately
+   approved paid-provider overlap canary if one is required. CPU tests already
+   prove cloud queue progress while a local recovery hold exists.
+4. Reviewed live qualification on a safely quiesced host, exact boot/process/memory
+   receipts, output decode/QA and restoration. No mid-denoise resume is promised.
 
 ## Public implementation comparison (read-only research)
 

@@ -9,6 +9,7 @@ import os, sys, json, base64, time, threading, re, shutil, traceback, uuid
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from media_lab_core.gpu_lease_runtime import authorize_environment, authorize_values, open_protocol
 from media_lab_core import local_config   # config/local.env, stdlib only
 PKG = os.environ["SOL_PKG"]; SOL_ROOT = os.environ["SOL_ROOT"]; RUNTIME = os.environ["SOL_H3_SPARK_RUNTIME_ROOT"]
 OUT_DIR = os.environ.get("SOL_OUT_DIR", str(local_config.home() / "pool/h3-out"))
@@ -19,7 +20,9 @@ sys.path.insert(0, PKG)
 from runtime.config import load_paths
 from runtime.pipeline import Pipeline
 for d in (OUT_DIR, f"{RUNTIME}/inputs", f"{RUNTIME}/outputs"): os.makedirs(d, exist_ok=True)
-STATE = {"pipe": None, "task": None, "busy": False, "loaded": False, "started": time.time(), "renders": 0, "errors": 0, "last_error": None}
+STATE = {"pipe": None, "task": None, "busy": False, "loaded": False, "loading": False,
+         "started": time.time(), "renders": 0, "errors": 0, "last_error": None}
+GPU_PROTOCOL = open_protocol()
 # Preload, task switching and generation share one reentrant critical section.
 # A request already owns LOCK when it calls ensure_pipeline().
 LOCK = threading.RLock()
@@ -152,6 +155,10 @@ class H(BaseHTTPRequestHandler):
         prompt = (req.get("prompt") or "").strip(); rid = str(req.get("request_id") or f"r{int(time.time())}")
         if not prompt: return self._send(400, {"ok": False, "error": "bad request: prompt required"})
         if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", rid): return self._send(400, {"ok": False, "error": "bad request: request_id"})
+        task = ("ref2va" if (req.get("references") or req.get("video_references")) else
+                "fl2va" if req.get("start_image_b64") else "t2va")
+        if not authorize_values(GPU_PROTOCOL, dict(self.headers.items()), engine="h3", task=task):
+            return self._send(403, {"ok": False, "error": "exact GPU lease delegation required"})
         out = f"{OUT_DIR}/job-{rid}.mp4"
         if os.path.exists(out): return self._send(200, {"ok": True, "file": os.path.basename(out), "seed": req.get("seed"), "elapsed": 0, "cached": True})
         if not LOCK.acquire(blocking=False): return self._send(409, {"ok": False, "error": "busy"})
@@ -189,6 +196,10 @@ class H(BaseHTTPRequestHandler):
             STATE["busy"] = False; LOCK.release()
 if __name__ == "__main__":
     log(f"sol engine server :{PORT} variant={VARIANT} pkg={PKG}")
-    pre = os.environ.get("SOL_PRELOAD") or ("ref2va" if VARIANT == "ref2va" else "fl2va")
-    if pre: threading.Thread(target=lambda: ensure_pipeline(pre), daemon=True).start()
+    pre = os.environ.get("SOL_PRELOAD", "").strip()
+    if pre:
+        if authorize_environment(GPU_PROTOCOL, engine="h3", task=pre, phases=("load",)):
+            threading.Thread(target=lambda: ensure_pipeline(pre), daemon=True).start()
+        else:
+            log("preload denied: exact load/render delegation is absent")
     ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()

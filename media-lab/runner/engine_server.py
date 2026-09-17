@@ -13,7 +13,7 @@ residency is parallel, generation is one-at-a-time.
 """
 from __future__ import annotations
 
-import base64, json, os, secrets, shutil, subprocess, sys, tempfile, threading, time
+import base64, importlib.util, json, os, secrets, shutil, subprocess, sys, tempfile, threading, time, types
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -22,6 +22,7 @@ sys.path.insert(0, str(APP))
 os.chdir(APP)
 
 ENGINE = os.environ.get('ENGINE', 'ltx25')
+LEASE_ENGINE = 'ltx' if ENGINE == 'ltx25' else ENGINE
 PORT = int(os.environ.get('PORT', '8290'))
 LTX_PIPELINE = os.environ.get('LTX_PIPELINE', 'distilled').strip().lower()
 if LTX_PIPELINE not in ('distilled', 'dev'):
@@ -34,6 +35,7 @@ LTX_TRANSFORMER = os.environ.get(
 ).strip()
 OUT = Path('/work/out')
 OUT.mkdir(parents=True, exist_ok=True)
+LTX_INPUT_DIR = OUT / 'inputs'
 FPS = 24
 
 import imageio_ffmpeg
@@ -42,6 +44,124 @@ import soundfile as sf
 import torch
 from mmgp import offload, quant_router
 from shared.utils import files_locator as fl
+
+
+def _install_decord_compat():
+    """Provide the tiny decord surface LTX native-retake needs via PyAV.
+
+    The pinned Maestro image ships PyAV but omits its optional decord package.
+    Keep this bounded to one short studio clip; do not emulate decord generally.
+    """
+    if importlib.util.find_spec('decord') is not None:
+        return 'native'
+    import av
+
+    class VideoReader:
+        MAX_FRAMES = 512
+        MAX_SIDE = 4096
+
+        def __init__(self, path):
+            container = av.open(str(path))
+            try:
+                stream = container.streams.video[0]
+                self._fps = float(stream.average_rate or 24.0)
+                self._frames = []
+                for frame in container.decode(video=0):
+                    pixels = frame.to_ndarray(format='rgb24')
+                    height, width = pixels.shape[:2]
+                    if height > self.MAX_SIDE or width > self.MAX_SIDE:
+                        raise ValueError('retake input exceeds 4096px compatibility limit')
+                    self._frames.append(pixels)
+                    if len(self._frames) > self.MAX_FRAMES:
+                        raise ValueError('retake input exceeds 512-frame compatibility limit')
+            finally:
+                container.close()
+            if not self._frames:
+                raise ValueError('retake input has no decodable video frames')
+
+        def __len__(self):
+            return len(self._frames)
+
+        def __getitem__(self, index):
+            return self._frames[index]
+
+        def get_avg_fps(self):
+            return self._fps
+
+    module = types.ModuleType('decord')
+    setattr(module, 'VideoReader', VideoReader)
+    sys.modules['decord'] = module
+    return 'pyav-compat'
+
+
+def _install_ltx_retake_dtype_compat(ltx_model):
+    """Align cached Gemma states on the two live native-retake connectors.
+
+    Maestro's retake cache materializes float32 text states while its pinned LTX
+    connector weights are bfloat16. MMGP replaces ``forward`` on each connector
+    instance after profiling, so a class-level wrapper never runs. Bind the shim
+    to the loaded video/audio instances and cast each input only to its receiving
+    projection's own weight dtype.
+    """
+    base_module = importlib.import_module(
+        'models.ltx2.ltx_core.text_encoders.gemma.encoders.base_encoder')
+    current = base_module._apply_feature_extractor
+    if not getattr(current, '_media_lab_dtype_compat', False):
+        def aligned(hidden_states, attention_mask, padding_side, feature_extractor):
+            parameter = next(feature_extractor.parameters(), None)
+            dtype = getattr(parameter, 'dtype', None)
+            if dtype is not None:
+                hidden_states = tuple(
+                    tensor.to(dtype=dtype) if getattr(tensor, 'dtype', None) != dtype else tensor
+                    for tensor in hidden_states
+                )
+            return current(hidden_states, attention_mask, padding_side, feature_extractor)
+
+        setattr(aligned, '_media_lab_dtype_compat', True)
+        setattr(base_module, '_apply_feature_extractor', aligned)
+
+    connectors = []
+    for name in ('video_embeddings_connector', 'audio_embeddings_connector'):
+        connector = getattr(ltx_model, name, None)
+        if connector is None:
+            raise RuntimeError(f'LTX native retake is missing live {name}')
+        connectors.append(connector)
+
+    for connector in connectors:
+        connector_forward = connector.forward
+        if getattr(connector_forward, '_media_lab_dtype_compat', False):
+            continue
+
+        for block in connector.modules():
+            gate = getattr(block, 'to_gate_logits', None)
+            if gate is None or getattr(gate, '_media_lab_dtype_compat', False):
+                continue
+            gate_forward = gate.forward
+
+            def aligned_gate(hidden_states, *args, _gate=gate,
+                             _forward=gate_forward, **kwargs):
+                weight = getattr(_gate, 'weight', None)
+                dtype = getattr(weight, 'dtype', None)
+                if (dtype is not None
+                        and getattr(hidden_states, 'dtype', None) != dtype):
+                    hidden_states = hidden_states.to(dtype=dtype)
+                return _forward(hidden_states, *args, **kwargs)
+
+            setattr(aligned_gate, '_media_lab_dtype_compat', True)
+            setattr(gate, 'forward', aligned_gate)
+            setattr(gate, '_media_lab_dtype_compat', True)
+
+        def aligned_connector(hidden_states, attention_mask=None,
+                              _connector=connector, _forward=connector_forward):
+            parameter = next(_connector.parameters(), None)
+            dtype = getattr(parameter, 'dtype', None)
+            if dtype is not None and getattr(hidden_states, 'dtype', None) != dtype:
+                hidden_states = hidden_states.to(dtype=dtype)
+            return _forward(hidden_states, attention_mask)
+
+        setattr(aligned_connector, '_media_lab_dtype_compat', True)
+        setattr(connector, 'forward', aligned_connector)
+    return 'hidden-state-and-live-connector-gates-dtype-aligned'
 
 
 def register_quant_handlers() -> None:
@@ -458,8 +578,29 @@ class Handler(BaseHTTPRequestHandler):
             stg = float(req.get('stg_scale') or 0) or None
             input_video_strength = float(req.get('input_video_strength') or 0) or None
             ref_pipe = bool(req.get('reference_pipeline'))
+            input_video_raw = str(req.get('input_video_file') or '')
+            input_video_name = Path(str(req.get('input_video_file') or '')).name
+            ltx_input_video = None
+            retake_strength = float(req.get('retake_strength') or 0.35)
+            regenerate_audio = bool(req.get('regenerate_audio', False))
+            if input_video_raw:
+                if ENGINE != 'ltx25':
+                    raise ValueError('input_video_file is available only to LTX 2.5')
+                if input_video_name != input_video_raw or not input_video_name.endswith('.mp4'):
+                    raise ValueError('input_video_file must be one staged MP4 basename')
+                ltx_input_video = LTX_INPUT_DIR / input_video_name
+                if not ltx_input_video.is_file() or ltx_input_video.stat().st_size <= 0:
+                    raise ValueError('staged LTX input video is missing')
+                if not 0.0 < retake_strength <= 1.0:
+                    raise ValueError('retake_strength must be in (0, 1]')
         except Exception as exc:
             return self._send(400, {'ok': False, 'error': f'bad request: {exc}'})
+        task = ('ref2va' if ENGINE == 'h3' and (references or video_references) else
+                'fl2va' if ENGINE == 'h3' and image_b64 else 't2va')
+        from media_lab_core.gpu_lease_runtime import authorize_values, open_protocol
+        if not authorize_values(open_protocol(), dict(self.headers.items()),
+                                engine=LEASE_ENGINE, task=task):
+            return self._send(403, {'ok': False, 'error': 'exact GPU lease delegation required'})
         started = time.time()
         with _busy:  # strict single-flight generation
             # A caller can lose its HTTP connection while a multi-hour H3 render
@@ -568,6 +709,21 @@ class Handler(BaseHTTPRequestHandler):
                 if ENGINE == 'h3' and steps:
                     extra['sampling_steps'] = steps
                 if ENGINE == 'ltx25':
+                    if ltx_input_video is not None:
+                        # Native LTX retake consumes the whole H3 clip as temporal
+                        # visual conditioning.  Keeping regenerate_audio false
+                        # preserves the source performance soundtrack exactly.
+                        extra['retake_video'] = str(ltx_input_video)
+                        extra['retake_start_frame'] = 0
+                        extra['retake_end_frame'] = -1
+                        extra['retake_strength'] = retake_strength
+                        extra['retake_engine'] = 'native'
+                        extra['regenerate_audio'] = regenerate_audio
+                        decoder = _install_decord_compat()
+                        dtype_compat = _install_ltx_retake_dtype_compat(model)
+                        print(f'NATIVE_RETAKE {ltx_input_video} strength={retake_strength} '
+                              f'regenerate_audio={regenerate_audio} decoder={decoder} '
+                              f'dtype_compat={dtype_compat}', flush=True)
                     if modality_scale:
                         extra['modality_scale'] = modality_scale
                     if stg:

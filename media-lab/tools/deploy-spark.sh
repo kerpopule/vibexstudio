@@ -50,7 +50,7 @@ REMOTE_BIND="${REMOTE_BIND:-127.0.0.1}"
 git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || die "no such tag: $TAG"
 COMMIT="$(git rev-list -n 1 "$TAG")"
 REPO_URL="$(git remote get-url origin 2>/dev/null || echo unknown)"
-BRANCH="$(git branch -r --contains "$COMMIT" 2>/dev/null | sed -n 's|^ *origin/||p' | grep -vx HEAD | head -1)"
+BRANCH="$(git branch -r --contains "$COMMIT" 2>/dev/null | sed -n 's|^ *origin/||p' | grep -vx HEAD | head -1 || true)"
 BRANCH="${BRANCH:-$(git branch --contains "$COMMIT" --format='%(refname:short)' | head -1)}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 STAGE="$REMOTE_HOME.deploy-$TAG-$STAMP"
@@ -89,6 +89,7 @@ ALLOW=(
   '+ /config/*.example'
   '+ /config/*.service' '+ /config/*.timer'
   '+ /config/capacity-budget.json' '+ /config/capacity-policy.json'
+  '+ /config/gpu-capacity-receipts.json'
   '+ /config/companion-residency-policy.json' '+ /config/h3-known-characters.json'
   '+ /config/model-manifests.json'
   '- *'

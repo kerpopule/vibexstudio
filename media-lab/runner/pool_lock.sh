@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Media Lab pool lock manager. Usage: pool_lock.sh acquire|release
+# Media Lab pool lock manager. Usage: pool_lock.sh acquire|release|handoff
 # One transient unit (media-lab-pool.service) holds the canonical GPU flock
 # while ANY warm engine is resident, replacing the old reservation pattern.
 # Uses the proven override-toggle recipe (reservation service is RefuseManualStart;
@@ -8,7 +8,7 @@
 set -Eeuo pipefail
 LOCK=/run/user/1000/spark-gpu.lock
 OVERRIDE=$HOME/.config/systemd/user/media-lab-gpu-reservation.service.d/override.conf
-CMD=${1:?acquire|release}
+CMD=${1:?acquire|release|handoff}
 
 case "$CMD" in
   acquire)
@@ -56,6 +56,33 @@ case "$CMD" in
       systemd-run --user --unit=media-lab-gpu-reservation.service --property=Restart=always \
         --property=RestartSec=2s /usr/bin/flock "$LOCK" /usr/bin/sleep infinity >/dev/null 2>&1 || true
       mv "$OVERRIDE.pool" "$OVERRIDE"; systemctl --user daemon-reload
+    fi
+    echo OK
+    ;;
+  handoff)
+    # Transfer the canonical flock from either legacy idle holder to the
+    # durable controller.  Do not start a replacement unit: the controller's
+    # open lease fd becomes the owner immediately after this command returns.
+    systemctl --user stop media-lab-pool.service >/dev/null 2>&1 || true
+    systemctl --user reset-failed media-lab-pool.service >/dev/null 2>&1 || true
+    if systemctl --user is-active --quiet media-lab-gpu-reservation.service; then
+      restored=0
+      restore_override() {
+        if [[ $restored -eq 0 && -f "$OVERRIDE.pool" ]]; then
+          mv "$OVERRIDE.pool" "$OVERRIDE"
+          systemctl --user daemon-reload
+          restored=1
+        fi
+      }
+      trap restore_override EXIT
+      mv "$OVERRIDE" "$OVERRIDE.pool"; systemctl --user daemon-reload
+      systemctl --user stop media-lab-gpu-reservation.service
+      restore_override
+      trap - EXIT
+    fi
+    if ! flock -n "$LOCK" -c true; then
+      # A non-legacy holder still owns the GPU. Never kill or bypass it.
+      echo BUSY; exit 62
     fi
     echo OK
     ;;

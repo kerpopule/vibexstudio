@@ -49,12 +49,16 @@ class MaestroSparkSafetyTests(unittest.TestCase):
     def test_startup_reaper_targets_only_media_lab_maestro_runners(self):
         from runner.maestro_safety import reap_orphan_runners
 
-        completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
-        with mock.patch("runner.maestro_safety.subprocess.run", return_value=completed) as run:
+        killed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        absent = subprocess.CompletedProcess([], 1, stdout="", stderr="")
+        with mock.patch("runner.maestro_safety.subprocess.run",
+                        side_effect=[killed, absent]) as run:
             result = reap_orphan_runners()
-        command = run.call_args.args[0]
-        self.assertEqual(command[:4], ["docker", "exec", "maestro-gui", "pkill"])
-        self.assertIn("media-lab-maestro-runner", command[-1])
+        kill_command = run.call_args_list[0].args[0]
+        verify_command = run.call_args_list[1].args[0]
+        self.assertEqual(kill_command[:4], ["docker", "exec", "maestro-gui", "pkill"])
+        self.assertEqual(verify_command[:4], ["docker", "exec", "maestro-gui", "pgrep"])
+        self.assertIn("media-lab-maestro-runner", kill_command[-1])
         self.assertEqual(result["status"], "reaped")
 
     def test_reaper_reports_missing_docker_without_crashing_startup(self):

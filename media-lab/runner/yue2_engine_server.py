@@ -27,8 +27,13 @@ as a subprocess.
 
 Weights licence: the YuE2 weights are CC BY-NC 4.0 - non-commercial use only.
 """
-import os, sys, json, time, threading, re, fcntl, subprocess, traceback
+import os, json, time, threading, re, fcntl, subprocess, traceback, sys
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+CONTROLLER_ROOT = Path(__file__).resolve().parents[1]
+if str(CONTROLLER_ROOT) not in sys.path:
+    sys.path.insert(0, str(CONTROLLER_ROOT))
 
 def _env_path(*names, default):
     for name in names:
@@ -169,6 +174,10 @@ class H(BaseHTTPRequestHandler):
             STATE["cancel"] = True; return self._send(200, {"ok": True, "interrupted": STATE["busy"]})
         fn = {"/generate": do_generate, "/plan": do_plan, "/transcribe": do_transcribe}.get(self.path.split("?")[0])
         if fn is None: return self._send(404, {"ok": False, "error": "not found"})
+        from media_lab_core.gpu_lease_runtime import authorize_values, open_protocol
+        task = self.path.split("?", 1)[0].lstrip("/")
+        if not authorize_values(open_protocol(), dict(self.headers.items()), engine="yue2", task=task):
+            return self._send(403, {"ok": False, "error": "exact GPU lease delegation required"})
         if not LOCK.acquire(blocking=False): return self._send(409, {"ok": False, "error": "busy"})
         STATE["busy"] = True; STATE["cancel"] = False
         try:
@@ -189,5 +198,12 @@ class H(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     log(f"yue2 engine server :{PORT} models={MODELS} out={OUT_DIR} budget={BUDGET}GiB")
-    if PRELOAD: threading.Thread(target=ensure_pipeline, daemon=True).start()
+    if PRELOAD:
+        from media_lab_core.gpu_lease_runtime import ENV_TASK, authorize_environment, open_protocol
+        delegated_task = os.environ.get(ENV_TASK, "")
+        if delegated_task in {"generate", "plan", "transcribe"} and authorize_environment(
+                open_protocol(), engine="yue2", task=delegated_task, phases=("load",)):
+            threading.Thread(target=ensure_pipeline, daemon=True).start()
+        else:
+            log("preload denied: exact load/render delegation is absent")
     ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()

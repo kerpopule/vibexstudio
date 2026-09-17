@@ -4,7 +4,7 @@ Single-flight worker queue, persisted jobs, ETA stats, PIN admin, remix."""
 import asyncio, base64, fcntl, hashlib, hmac, json, math, mimetypes, os, posixpath, random, re, shlex, shutil, subprocess, tempfile, threading, time, urllib.error, urllib.request, uuid
 from pathlib import Path
 from functools import lru_cache
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from typing import Optional, Union
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import Response, FileResponse, HTMLResponse, JSONResponse, StreamingResponse
@@ -16,6 +16,8 @@ from media_lab_core.job_store import JobStore
 from media_lab_core.director_context import project_context_message
 from media_lab_core import installer as engine_installer
 from media_lab_core import cut as cut_core
+from media_lab_core.durable_gpu_protocol import CapacityUnqualified, LeaseBusy, StaleFence
+from media_lab_core.gpu_lease_runtime import delegation_env, delegation_headers, open_protocol
 from runner.audio_signal_gate import audio_signal_metrics
 from runner import h3_reference as _h3ref   # H3 Ref2VA / Qwen quality contract
 from runner.maestro_safety import admission_error as maestro_admission_error, reap_orphan_runners as reap_orphan_maestro_runners
@@ -44,6 +46,15 @@ STATIC_DIR = ROOT / "static" if (ROOT / "static").is_dir() else SOURCE_DIR / "st
 JOBS_DIR = ROOT / "jobs"
 MEDIA = ROOT / "media"
 SCREENSHOT_SONGS_DIR = ROOT / "screenshot-songs"
+try:
+    H3_LTX_RETAKE_STRENGTH = min(1.0, max(0.01, float(
+        local_config.get("MEDIA_LAB_H3_LTX_RETAKE_STRENGTH", "0.35"))))
+except ValueError:
+    H3_LTX_RETAKE_STRENGTH = 0.35
+H3_LTX_REFINEMENT_PROMPT = (
+    "Preserve the original subject identity, composition, motion timing, and sound "
+    "while improving detail, material fidelity, and polish."
+)
 for d in (JOBS_DIR, MEDIA, SCREENSHOT_SONGS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 JOBS_FILE = ROOT / "jobs.json"
@@ -1615,9 +1626,10 @@ def make_video_job(request):
     style = STYLES.get(request.get("style", "none"), STYLES["none"])
     if request.get("model") == "fal-video" and not fal_ready():
         raise ValueError("fal.ai isn't set up — add your API key in Cloud providers.")
-    engine = request.get("model") if request.get("model") in ("ltx25", "h3", "fal-video") else "ltx25"
+    engine = request.get("model") if request.get("model") in ("ltx25", "h3", "h3-ltx25", "fal-video") else "ltx25"
+    uses_h3 = engine in ("h3", "h3-ltx25")
     turbo_preset = _h3ref.required_turbo_preset(request)
-    if turbo_preset and engine != "h3":
+    if turbo_preset and not uses_h3:
         raise ValueError("the managed H3 Turbo preset requires model 'h3'")
     request["h3_turbo"] = turbo_preset or False
     # H3 Ref2VA actor cloning: references are an explicit list of separate
@@ -1626,11 +1638,11 @@ def make_video_job(request):
     references = request.get("references") or []
     reference_detail = request.get("reference_detail") or "match"
     if references:
-        if engine != "h3":
+        if not uses_h3:
             # references requested, but the job is not headed for the reference
             # engine — refuse loudly rather than run a likeness-less shot.
             raise ValueError(
-                "H3 Ref2VA reference conditioning requires model 'h3' (got "
+                "H3 Ref2VA reference conditioning requires model 'h3' or 'h3-ltx25' (got "
                 f"model={engine!r}). Refusing a silent downgrade to a "
                 "likeness-less pipeline.")
         # keep only validated references so garbage b64 never reaches the engine
@@ -1647,8 +1659,8 @@ def make_video_job(request):
         request["reference_detail"] = _h3ref.resolve_reference_detail(reference_detail)
     video_requested = request.get("video_references") or []
     if video_requested:
-        if engine != "h3":
-            raise ValueError("H3 video-to-video motion references require model 'h3'; refusing a silent downgrade.")
+        if not uses_h3:
+            raise ValueError("H3 video-to-video motion references require model 'h3' or 'h3-ltx25'; refusing a silent downgrade.")
         video_usable = _h3ref.normalize_video_references(video_requested)
         if len(video_usable) != len(video_requested):
             raise ValueError("every H3 motion reference must be a supported /media video with a non-negative start time")
@@ -1673,9 +1685,13 @@ def make_video_job(request):
         _secs = min(20.0, max(3.0, float(request.get("duration", "5"))))
     except (TypeError, ValueError):
         _secs = 5.0
-    frames = engine_frames(engine, _secs)
+    if engine == "h3-ltx25":
+        # Sol-H3-Spark's immutable runtime contract is one five-second clip.
+        _secs = 5.0
+        request["duration"] = "5"
+    frames = engine_frames("h3" if uses_h3 else engine, _secs)
     w, h = SIZES.get(request.get("orientation", "landscape"), SIZES["landscape"])
-    if engine == "h3":
+    if uses_h3:
         # Was hardcoded 864x480 — which ALSO silently forced landscape, because
         # preflight() reads orientation back off w >= h. Anyone picking portrait
         # for a plain H3 clip got a landscape video and no warning.
@@ -1790,8 +1806,415 @@ H3_VARIANT_RECEIPT.parent.mkdir(parents=True, exist_ok=True)
 COMFY_MUSIC_DIR = Path.home() / "runtime/music3-iso/ComfyUI"
 COMFY_IMAGE_DIR = Path.home() / "runtime/comfy-ltx25/ComfyUI"
 SOL_H3_PORT = 8291
-# Cross-process inference mutex (shared with the engine shims and image_service).
-INFERENCE_LOCK = os.environ.get("MEDIA_LAB_INFERENCE_LOCK") or local_config.inference_lock()   # MEDIA_LAB_INFERENCE_LOCK
+# Legacy in-process mutex; the authoritative durable cross-process lease is
+# /run/user/$UID/spark-gpu.lock, owned by the controller below.
+INFERENCE_LOCK = os.environ.get("MEDIA_LAB_INFERENCE_LOCK") or local_config.inference_lock()
+GPU_CAPACITY_RECEIPTS = SOURCE_DIR / "config/gpu-capacity-receipts.json"
+_gpu_protocol = None
+_gpu_protocol_mutex = threading.RLock()
+_gpu_active_lease = None
+_gpu_thread = threading.local()
+_gpu_cutover_ready = False
+
+
+def gpu_protocol():
+    global _gpu_protocol
+    if _gpu_protocol is None:
+        protocol = open_protocol()
+        for row in json.loads(GPU_CAPACITY_RECEIPTS.read_text()).get("qualifications", []):
+            protocol.qualify(row["engine"], row["task"], peak_gib=row["peak_gib"],
+                             reserve_gib=row["reserve_gib"], evidence=row["evidence"],
+                             warm_render_gib=row.get("warm_render_gib"))
+        _gpu_protocol = protocol
+    return _gpu_protocol
+
+
+def _gpu_process_identity(engine):
+    """Return (pid, boot-scoped start identity) for one managed engine."""
+    e = ENGINES.get(engine)
+    if not e:
+        return None
+    if e["kind"] == "docker":
+        result = subprocess.run(["docker", "inspect", "-f", "{{.State.Pid}}", e["container"]],
+                                capture_output=True, text=True, timeout=10)
+    else:
+        result = subprocess.run(["systemctl", "--user", "show", e["unit"],
+                                 "-p", "MainPID", "--value"],
+                                capture_output=True, text=True, timeout=10)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        lowered = detail.lower()
+        if ("no such object" in lowered or "could not be found" in lowered
+                or "not-found" in lowered):
+            return None
+        raise RuntimeError(
+            f"GPU process inspection failed for {engine}: {detail or result.returncode}"
+        )
+    raw_pid = (result.stdout or "").strip()
+    if raw_pid in ("", "0"):
+        return None
+    try:
+        pid = int(raw_pid)
+        if pid <= 0:
+            raise ValueError("non-positive pid")
+        stat = Path(f"/proc/{pid}/stat").read_text()
+        start_ticks = stat[stat.rfind(")") + 2:].split()[19]
+        boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    except (OSError, ValueError, IndexError) as exc:
+        raise RuntimeError(f"GPU process identity unreadable for {engine}: {exc}") from exc
+    return pid, f"{boot}:{pid}:{start_ticks}"
+
+
+def _gpu_restart_adoption_proof(recovered):
+    row = gpu_protocol().snapshot().get("lease") or {}
+    identity = _gpu_process_identity(recovered.engine)
+    job = jobs.get(recovered.job_id)
+    warm = _gpu_warm_proof(recovered.engine, recovered.task, job)
+    if (identity is None or not job or job.get("status") != "queued" or
+            row.get("runtime_pid") != identity[0] or
+            row.get("runtime_identity") != identity[1]):
+        raise LeaseBusy("restart ownership is missing exact job/process identity proof")
+    return {"boot_id": recovered.boot_id, "job_id": recovered.job_id,
+            "engine": recovered.engine, "task": recovered.task,
+            "pid": identity[0], "process_identity": identity[1], **warm}
+
+
+def initialize_gpu_cutover():
+    """Adopt only exact idle ownership; quarantine every ambiguous restart."""
+    global _gpu_active_lease, _gpu_cutover_ready
+    protocol = gpu_protocol()
+    recovered = protocol.recover_startup()
+    _gpu_active_lease = recovered
+    lease = protocol.snapshot().get("lease")
+    _gpu_cutover_ready = lease is None
+    if lease is None:
+        return True
+    if recovered is not None and recovered._fd is not None and not GPU_RECOVERY_HOLD.exists():
+        try:
+            proof = _gpu_restart_adoption_proof(recovered)
+            protocol.adopt_recovered(recovered, owner=f"media-lab-simple:{os.getpid()}",
+                                     proof=proof)
+            _gpu_active_lease = recovered
+            _gpu_cutover_ready = True
+            print(f"[gpu-lease] adopted exact idle runtime for {recovered.job_id}", flush=True)
+            return True
+        except Exception as exc:
+            print(f"[gpu-lease] restart adoption refused: {exc}", flush=True)
+    hold_gpu_recovery(f"durable-lease-{lease['state']}:{lease.get('reason') or 'unknown'}")
+    if recovered is not None and recovered._fd is None:
+        def retain_recovery_exclusion():
+            try:
+                protocol.wait_for_recovery_lock(recovered)
+            except Exception as exc:
+                print(f"[gpu-lease] recovery lock waiter failed: {exc}", flush=True)
+        threading.Thread(target=retain_recovery_exclusion, daemon=True).start()
+    _gpu_cutover_ready = False
+    return False
+
+
+def _gpu_exact_idle(engine):
+    """Return True only from an engine-specific, affirmative idle signal."""
+    if engine not in ENGINES:
+        return False
+    e = ENGINES[engine]
+    try:
+        if engine in ("image", "music"):
+            queue_state = http_json(f"http://127.0.0.1:{e['port']}/queue", timeout=3) or {}
+            running = queue_state.get("queue_running")
+            pending = queue_state.get("queue_pending")
+            return isinstance(running, list) and not running and isinstance(pending, list) and not pending
+        health = http_json(f"http://127.0.0.1:{e['port']}{e['health']}", timeout=3) or {}
+        return health.get("busy") is False
+    except Exception:
+        return False
+
+
+def _gpu_exact_warm(engine, task, j=None):
+    if not _gpu_exact_idle(engine):
+        return False
+    if engine == "h3":
+        request = ((j or {}).get("request") or {})
+        target = {**_h3ref.required_runtime_config(request), "task": task}
+        return h3_resident_config() == target
+    return True
+
+
+def _gpu_warm_proof(engine, task, j=None):
+    if engine not in ENGINES:
+        # One-shot GPU consumers (Maestro, stems, etc.) have no resident health
+        # contract and therefore can never be adopted as warm.
+        return {"engine": engine, "task": task, "healthy": False, "busy": False}
+    return {"engine": engine, "task": task,
+            "healthy": _gpu_exact_warm(engine, task, j), "busy": engine_busy(engine)}
+
+
+def _gpu_reclaim_all(j=None):
+    releaser = globals().get("release_voice_weights")
+    if callable(releaser) and not releaser():
+        raise RuntimeError("loaded TTS weights would not unload")
+    survivors = []
+    for name in COMPANION_ENGINE_NAMES:
+        identity = _gpu_process_identity(name)
+        if identity is None:
+            continue
+        if not engine_up(name):
+            # An unreachable endpoint is not proof that the exact managed
+            # process or cgroup is gone. Keep ownership fenced for recovery.
+            survivors.append(name)
+            continue
+        if engine_busy(name):
+            raise LeaseBusy(f"active companion will not be interrupted: {name}")
+        stop_engine(name)
+        if _gpu_process_identity(name) is not None:
+            survivors.append(name)
+    available = _mem_available_gb(strict=True)
+    boot_path = Path("/proc/sys/kernel/random/boot_id")
+    return {"processes_gone": not survivors,
+            "memory_recovered": not survivors and available >= 24,
+            "available_gib": available, "survivors": survivors,
+            "boot_id": boot_path.read_text().strip() if boot_path.exists() else "unknown"}
+
+
+@contextmanager
+def _exact_warm_video_admission(protocol, lease, engine, task, warm, j=None):
+    """Reclaim proven-idle image weights before exact-warm video admission.
+
+    The parked lease still owns the canonical durable flock/fence.  When its
+    measured warm envelope is short, also claim the independent inference
+    transaction lock, prove the image queue idle under that lock, and release
+    only those weights.  ``retarget`` remains inside this context and performs
+    the authoritative fresh capacity check; no envelope or reserve is relaxed.
+    """
+    exact_parked = (
+        lease is not None
+        and lease.state == "active"
+        and lease.phase == "parked"
+        and (lease.engine, lease.task) == (engine, task)
+        and engine in ("h3", "ltx")
+        and warm.get("healthy") is True
+        and warm.get("busy") is False
+    )
+    if not exact_parked:
+        yield
+        return
+    if protocol.capacity_deficit_gib(engine, task, warm=True) <= 0:
+        yield
+        return
+
+    gate = RESIDENCY.hooks.begin_residency_transaction()
+    try:
+        if engine_up("image"):
+            if not _gpu_exact_idle("image"):
+                raise LeaseBusy(
+                    "warm video admission needs image capacity but image is not proven idle"
+                )
+            if j is not None:
+                j["stage"] = "releasing idle image weights for warm video admission…"
+                save_state()
+            released = RESIDENCY.hooks.release_image_weights(
+                f"exact-warm preflight for {engine}/{task} video admission"
+            )
+            if released is None:
+                raise LeaseBusy("image engine would not release proven-idle weights")
+        yield
+    finally:
+        RESIDENCY.hooks.end_residency_transaction(gate)
+
+
+@contextmanager
+def gpu_operation(engine, task, j=None, *, ephemeral=False):
+    """Own or retarget the canonical GPU lease for one exact local operation."""
+    global _gpu_active_lease
+    job_id = str((j or {}).get("id") or f"internal-{threading.get_ident()}")
+    owner = f"media-lab-simple:{os.getpid()}"
+    with _gpu_protocol_mutex:
+        nested = getattr(_gpu_thread, "lease", None)
+        if (nested is not None and (nested.engine, nested.task) != (engine, task)
+                and getattr(_gpu_thread, "job_context", None) is not None):
+            # A multi-stage queued job may move image -> voice -> video. Close
+            # the previous parked job context before acquiring the next exact
+            # engine/task; unrelated ad-hoc nesting remains forbidden below.
+            _gpu_finish_job_operation()
+            nested = getattr(_gpu_thread, "lease", None)
+        if nested is not None:
+            if (nested.engine, nested.task) != (engine, task):
+                raise LeaseBusy("nested GPU operation cannot switch engine or task")
+            yield nested
+            return
+        protocol = gpu_protocol(); lease = _gpu_active_lease
+        reclaim_proof = None
+        managed_qwen_paused = False
+
+        def restore_managed_qwen():
+            nonlocal managed_qwen_paused
+            if not managed_qwen_paused:
+                return True
+            try:
+                restored = restore_chat_after_video()
+            except Exception as restore_exc:
+                if j is not None:
+                    j["detail"] = f"managed Qwen restoration failed: {restore_exc}"
+                restored = False
+            if restored:
+                managed_qwen_paused = False
+            return restored
+
+        def reclaim_operation():
+            if engine == "maestro":
+                reaped = reap_orphan_maestro_runners()
+                if reaped.get("status") not in ("clean", "reaped"):
+                    raise RuntimeError(
+                        f"Maestro runner absence is unproven: {reaped.get('detail') or reaped}"
+                    )
+            return _gpu_reclaim_all(j)
+
+        try:
+            warm = _gpu_warm_proof(engine, task, j)
+            if lease is None:
+                handoff = pool_cmd("handoff")
+                if handoff != "OK":
+                    raise LeaseBusy(f"legacy GPU pool handoff failed: {handoff}")
+                try:
+                    lease = protocol.acquire(job_id=job_id, engine=engine, task=task, owner=owner)
+                except Exception:
+                    # Handoff released the old holder but the durable acquire
+                    # did not complete. Restore exclusion before propagating.
+                    pool_cmd("acquire")
+                    raise
+                _gpu_active_lease = lease
+                if warm["healthy"] and not warm["busy"]:
+                    protocol.adopt_warm(lease, proof=warm)
+            elif (lease.state == "active" and lease.phase == "render" and
+                  (lease.job_id, lease.engine, lease.task) == (job_id, engine, task)):
+                # Exact idle runtime adopted after a controller restart. Resume
+                # only this persisted job; every other target must retarget from parked.
+                pass
+            else:
+                with _exact_warm_video_admission(
+                        protocol, lease, engine, task, warm, j):
+                    protocol.retarget(lease, job_id=job_id, engine=engine, task=task,
+                                      owner=owner, warm_proof=warm)
+            if lease.phase == "drain":
+                protocol.advance(lease, "unload")
+                if engine == "maestro":
+                    # Qwen is capacity relevant to Maestro even though it is not
+                    # an ENGINES companion. Evict it only after the durable fence
+                    # owns the unload phase, and before reclaim proof/cold-load
+                    # capacity admission. Set the flag before the call because a
+                    # failed pause deliberately leaves a restoration receipt.
+                    managed_qwen_paused = True
+                    if not pause_chat_for_video(j):
+                        raise LeaseBusy("could not safely pause managed Qwen for Maestro")
+                reclaim_proof = reclaim_operation()
+                if reclaim_proof["processes_gone"] is not True:
+                    raise RuntimeError(f"GPU processes survived unload: {reclaim_proof['survivors']}")
+                protocol.advance(lease, "reclaim")
+                if reclaim_proof["memory_recovered"] is not True:
+                    raise RuntimeError(f"GPU memory did not recover: {reclaim_proof['available_gib']:.2f} GiB")
+                protocol.advance(lease, "load")
+            _gpu_thread.lease = lease
+            yield lease
+            if lease.phase != "render":
+                raise RuntimeError("GPU operation returned without entering fenced render phase")
+            proof = _gpu_warm_proof(engine, task, j)
+            if ephemeral:
+                protocol.advance(lease, "unload")
+                reclaimed = reclaim_operation()
+                protocol.advance(lease, "reclaim")
+                if reclaimed.get("processes_gone") is not True:
+                    raise RuntimeError(
+                        f"GPU processes survived final reclaim: {reclaimed.get('survivors')}"
+                    )
+                if reclaimed.get("memory_recovered") is not True:
+                    raise RuntimeError(
+                        f"GPU memory did not recover after final reclaim: "
+                        f"{reclaimed.get('available_gib')} GiB"
+                    )
+                if not restore_managed_qwen():
+                    raise LeaseBusy("managed Qwen restoration failed after Maestro")
+                protocol.release(lease, proof=reclaimed)
+                _gpu_active_lease = None
+            elif proof["healthy"] and not proof["busy"]:
+                protocol.park(lease, proof=proof)
+            else:
+                protocol.mark_recovery(lease, "operation-finished-without-exact-idle-residency")
+                hold_gpu_recovery("operation-finished-without-exact-idle-residency", j)
+        except CapacityUnqualified as exc:
+            # Capacity is checked only before an engine load. If exact unload and
+            # memory proof already passed, no model request was issued and the
+            # outcome is known: release cleanly instead of quarantining the GPU.
+            if (lease is not None and lease.state == "active" and lease.phase == "reclaim"
+                    and reclaim_proof is not None
+                    and reclaim_proof.get("processes_gone") is True
+                    and reclaim_proof.get("memory_recovered") is True):
+                if not restore_managed_qwen():
+                    try: protocol.mark_recovery(lease, "managed-qwen-restore-failed")
+                    except StaleFence: pass
+                    hold_gpu_recovery("managed-qwen-restore-failed", j)
+                    raise LeaseBusy("managed Qwen restoration failed after capacity rejection") from exc
+                protocol.release(lease, proof=reclaim_proof)
+                _gpu_active_lease = None
+                if pool_cmd("acquire") != "OK":
+                    raise LeaseBusy(
+                        "capacity rejection released the durable lease but legacy pool restore failed"
+                    ) from exc
+            else:
+                if lease is not None and lease.state == "active" and lease.phase != "parked":
+                    try: protocol.mark_recovery(lease, "capacity-rejected-before-safe-release")
+                    except StaleFence: pass
+                    hold_gpu_recovery("capacity-rejected-before-safe-release", j)
+            raise
+        except Exception as exc:
+            safely_released = False
+            cleanup_reason = f"operation-uncertain:{type(exc).__name__}"
+            if (managed_qwen_paused and lease is not None
+                    and lease.state == "active" and lease.phase in ("unload", "render")):
+                try:
+                    if lease.phase == "render":
+                        protocol.advance(lease, "unload")
+                    failed_proof = reclaim_operation()
+                    if failed_proof.get("processes_gone") is not True:
+                        raise RuntimeError(
+                            f"GPU processes survived failed Maestro operation: "
+                            f"{failed_proof.get('survivors')}"
+                        )
+                    if failed_proof.get("memory_recovered") is not True:
+                        raise RuntimeError(
+                            f"GPU memory did not recover after failed Maestro operation: "
+                            f"{failed_proof.get('available_gib')} GiB"
+                        )
+                    protocol.advance(lease, "reclaim")
+                    if not restore_managed_qwen():
+                        raise RuntimeError("managed Qwen restoration failed")
+                    protocol.release(lease, proof=failed_proof)
+                    _gpu_active_lease = None
+                    safely_released = True
+                except Exception as cleanup_exc:
+                    cleanup_reason = (
+                        f"maestro-failure-cleanup-uncertain:{type(cleanup_exc).__name__}"
+                    )
+                    if j is not None:
+                        j["detail"] = f"Maestro cleanup failed: {cleanup_exc}"
+            if (not safely_released and lease is not None and lease.state == "active"
+                    and lease.phase != "parked"):
+                try: protocol.mark_recovery(lease, cleanup_reason)
+                except StaleFence: pass
+                hold_gpu_recovery(cleanup_reason, j)
+            raise
+        finally:
+            _gpu_thread.lease = None
+
+
+def gpu_render_ready(engine, task):
+    lease = getattr(_gpu_thread, "lease", None)
+    if lease is None or (lease.engine, lease.task) != (engine, task):
+        raise LeaseBusy("exact GPU operation is not active")
+    if lease.phase == "load": gpu_protocol().advance(lease, "render")
+    if lease.phase != "render": raise LeaseBusy(f"GPU lease is not render-authorized: {lease.phase}")
+    identity = _gpu_process_identity(engine)
+    if identity is not None:
+        gpu_protocol().bind_process(lease, pid=identity[0], identity=identity[1])
+    return lease
 
 GPU_RECOVERY_HOLD = POOL_DIR / "gpu-recovery-hold.json"
 _gpu_recovery_blocked = False
@@ -1823,6 +2246,17 @@ def hold_gpu_recovery(reason, j=None):
             os.close(directory)
     except FileExistsError:
         pass
+
+
+def clear_gpu_recovery_hold(*, proof):
+    """Clear only after exact process, memory, and durable-row reconciliation."""
+    global _gpu_recovery_blocked
+    if proof.get("processes_gone") is not True or proof.get("memory_recovered") is not True:
+        raise ValueError("recovery hold requires exact reclamation proof")
+    if gpu_protocol().snapshot().get("lease") is not None:
+        raise LeaseBusy("durable GPU lease still exists")
+    GPU_RECOVERY_HOLD.unlink(missing_ok=True)
+    _gpu_recovery_blocked = False
 
 # ---------- music engines ----------
 # YuE2 is the PRIMARY music engine (Steve, 2026-09-14): the default for every
@@ -1948,6 +2382,9 @@ def _chat_containers_running():
     """Return the exact running Qwen containers; never guess from process text."""
     r = subprocess.run(["docker", "ps", "--format", "{{.Names}}"],
                        capture_output=True, text=True)
+    if r.returncode != 0:
+        detail = (r.stderr or r.stdout or "").strip()
+        raise RuntimeError(f"managed Qwen inspection failed: {detail or r.returncode}")
     names = [x.strip() for x in (r.stdout or "").splitlines() if x.strip()]
     # qwen3vl is a managed companion resident too.  It used to be stopped by
     # Maestro outside the receipt-backed pause path, so a completed render could
@@ -2034,14 +2471,16 @@ def restore_chat_after_video():
         print("[pool] chat restore did not become healthy; maintenance marker retained", flush=True)
     return ok
 
-def http_json(url, payload=None, timeout=10):
+def http_json(url, payload=None, timeout=10, headers=None):
     """An engine that refuses a render explains WHY in the 500 body. urllib
     raises before anyone reads it, so every engine failure used to be recorded
     as the useless "HTTP Error 500: Internal Server Error" — which is what made
     a one-line frame-count bug take hours to find. Carry the body up."""
     data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(url, data=data,
-        headers={"Content-Type": "application/json"} if data else {})
+    request_headers = dict(headers or {})
+    if data:
+        request_headers.setdefault("Content-Type", "application/json")
+    req = urllib.request.Request(url, data=data, headers=request_headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read())
@@ -2076,10 +2515,14 @@ def h3_resident_config():
     e = ENGINES["h3"]
     try:
         health = http_json(f"http://127.0.0.1:{e['port']}{e['health']}", timeout=3) or {}
-        variant = health.get("variant")
-        if variant not in _h3ref.H3_VARIANTS:
+        if health.get("loaded") is not True:
             return None
-        return {"variant": variant, "turbo_preset": health.get("turbo_preset") or None}
+        variant = health.get("variant")
+        task = health.get("task")
+        if variant not in _h3ref.H3_VARIANTS or not isinstance(task, str) or not task:
+            return None
+        return {"variant": variant, "task": task,
+                "turbo_preset": health.get("turbo_preset") or None}
     except Exception:
         return None
 
@@ -2104,6 +2547,8 @@ def engine_idle_s(name):
         return None
 
 def pool_cmd(cmd):
+    if getattr(_gpu_thread, "lease", None) is not None:
+        return "OK"
     r = subprocess.run(["bash", str(ROOT / "runner/pool_lock.sh"), cmd],
                        capture_output=True, text=True)
     return (r.stdout or "").strip().splitlines()[-1] if r.stdout else "FAIL"
@@ -2199,7 +2644,7 @@ def maybe_release_pool():
     if not gpu_recovery_pending() and not resident_engines():
         pool_cmd("release")
 
-def _boot_engine(name, j=None, variant=None, turbo_preset=None):
+def _boot_engine(name, j=None, variant=None, turbo_preset=None, task=None):
     if gpu_recovery_pending():
         return False
     # Stop is cooperative even while a heavyweight container is warming. Before
@@ -2208,13 +2653,20 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None):
     if j is not None and j.get("cancel"):
         return False
     e = ENGINES[name]
+    lease = getattr(_gpu_thread, "lease", None)
+    if lease is None or lease.phase != "load" or lease.engine != name:
+        raise LeaseBusy(f"{name} boot requires its exact load-phase GPU lease")
+    delegated_env = {**os.environ, **delegation_env(lease)}
     if e["kind"] == "docker":
-        env = None
+        env = delegated_env
         if name == "h3" and variant is not None:
             if variant not in _h3ref.H3_VARIANTS:
                 raise ValueError(f"unsupported H3 variant: {variant!r}")
-            env = os.environ.copy()
             env["H3_VARIANT"] = variant
+            if task is not None:
+                if task not in ("t2va", "fl2va", "ref2va"):
+                    raise ValueError(f"unsupported H3 task family: {task!r}")
+                env["SOL_PRELOAD"] = task
             if turbo_preset is not None:
                 if turbo_preset not in _h3ref.H3_TURBO_PRESETS:
                     raise ValueError(f"unsupported H3 Turbo preset: {turbo_preset!r}")
@@ -2225,10 +2677,16 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None):
         subprocess.run(["systemctl", "--user", "reset-failed", e["unit"]],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         setenv = []
+        for key, value in delegation_env(lease).items():
+            setenv.append(f"--setenv={key}={value}")
         if name == "h3" and variant is not None:
             # The Sol server reads its task family and Turbo preset from the
             # unit's environment; systemd-run's --setenv is the only way in.
             setenv.append(f"--setenv=H3_VARIANT={variant}")
+            if task is not None:
+                if task not in ("t2va", "fl2va", "ref2va"):
+                    raise ValueError(f"unsupported H3 task family: {task!r}")
+                setenv.append(f"--setenv=SOL_PRELOAD={task}")
             if turbo_preset is not None:
                 setenv.append(f"--setenv=H3_TURBO_PRESET={turbo_preset}")
         subprocess.run(["systemd-run", "--user", f"--unit={e['unit']}", *setenv,
@@ -2241,6 +2699,17 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None):
             maybe_release_pool()
             return False
         if engine_up(name):
+            if name == "h3" and task is not None:
+                try:
+                    health = http_json(
+                        f"http://127.0.0.1:{e['port']}{e['health']}", timeout=3) or {}
+                except Exception:
+                    health = {}
+                expected = {"variant": variant, "task": task,
+                            "turbo_preset": turbo_preset or None}
+                if health.get("loaded") is not True or h3_resident_config() != expected:
+                    time.sleep(3)
+                    continue
             touch_engine(name)
             return True
         time.sleep(3)
@@ -2260,7 +2729,8 @@ def ensure_h3_variant(j=None):
     if gpu_recovery_pending():
         return "busy"
     request = ((j or {}).get("request") or {})
-    target = _h3ref.required_runtime_config(request)
+    target = {**_h3ref.required_runtime_config(request),
+              "task": _gpu_task_for_engine("h3", j)}
     current = h3_resident_config()
     if current == target:
         return "up"
@@ -2289,7 +2759,8 @@ def ensure_h3_variant(j=None):
                 j["stage"] = f"loading H3 {target['variant']}{turbo_label}…"
                 save_state()
             if not _boot_engine("h3", j, variant=target["variant"],
-                                turbo_preset=target["turbo_preset"]):
+                                turbo_preset=target["turbo_preset"],
+                                task=target["task"]):
                 raise RuntimeError(f"H3 {target} did not become healthy")
             live = h3_resident_config()
             if live != target:
@@ -2305,7 +2776,8 @@ def ensure_h3_variant(j=None):
             if current and current.get("variant") in _h3ref.H3_VARIANTS:
                 restored = (_boot_engine(
                     "h3", None, variant=current["variant"],
-                    turbo_preset=current.get("turbo_preset")) and
+                    turbo_preset=current.get("turbo_preset"),
+                    task=current.get("task")) and
                     h3_resident_config() == current)
             if not current:
                 maybe_release_pool()
@@ -2396,7 +2868,7 @@ def _mem_available_gb(*, strict=False):
 
 MEM_FLOOR_GB = 24   # measured safety margin across load, sampler, decode and mux
 
-def ensure_engine(name, j=None):
+def _ensure_engine_under_lease(name, j=None):
     """Bring an engine up (residency). Returns 'up' | 'busy' | 'fail'.
     The pool unit holds the canonical GPU flock while any engine is resident;
     compute stays strictly serialized through the app's single worker.
@@ -2496,6 +2968,81 @@ def ensure_engine(name, j=None):
             maybe_release_pool()
             return "cancelled" if j is not None and j.get("cancel") else "fail"
         return verify_pplx_after_companion_load(name, j)
+
+
+def _gpu_task_for_engine(name, j=None):
+    job = j or {}
+    request = (job.get("request") or {})
+    if job.get("_gpu_task"):
+        return str(job["_gpu_task"])
+    if name == "h3":
+        if request.get("references") or request.get("video_references"):
+            return "ref2va"
+        if (request.get("source") or request.get("start_image")
+                or request.get("start_image_b64")):
+            return "fl2va"
+        return "t2va"
+    if name == "ltx":
+        return "t2va"
+    return "generate"
+
+
+def _gpu_finish_job_operation(exc_type=None, exc=None, tb=None):
+    ctx = getattr(_gpu_thread, "job_context", None)
+    if ctx is None:
+        return
+    _gpu_thread.job_context = None
+    _gpu_thread.job_target = None
+    ctx.__exit__(exc_type, exc, tb)
+
+
+def ensure_engine(name, j=None):
+    """Load/reuse an engine only while its exact durable GPU lease is live."""
+    task = _gpu_task_for_engine(name, j)
+    active = getattr(_gpu_thread, "lease", None)
+    if (active is not None and (active.engine, active.task) != (name, task)
+            and getattr(_gpu_thread, "job_context", None) is not None
+            and j is not None and str(j.get("id") or "") == active.job_id):
+        # A queued multi-stage job may legitimately move between exact tasks
+        # (for example YuE2 transcribe -> generate). Close and park the previous
+        # context before entering the next one; unrelated nesting stays fenced.
+        _gpu_finish_job_operation()
+        active = getattr(_gpu_thread, "lease", None)
+    if active is not None:
+        if (active.engine, active.task) != (name, task):
+            raise LeaseBusy(f"active GPU lease is {active.engine}/{active.task}, not {name}/{task}")
+        state = _ensure_engine_under_lease(name, j)
+        if state == "up":
+            gpu_render_ready(name, task)
+        return state
+
+    if j is None or not j.get("id"):
+        with gpu_operation(name, task, j):
+            state = _ensure_engine_under_lease(name, j)
+            if state == "up":
+                gpu_render_ready(name, task)
+            return state
+
+    target = (name, task)
+    if getattr(_gpu_thread, "job_context", None) is not None:
+        if getattr(_gpu_thread, "job_target", None) == target:
+            raise LeaseBusy("queued GPU context exists without its live lease")
+        _gpu_finish_job_operation()
+    ctx = gpu_operation(name, task, j)
+    ctx.__enter__()
+    _gpu_thread.job_context = ctx
+    _gpu_thread.job_target = target
+    try:
+        state = _ensure_engine_under_lease(name, j)
+        if state == "up":
+            gpu_render_ready(name, task)
+        else:
+            failure = RuntimeError(f"engine admission: {state}")
+            _gpu_finish_job_operation(type(failure), failure, None)
+        return state
+    except Exception as exc:
+        _gpu_finish_job_operation(type(exc), exc, exc.__traceback__)
+        raise
 
 
 class _ResidencyRuntime:
@@ -2625,6 +3172,26 @@ class _ResidencyRuntime:
                     return True
                 time.sleep(5)
             return self.model_healthy("qwen")
+        lease = getattr(_gpu_thread, "lease", None)
+        if model in ENGINES and lease is None:
+            task = "fl2va" if model == "h3" else "t2va"
+            restore_job = {"id": f"idle-restore-{model}", "_gpu_task": task,
+                           "request": {}}
+            with gpu_operation(model, task, restore_job):
+                started = self.start_model(model, detail)
+                if started:
+                    gpu_render_ready(model, task)
+                return started
+        if lease is not None:
+            if lease.phase != "load" or lease.engine != model:
+                raise LeaseBusy(f"idle restore lease is {lease.engine}/{lease.phase}, not {model}/load")
+            if model == "h3":
+                target = {**_h3ref.required_runtime_config({}), "task": lease.task}
+                return _boot_engine(
+                    model, variant=target["variant"],
+                    turbo_preset=target["turbo_preset"], task=target["task"],
+                )
+            return _boot_engine(model)
         st = pool_cmd("acquire")
         for _ in range(6):
             if st != "BUSY":
@@ -3112,22 +3679,148 @@ def gallery_add(item_id, prompt, kind, url, poster, style="", engine="", license
     g.insert(0, row)
     _save(ROOT / "gallery.json", g[:500])
 
-def _finish_video(j, out: Path, kind="video"):
+def _artifact_fingerprint(path):
+    """Content fingerprint used to reject an unchanged pre-run cache artifact."""
+    path = Path(path)
+    if not path.is_file() or path.stat().st_size <= 0:
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {"size": path.stat().st_size, "sha256": digest.hexdigest()}
+
+
+def _artifact_inventory(directory):
+    """Snapshot existing MP4s before an engine call for stale-cache detection."""
+    directory = Path(directory)
+    if not directory.is_dir():
+        return {}
+    return {path.name: fingerprint for path in directory.glob("*.mp4")
+            if (fingerprint := _artifact_fingerprint(path)) is not None}
+
+
+def _validate_media_artifact(path, *, require_audio, expected_dimensions=None, prior=None):
+    """Decode and inspect an MP4; reject broken, blank, frozen, noisy, or stale output.
+
+    This is deliberately independent of file size and container metadata.  A
+    bounded sequence of decoded luma frames supplies the visual signal gate,
+    and required soundtracks must themselves decode to PCM.
+    """
+    path = Path(path)
+    fingerprint = _artifact_fingerprint(path)
+    if fingerprint is None:
+        raise RuntimeError("artifact is missing or empty")
+    if prior is not None and fingerprint == prior:
+        raise RuntimeError("stale-cache artifact is byte-identical to the pre-run output")
+    probe = subprocess.run([
+        "ffprobe", "-v", "error", "-show_streams", "-show_format",
+        "-of", "json", str(path),
+    ], capture_output=True, text=True, timeout=120)
+    try:
+        metadata = json.loads(probe.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"media probe returned invalid JSON: {exc}") from exc
+    streams = metadata.get("streams") or []
+    video = next((stream for stream in streams if stream.get("codec_type") == "video"), None)
+    if probe.returncode != 0 or not video:
+        raise RuntimeError(f"media probe found no decodable video stream: {(probe.stderr or '').strip()[:240]}")
+    width, height = int(video.get("width") or 0), int(video.get("height") or 0)
+    if expected_dimensions and (width, height) != tuple(expected_dimensions):
+        raise RuntimeError(f"video geometry {width}x{height} does not match expected "
+                           f"{expected_dimensions[0]}x{expected_dimensions[1]}")
+
+    decoded = subprocess.run([
+        "ffmpeg", "-nostdin", "-v", "error", "-i", str(path),
+        "-map", "0:v:0", "-vf", "fps=8,scale=64:36:flags=area",
+        "-frames:v", "40", "-pix_fmt", "gray", "-f", "rawvideo", "-",
+    ], capture_output=True, timeout=180)
+    frame_size = 64 * 36
+    frame_count = len(decoded.stdout) // frame_size
+    if decoded.returncode != 0 or frame_count < 4 or len(decoded.stdout) % frame_size:
+        detail = decoded.stderr.decode(errors="replace") if isinstance(decoded.stderr, bytes) else str(decoded.stderr or "")
+        raise RuntimeError(f"video decode failed or produced too few complete frames: {detail[-240:]}")
+    frames = [decoded.stdout[i * frame_size:(i + 1) * frame_size]
+              for i in range(frame_count)]
+    all_pixels = b"".join(frames)
+    mean_luma = sum(all_pixels) / len(all_pixels)
+    luma_range = max(all_pixels) - min(all_pixels)
+    if mean_luma < 8.0 and luma_range < 20:
+        raise RuntimeError(f"decoded video is effectively black (mean={mean_luma:.2f}, range={luma_range})")
+    temporal = [sum(abs(a - b) for a, b in zip(frames[i - 1], frames[i])) / frame_size
+                for i in range(1, frame_count)]
+    temporal_mean = sum(temporal) / len(temporal)
+    if temporal_mean < 0.50:
+        raise RuntimeError(f"decoded video is constant/frozen (temporal delta={temporal_mean:.3f})")
+    spatial = []
+    for frame in frames:
+        spatial.append(sum(abs(frame[row * 64 + col] - frame[row * 64 + col - 1])
+                           for row in range(36) for col in range(1, 64)) / (36 * 63))
+    spatial_mean = sum(spatial) / len(spatial)
+    if temporal_mean > 45.0 and spatial_mean > 35.0:
+        raise RuntimeError(f"decoded video is noise-like (temporal={temporal_mean:.2f}, spatial={spatial_mean:.2f})")
+
+    audio_bytes = 0
+    audio = next((stream for stream in streams if stream.get("codec_type") == "audio"), None)
+    if require_audio:
+        if audio is None:
+            raise RuntimeError("required audio stream is missing")
+        decoded_audio = subprocess.run([
+            "ffmpeg", "-nostdin", "-v", "error", "-i", str(path),
+            "-map", "0:a:0", "-t", "6", "-ac", "1", "-ar", "8000",
+            "-f", "s16le", "-",
+        ], capture_output=True, timeout=180)
+        audio_bytes = len(decoded_audio.stdout)
+        if decoded_audio.returncode != 0 or audio_bytes < 1600:
+            detail = decoded_audio.stderr.decode(errors="replace") if isinstance(decoded_audio.stderr, bytes) else str(decoded_audio.stderr or "")
+            raise RuntimeError(f"required audio stream failed PCM decode: {detail[-240:]}")
+    return {
+        "sha256": fingerprint["sha256"], "size": fingerprint["size"],
+        "width": width, "height": height,
+        "video_frames_decoded": frame_count,
+        "mean_luma": round(mean_luma, 3),
+        "temporal_delta": round(temporal_mean, 3),
+        "spatial_delta": round(spatial_mean, 3),
+        "audio_required": bool(require_audio), "audio_bytes_decoded": audio_bytes,
+    }
+
+
+def _finish_video(j, out: Path, kind="video", *, validate_audio=False,
+                  expected_dimensions=None, validate_media=False):
     if j.get("cancel"):
         # stopped mid-render: the engine finished its take, but the user said no
         return fail(j, "Stopped by you — the take was discarded.")
     final = MEDIA / f"{j['id']}.mp4"
-    subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(out), "-c:v", "libx264",
-                    "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p", "-c:a", "aac",
-                    "-b:a", "128k", "-movflags", "+faststart", str(final)], check=False)
-    if not final.exists() or final.stat().st_size == 0:
-        final.write_bytes(out.read_bytes())
+    temp = final.with_suffix(".publishing.mp4")
+    temp.unlink(missing_ok=True)
+    if validate_media:
+        try:
+            _validate_media_artifact(out, require_audio=validate_audio,
+                                     expected_dimensions=expected_dimensions)
+        except Exception as exc:
+            return fail(j, "The generated video failed decoded media QA and was not published.", str(exc))
+    encoded = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(out), "-c:v", "libx264",
+                              "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                              "-b:a", "128k", "-movflags", "+faststart", str(temp)], check=False)
+    if encoded.returncode != 0 or not temp.exists() or temp.stat().st_size == 0:
+        temp.unlink(missing_ok=True)
+        shutil.copy2(out, temp)
+    published_validation = None
+    if validate_media:
+        try:
+            published_validation = _validate_media_artifact(
+                temp, require_audio=validate_audio, expected_dimensions=expected_dimensions)
+        except Exception as exc:
+            temp.unlink(missing_ok=True)
+            return fail(j, "The published video failed decoded media QA and was discarded.", str(exc))
+    os.replace(temp, final)
     _maybe_face_fix(j, final)
     subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", "1", "-i", str(final),
                     "-frames:v", "1", str(MEDIA / f"{j['id']}.jpg")], check=False)
     j["status"] = "done"; j["stage"] = "done"
     j["url"] = f"/media/{j['id']}.mp4"; j["poster"] = f"/media/{j['id']}.jpg"
     gallery_add(j["id"], j["prompt"], kind, j["url"], j["poster"], style=j.get("style", ""))
+    return published_validation
 
 def _run_video_cold(j):
     """Original v1 cold-container path (fallback when the warm engine is down)."""
@@ -3388,6 +4081,231 @@ def _run_fal_video(j):
     j["stage"] = "encoding"
     _finish_video(j, out)
 
+
+def _write_h3_ltx_receipt(job_dir, payload):
+    """Atomically persist the exact two-stage inputs and accepted artifacts."""
+    job_dir = Path(job_dir)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    target = job_dir / "h3-ltx-receipt.json"
+    temp = target.with_suffix(".tmp")
+    temp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(temp, target)
+
+
+def _mux_h3_audio_onto_ltx(refined_video, stage_a, output):
+    """Stream-copy LTX video with the exact H3 soundtrack; fail closed."""
+    refined_video = Path(refined_video)
+    stage_a = Path(stage_a)
+    output = Path(output)
+    temp = output.with_suffix(".muxing.mp4")
+    result = subprocess.run([
+        "ffmpeg", "-nostdin", "-v", "error", "-y",
+        "-i", str(refined_video), "-i", str(stage_a),
+        "-map", "0:v:0", "-map", "1:a:0",
+        "-c:v", "copy", "-c:a", "copy",
+        "-movflags", "+faststart", str(temp),
+    ], capture_output=True, text=True)
+    if result.returncode != 0 or not temp.is_file() or temp.stat().st_size <= 0:
+        temp.unlink(missing_ok=True)
+        detail = (result.stderr or "ffmpeg produced no remuxed artifact").strip()
+        raise RuntimeError(f"H3 soundtrack remux failed: {detail[:300]}")
+    os.replace(temp, output)
+    return output
+
+
+def _run_h3_ltx_video(j, *, references, staged_video_refs, start_b64):
+    """Run one durable queue job through H3 draft then native LTX retake.
+
+    Each engine call crosses the normal fenced controller boundary.  The H3
+    artifact is copied into the job directory before H3 can be evicted, then a
+    basename-only copy is staged in LTX's mounted input directory.  Failure in
+    either stage is terminal; this route never falls back to another engine.
+    """
+    req = j.get("request") or {}
+    seed = int(req.get("seed") or int(j["id"][:8], 16) % 1_000_000_000 or 1)
+    job_dir = JOBS_DIR / j["id"]
+    job_dir.mkdir(parents=True, exist_ok=True)
+    receipt = {
+        "pipeline": "h3-ltx25",
+        "job_id": j["id"],
+        "seed": seed,
+        "prompt": j["full_prompt"],
+        "status": "stage-a",
+        "stages": [],
+    }
+    _write_h3_ltx_receipt(job_dir, receipt)
+
+    ref2va = bool(references or staged_video_refs)
+    h3_body = {
+        "prompt": h3_prompt(j["full_prompt"], start_image=bool(start_b64) and not ref2va),
+        "frames": max(124, int(j.get("frames") or 124)),
+        "width": int(j.get("w") or 1344),
+        "height": int(j.get("h") or 768),
+        "seed": seed,
+    }
+    if references:
+        h3_body["references"] = [
+            {key: value for key, value in ref.items() if not str(key).startswith("_")}
+            for ref in references
+        ]
+    if staged_video_refs:
+        h3_body["video_references"] = staged_video_refs
+    if ref2va:
+        h3_body["reference_detail"] = req.get("reference_detail") or "match"
+    if start_b64:
+        h3_body["start_image_b64"] = start_b64
+
+    j["active_engine"] = "h3"
+    j["stage"] = "stage 1/2 · H3 draft"
+    save_state()
+    h3_inventory = _artifact_inventory(POOL_DIR / "h3-out")
+    try:
+        h3_result = engine_generate("h3", h3_body, j, timeout=5400)
+    except Exception as exc:
+        h3_result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    touch_engine("h3")
+    if not h3_result.get("ok"):
+        j.pop("active_engine", None)
+        receipt.update(status="failed", failed_stage="h3",
+                       error=str(h3_result.get("error") or "H3 engine failed")[:400])
+        _write_h3_ltx_receipt(job_dir, receipt)
+        return fail(j, "Stage 1/2 H3 draft failed — LTX was not started.", receipt["error"])
+    h3_out = POOL_DIR / "h3-out" / Path(str(h3_result.get("file") or "")).name
+    if not h3_out.is_file() or h3_out.stat().st_size <= 0:
+        j.pop("active_engine", None)
+        receipt.update(status="failed", failed_stage="h3", error="H3 output missing")
+        _write_h3_ltx_receipt(job_dir, receipt)
+        return fail(j, "Stage 1/2 H3 draft failed — its output artifact is missing.")
+    try:
+        h3_validation = _validate_media_artifact(
+            h3_out, require_audio=True,
+            expected_dimensions=(h3_body["width"], h3_body["height"]),
+            prior=h3_inventory.get(h3_out.name),
+        )
+    except Exception as exc:
+        j.pop("active_engine", None)
+        receipt.update(status="failed", failed_stage="h3-media-qa", error=str(exc)[:400])
+        _write_h3_ltx_receipt(job_dir, receipt)
+        return fail(j, "Stage 1/2 H3 draft failed decoded video/audio QA — LTX was not started.", receipt["error"])
+
+    stage_a = job_dir / "stage-a-h3.mp4"
+    shutil.copy2(h3_out, stage_a)
+    stage_a_hash = _sha256_file(stage_a)
+    receipt["stages"].append({
+        "stage": "draft", "engine": "h3", "seed": seed,
+        "frames_requested": h3_body["frames"],
+        "width": h3_body["width"], "height": h3_body["height"],
+        "artifact": stage_a.name, "sha256": stage_a_hash,
+        "validation": h3_validation,
+    })
+    receipt["status"] = "stage-b"
+    _write_h3_ltx_receipt(job_dir, receipt)
+    j["stage_a_sha256"] = stage_a_hash
+    j["stage_a_artifact"] = str(stage_a)
+
+    input_dir = POOL_DIR / "ltx-out" / "inputs"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    staged_name = f"{j['id']}-stage-a.mp4"
+    staged_input = input_dir / staged_name
+    shutil.copy2(stage_a, staged_input)
+    ltx_body = {
+        "prompt": f"{j['full_prompt']} {H3_LTX_REFINEMENT_PROMPT}",
+        "frames": 121,
+        "width": int(j.get("w") or 1344),
+        "height": int(j.get("h") or 768),
+        "seed": seed,
+        "input_video_file": staged_name,
+        "retake_strength": H3_LTX_RETAKE_STRENGTH,
+        "regenerate_audio": False,
+        "reference_pipeline": True,
+    }
+    j["active_engine"] = "ltx"
+    j["stage"] = "stage 2/2 · LTX refinement"
+    save_state()
+    ltx_inventory = _artifact_inventory(POOL_DIR / "ltx-out")
+    try:
+        try:
+            ltx_result = engine_generate("ltx", ltx_body, j, timeout=5400)
+        except Exception as exc:
+            ltx_result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    finally:
+        staged_input.unlink(missing_ok=True)
+    touch_engine("ltx")
+    if not ltx_result.get("ok"):
+        j.pop("active_engine", None)
+        receipt.update(status="failed", failed_stage="ltx25",
+                       error=str(ltx_result.get("error") or "LTX engine failed")[:400])
+        _write_h3_ltx_receipt(job_dir, receipt)
+        return fail(j, "Stage 2/2 LTX refinement failed — the H3 draft was preserved.", receipt["error"])
+    ltx_out = POOL_DIR / "ltx-out" / Path(str(ltx_result.get("file") or "")).name
+    if not ltx_out.is_file() or ltx_out.stat().st_size <= 0:
+        j.pop("active_engine", None)
+        receipt.update(status="failed", failed_stage="ltx25", error="LTX output missing")
+        _write_h3_ltx_receipt(job_dir, receipt)
+        return fail(j, "Stage 2/2 LTX refinement failed — its output artifact is missing; the H3 draft was preserved.")
+    try:
+        ltx_validation = _validate_media_artifact(
+            ltx_out, require_audio=False,
+            expected_dimensions=(ltx_body["width"], ltx_body["height"]),
+            prior=ltx_inventory.get(ltx_out.name),
+        )
+    except Exception as exc:
+        j.pop("active_engine", None)
+        receipt.update(status="failed", failed_stage="ltx25-media-qa", error=str(exc)[:400])
+        _write_h3_ltx_receipt(job_dir, receipt)
+        return fail(j, "Stage 2/2 LTX refinement failed decoded video QA; the H3 draft was preserved.", receipt["error"])
+
+    raw_ltx_hash = _sha256_file(ltx_out)
+    muxed_out = job_dir / "stage-b-ltx-with-h3-audio.mp4"
+    try:
+        _mux_h3_audio_onto_ltx(ltx_out, stage_a, muxed_out)
+        mux_validation = _validate_media_artifact(
+            muxed_out, require_audio=True,
+            expected_dimensions=(ltx_body["width"], ltx_body["height"]),
+        )
+    except Exception as exc:
+        j.pop("active_engine", None)
+        receipt.update(status="failed", failed_stage="audio-remux", error=str(exc)[:400])
+        _write_h3_ltx_receipt(job_dir, receipt)
+        return fail(j, "Stage 2/2 refinement finished, but preserving the H3 soundtrack failed.", receipt["error"])
+
+    muxed_hash = _sha256_file(muxed_out)
+    receipt["stages"].append({
+        "stage": "refine", "engine": "ltx25", "seed": seed,
+        "frames_requested": ltx_body["frames"],
+        "width": ltx_body["width"], "height": ltx_body["height"],
+        "retake_strength": ltx_body["retake_strength"],
+        "regenerate_audio": False,
+        "source_sha256": stage_a_hash,
+        "raw_ltx_artifact": ltx_out.name, "raw_ltx_sha256": raw_ltx_hash,
+        "raw_ltx_validation": ltx_validation,
+        "audio_source_artifact": stage_a.name, "audio_source_sha256": stage_a_hash,
+        "artifact": muxed_out.name, "sha256": muxed_hash,
+        "validation": mux_validation,
+    })
+    receipt["status"] = "publishing"
+    _write_h3_ltx_receipt(job_dir, receipt)
+    j["h3_ltx_receipt"] = str(job_dir / "h3-ltx-receipt.json")
+    j.pop("active_engine", None)
+    j["stage"] = "encoding"
+    published_validation = _finish_video(
+        j, muxed_out, validate_audio=True,
+        expected_dimensions=(ltx_body["width"], ltx_body["height"]),
+        validate_media=True,
+    )
+    if j.get("status") != "done" or not published_validation:
+        receipt.update(status="failed", failed_stage="publication-media-qa",
+                       error=str(j.get("detail") or j.get("message") or "publication failed")[:400])
+        _write_h3_ltx_receipt(job_dir, receipt)
+        return
+    receipt["published"] = {
+        "artifact": f"{j['id']}.mp4", "url": j.get("url"),
+        "validation": published_validation,
+    }
+    receipt["status"] = "complete"
+    _write_h3_ltx_receipt(job_dir, receipt)
+
+
 def run_video(j):
     if j["engine"] == "fal-video":
         return _run_fal_video(j)
@@ -3462,6 +4380,12 @@ def run_video(j):
             body["reference_detail"] = req.get("reference_detail") or "match"
         if start_b64:
             body["start_image_b64"] = start_b64
+        if j["engine"] == "h3-ltx25":
+            return _run_h3_ltx_video(
+                j, references=references,
+                staged_video_refs=staged_video_refs,
+                start_b64=start_b64,
+            )
         r = engine_generate(eng, body, j, timeout=5400)
         touch_engine(eng)
         if r.get("ok"):
@@ -3470,18 +4394,18 @@ def run_video(j):
                 j["stage"] = "encoding"
                 return _finish_video(j, out)
             r = {"ok": False, "error": "engine output missing"}
-        # Warm path broke — drop the engine and fall back to the proven cold path.
+        # Warm path broke. Do not bypass the durable controller through the
+        # retired cold-container launcher: its independent shell lock cannot
+        # carry this request's fence and could overlap another GPU owner.
         j["stage"] = "loading models"
-        j["detail"] = f"warm engine fallback: {r.get('error','')}"[:400]
+        j["detail"] = f"warm engine failed: {r.get('error','')}"[:400]
         stop_engine(eng)
         maybe_release_pool()
     else:
         maybe_release_pool()
-    if start_b64 or references or staged_video_refs:
-        return fail(j, "The film crew is down, so your picture can't be animated right now and "
-                       "your reference media can't be conditioned from the cold path — "
-                       "try again in a minute.")
-    _run_video_cold(j)
+    return fail(j, "The fenced film engine is unavailable; the retired cold path will not be "
+                   "used because it cannot prove canonical GPU ownership. Try again after the "
+                   "engine is healthy.")
 
 def _music_engine_for(j) -> str:
     """'yue2' | 'music3' for a music-family job. New songs default to YuE2;
@@ -3546,10 +4470,7 @@ def _yue2_url(path: str) -> str:
 
 
 def _yue2_generate(body: dict, j=None, timeout=3600):
-    """POST /generate to the YuE2 shim under the canonical inference lock — the
-    same contract as engine_generate() for Sol/LTX. (The shim used to take the
-    lock itself; that collided with residency transactions and would deadlock
-    against this caller, so it no longer does.) A stop is forwarded as /interrupt."""
+    """POST /generate with exact fenced delegation; forward cooperative stop."""
     stop = threading.Event()
 
     def watch():
@@ -3563,18 +4484,36 @@ def _yue2_generate(body: dict, j=None, timeout=3600):
     watcher = threading.Thread(target=watch, daemon=True)
     watcher.start()
     try:
-        with open(INFERENCE_LOCK, "a+") as gate:
-            fcntl.flock(gate, fcntl.LOCK_EX)
-            return http_json(_yue2_url("/generate"), body, timeout=timeout)
+        if j is not None:
+            j["_gpu_task"] = "generate"
+        if ensure_engine("yue2", j) != "up":
+            raise RuntimeError("YuE2 admission failed")
+        lease = gpu_render_ready("yue2", "generate")
+        return http_json(_yue2_url("/generate"), body, timeout=timeout,
+                         headers=delegation_headers(lease))
     finally:
+        if j is not None:
+            j.pop("_gpu_task", None)
         stop.set()
 
 
-def _yue2_transcribe(song: Path, request_id: str, max_seconds=None, task="melody-full"):
+def _yue2_transcribe(song: Path, request_id: str, max_seconds=None, task="melody-full", j=None):
     body = {"audio_path": str(song), "task": task, "request_id": request_id}
     if max_seconds:
         body["max_seconds"] = int(max_seconds)
-    return http_json(_yue2_url("/transcribe"), body, timeout=1900)
+    if j is not None:
+        j["_gpu_task"] = "transcribe"
+    try:
+        if getattr(_gpu_thread, "lease", None) is not None:
+            _gpu_finish_job_operation()
+        if ensure_engine("yue2", j) != "up":
+            raise RuntimeError("YuE2 transcription admission failed")
+        lease = gpu_render_ready("yue2", "transcribe")
+        return http_json(_yue2_url("/transcribe"), body, timeout=1900,
+                         headers=delegation_headers(lease))
+    finally:
+        if j is not None:
+            j.pop("_gpu_task", None)
 
 
 def run_music(j, finalize: bool = True):
@@ -3715,7 +4654,7 @@ def run_music(j, finalize: bool = True):
             return fail(j, "The reference song is no longer in the library.")
         j["stage"] = "transcribing"
         try:
-            res = _yue2_transcribe(song, f"{j['id']}-ref", max_seconds=secs)
+            res = _yue2_transcribe(song, f"{j['id']}-ref", max_seconds=secs, j=j)
         except Exception as e:
             return fail(j, "The reference song could not be transcribed — try again.", str(e))
         if not res.get("ok") or not res.get("abc"):
@@ -3791,11 +4730,16 @@ def run_music(j, finalize: bool = True):
             pl["35"]["inputs"]["filename_prefix"] = prefix
             (jd / f"payload-attempt-{attempt}.json").write_text(json.dumps(pl))
             try:
-                # Music 3 owns the same cross-process inference transaction as video,
-                # image, and TTS. The text Director remains independently reachable.
-                with open(INFERENCE_LOCK, "a+") as gate:
-                    fcntl.flock(gate, fcntl.LOCK_EX)
-                    comfy_run(8196, pl, timeout_s=3600, poll_s=5, job=j)
+                with gpu_operation("music", "generate", j):
+                    state = ensure_engine("music", j)
+                    if state != "up":
+                        raise RuntimeError(f"Music 3 admission failed: {state}")
+                    gpu_render_ready("music", "generate")
+                    # Keep the short-lived residency transaction mutex during
+                    # cutover; canonical ownership is the durable GPU lease.
+                    with open(INFERENCE_LOCK, "a+") as gate:
+                        fcntl.flock(gate, fcntl.LOCK_EX)
+                        comfy_run(8196, pl, timeout_s=3600, poll_s=5, job=j)
             except Exception as e:
                 return fail(j, "The recording session failed — try again.", str(e))
             touch_engine("music")
@@ -4302,6 +5246,17 @@ def _run_fal_image(j, r, prompt, iw, ih):
 def _run_image(j, r, prompt, iw, ih):
     if str(r.get("engine") or "") == "fal-image":
         return _run_fal_image(j, r, prompt, iw, ih)
+    with gpu_operation("image", "generate", j):
+        state = ensure_engine("image", j)
+        if state == "busy":
+            return fail(j, BUSY_MSG)
+        if state != "up":
+            return fail(j, friendly("comfy_boot"))
+        gpu_render_ready("image", "generate")
+        return _run_image_authorized(j, r, prompt, iw, ih)
+
+
+def _run_image_authorized(j, r, prompt, iw, ih):
     rr = dict(r)
     if rr.get("scene_place") and rr.get("source"):
         src = media_path(str(rr["source"]))
@@ -6228,25 +7183,27 @@ def _vb_generate_unlocked(text, out_dir: Path, *, profile_id="", engine="", adv=
 
 def vb_generate(text, out_dir: Path, *, profile_id="", engine="", adv=None, j=None):
     """Run TTS as the sole companion beside PPLX, then release its weights."""
-    with open(INFERENCE_LOCK, "a+") as gate:
-        fcntl.flock(gate, fcntl.LOCK_EX)
-        if stand_down_other_companions("voice", j) != "up":
-            return None
-        out = None
-        try:
-            out = _vb_generate_unlocked(text, out_dir, profile_id=profile_id,
-                                        engine=engine, adv=adv, j=j)
-        finally:
-            unloaded = release_voice_weights()
-        if not unloaded:
-            if j is not None:
-                j["detail"] = "TTS completed but its model would not unload"
-            return None
-        if not pplx_primary_healthy():
-            if j is not None:
-                j["detail"] = "PPLX-27B became unhealthy during TTS"
-            return None
-        return out
+    with gpu_operation("voice", "generate", j, ephemeral=True):
+        gpu_render_ready("voice", "generate")
+        with open(INFERENCE_LOCK, "a+") as gate:
+            fcntl.flock(gate, fcntl.LOCK_EX)
+            if stand_down_other_companions("voice", j) != "up":
+                return None
+            out = None
+            try:
+                out = _vb_generate_unlocked(text, out_dir, profile_id=profile_id,
+                                            engine=engine, adv=adv, j=j)
+            finally:
+                unloaded = release_voice_weights()
+            if not unloaded:
+                if j is not None:
+                    j["detail"] = "TTS completed but its model would not unload"
+                return None
+            if not pplx_primary_healthy():
+                if j is not None:
+                    j["detail"] = "PPLX-27B became unhealthy during TTS"
+                return None
+            return out
 
 def _tts_head_clean(wav: Path) -> Path:
     """Cut the phantom syllable TTS puts in front of a line and give the take a
@@ -6383,6 +7340,24 @@ def preflight(eng, body):
     return b
 
 def engine_generate(eng, body, j=None, timeout=7200):
+    task = ("ref2va" if eng == "h3" and (body.get("references") or body.get("video_references")) else
+            "fl2va" if eng == "h3" and body.get("start_image_b64") else "t2va")
+    marker = object()
+    previous = marker if j is None else j.get("_gpu_task", marker)
+    if j is not None:
+        j["_gpu_task"] = task
+    try:
+        with gpu_operation(eng, task, j):
+            return _engine_generate_authorized(eng, body, j=j, timeout=timeout, task=task)
+    finally:
+        if j is not None:
+            if previous is marker:
+                j.pop("_gpu_task", None)
+            else:
+                j["_gpu_task"] = previous
+
+
+def _engine_generate_authorized(eng, body, j=None, timeout=7200, task="t2va"):
     """Call a video engine, and CORRECT the request rather than failing it.
 
     Every engine has contracts the app can get wrong (H3: frames must be 17k+5
@@ -6398,28 +7373,29 @@ def engine_generate(eng, body, j=None, timeout=7200):
     body = preflight(eng, body)
     if j is not None and j.get("id"):
         body.setdefault("request_id", str(j["id"]))
+    state = ensure_engine(eng, j)
+    if state != "up":
+        return {"ok": False, "error": f"engine admission failed: {state}"}
+    lease = gpu_render_ready(eng, task)
+    request_headers = delegation_headers(lease)
     if eng == "h3":
         timeout = max(timeout, H3_ENGINE_HTTP_TIMEOUT_S)
     for attempt in (1, 2, 3):
         if j is not None and j.get("cancel"):
             return {"ok": False, "error": "stopped by the studio"}
         try:
-            # Cross-process inference mutex shared with image_service.py closes
-            # the health-check -> render TOCTOU window. It is separate from the
-            # canonical residency lock and is held only during actual inference.
-            with open(INFERENCE_LOCK, "a+") as gate:
-                fcntl.flock(gate, fcntl.LOCK_EX)
-                if gpu_recovery_pending():
-                    return {"ok": False, "error": "GPU recovery hold", "recovery_required": True}
-                try:
-                    return http_json(url, body, timeout=timeout)
-                except Exception as transport_error:
-                    problem = str(transport_error).lower()
-                    if (isinstance(transport_error, TimeoutError) or "connection" in problem
-                            or "timed out" in problem or "remote end" in problem):
-                        # Persist exclusion BEFORE releasing the transaction lock.
-                        hold_gpu_recovery("engine-request-outcome-unknown", j)
-                    raise
+            if gpu_recovery_pending():
+                return {"ok": False, "error": "GPU recovery hold", "recovery_required": True}
+            try:
+                return http_json(url, body, timeout=timeout, headers=request_headers)
+            except Exception as transport_error:
+                problem = str(transport_error).lower()
+                if (isinstance(transport_error, TimeoutError) or "connection" in problem
+                        or "timed out" in problem or "remote end" in problem):
+                    # Persist exclusion before gpu_operation can release or park
+                    # the canonical live flock.
+                    hold_gpu_recovery("engine-request-outcome-unknown", j)
+                raise
         except Exception as e:
             msg = str(e)
             if j is not None and j.get("cancel"):
@@ -7446,6 +8422,8 @@ def run_maestro(j):
 
     container_settings = f"/tmp/media-lab-maestro-{j['id']}.json"
     container_runner = "/tmp/media-lab-maestro-runner.py"
+    host_delegation = jd / "gpu-delegation.json"
+    container_delegation = f"/tmp/media-lab-maestro-{j['id']}-gpu.json"
     container_receipt = f"/data/maestro-results/{j['id']}.json"
     for source, dest in ((host_settings, container_settings),
                          (MAESTRO_QUEUE_RUNNER, container_runner)):
@@ -7454,36 +8432,38 @@ def run_maestro(j):
         if cp.returncode:
             return fail(j, f"Could not stage Maestro job: {(cp.stderr or cp.stdout)[:220]}")
 
-    # Maestro's in-container H3/LTX loader is outside the warm-engine pool, so
-    # it must explicitly make the companion slot cold before loading. Pausing
-    # chat alone is insufficient: a warm LTX plus Maestro H3 exhausts unified
-    # GPU memory even when Qwen was paused correctly.
-    if not release_voice_weights():
-        return fail(j, "Could not unload Voicebox weights for Maestro.")
-    released_image = release_image_weights("Maestro render")
-    if released_image is None and engine_up("image"):
-        return fail(j, "Could not unload image weights for Maestro.")
-    for music_engine in ("music", "yue2"):
-        if engine_up(music_engine):
-            if engine_busy(music_engine):
-                return fail(j, "Music is active; refusing to interrupt it for Maestro.")
-            stop_engine(music_engine)
-    release_video_engines("Maestro render")
-    remaining = [name for name in VIDEO_ENGINE_NAMES if engine_up(name)]
-    if remaining:
-        return fail(j, f"Could not make the video slot cold for Maestro: {remaining}")
-
-    # Maestro video gets the box. The ordinary post-job settle thread restores
-    # the committed Qwen/LTX idle profile after this queue item finishes.
-    if not pause_chat_for_video(j):
-        return fail(j, "Could not safely pause the managed Qwen runtimes for Maestro.")
-
-    cmd = ["docker", "exec", "-e", "HF_HUB_OFFLINE=0", "maestro-gui",
-           "python3", container_runner, container_settings, container_receipt]
+    # gpu_operation owns the complete unload/reclaim transaction, including the
+    # receipt-backed managed-Qwen pause, before cold-load capacity is admitted.
+    lease = gpu_render_ready("maestro", "generate")
+    delegated = delegation_env(lease)
+    host_delegation.write_text(json.dumps({
+        "fence": delegated["MEDIA_LAB_GPU_FENCE"],
+        "job_id": delegated["MEDIA_LAB_GPU_JOB_ID"],
+        "engine": delegated["MEDIA_LAB_GPU_ENGINE"],
+        "task": delegated["MEDIA_LAB_GPU_TASK"],
+        "issued_at": time.time(),
+    }, sort_keys=True), encoding="utf-8")
+    cp = subprocess.run(["docker", "cp", str(host_delegation),
+                         f"maestro-gui:{container_delegation}"],
+                        capture_output=True, text=True)
+    if cp.returncode:
+        return fail(j, f"Could not stage Maestro GPU delegation: {(cp.stderr or cp.stdout)[:220]}")
+    cmd = ["docker", "exec", "-e", "HF_HUB_OFFLINE=0"]
+    for key, value in sorted(delegated.items()):
+        cmd.extend(["-e", f"{key}={value}"])
+    cmd.extend(["maestro-gui", "python3", container_runner,
+                container_settings, container_receipt, container_delegation])
     j["stage"] = "loading Maestro"
     save_state()
     with host_log.open("w", encoding="utf-8") as log:
-        p = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, text=True)
+        # The attached docker-exec client inherits the canonical flock while the
+        # controller is healthy. A controller/client crash is ambiguous and the
+        # durable recovery row blocks new local admission; the container runner
+        # cannot replay its one-shot delegation.
+        if lease._fd is None:
+            raise LeaseBusy("Maestro lease lost its live flock")
+        p = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, text=True,
+                             pass_fds=(lease._fd.fileno(),))
         last_stage = ""
         while p.poll() is None:
             if j.get("cancel"):
@@ -7564,6 +8544,13 @@ def run_maestro(j):
     return _finish_video(j, source)
 
 
+def run_maestro_fenced(j):
+    """Fence the entire external Maestro load/render/unload transaction."""
+    with gpu_operation("maestro", "generate", j, ephemeral=True):
+        gpu_render_ready("maestro", "generate")
+        return run_maestro(j)
+
+
 def _melband_cli():
     """(binary, models_dir, model) for the Mel-Band RoFormer separator, or None
     when the kit is not installed on this host (MELBAND_ROFORMER_ROOT)."""
@@ -7603,11 +8590,13 @@ def run_stems(j):
         return fail(j, "The song could not be decoded for separation.")
     j["stage"] = "separating"
     try:
-        with open(INFERENCE_LOCK, "a+") as gate:
-            fcntl.flock(gate, fcntl.LOCK_EX)
-            proc = subprocess.run([str(binary), "--models_dir", str(models_dir), "--model", model,
-                                   "--input_folder", str(inp), "--store_dir", str(out)],
-                                  capture_output=True, text=True, timeout=1800)
+        with gpu_operation("stems", "separate", j, ephemeral=True):
+            gpu_render_ready("stems", "separate")
+            with open(INFERENCE_LOCK, "a+") as gate:
+                fcntl.flock(gate, fcntl.LOCK_EX)
+                proc = subprocess.run([str(binary), "--models_dir", str(models_dir), "--model", model,
+                                       "--input_folder", str(inp), "--store_dir", str(out)],
+                                      capture_output=True, text=True, timeout=1800)
     except Exception as e:
         return fail(j, "The stem separator failed — try again.", str(e))
     if proc.returncode:
@@ -7646,7 +8635,7 @@ def run_stems(j):
     save_state()
 
 
-RUNNERS = {"video": run_video, "maestro": run_maestro, "music": run_music, "stems": run_stems,
+RUNNERS = {"video": run_video, "maestro": run_maestro_fenced, "music": run_music, "stems": run_stems,
            "screenshotsong": run_screenshot_song, "image": run_image,
            "charsheets": run_charsheets,
            "character": run_character, "storyboard": run_storyboard, "assemble": run_assemble,
@@ -7665,6 +8654,9 @@ def job_engine(j):
         return "maestro"
     if j.get("kind") == "assemble":
         return None
+    active = str(j.get("active_engine") or "").lower()
+    if active in ("h3", "ltx"):
+        return active
     r = j.get("request") or {}
     # Video-page payloads use `model`, while Say/Filmbeat payloads use `engine`.
     # Looking at only `engine` made the exact-job stop endpoint mistake active H3
@@ -7672,7 +8664,7 @@ def job_engine(j):
     selected = str(r.get("engine") or r.get("model") or j.get("engine") or "").lower()
     if selected.startswith("fal-"):
         return None
-    return "h3" if selected == "h3" else "ltx"
+    return "h3" if selected in ("h3", "h3-ltx25") else "ltx"
 
 def pick_next_job():
     """Group the queue by engine instead of taking it strictly in order.
@@ -7681,6 +8673,8 @@ def pick_next_job():
     EVERY queued H3 job, then go back to LTX. Taking the queue in raw order
     would swap 40 GB of weights between every alternating job.
     Caller holds cv."""
+    if not queue:
+        return None
     resident = next((n for n in VIDEO_ENGINE_NAMES if engine_up(n)), None)
     if resident:
         for i, jid in enumerate(queue):
@@ -7763,6 +8757,8 @@ def run_queued_job(job_id):
     waits for an already-started restore; once admitted, the restore cannot enter
     until the job has finished and its output/status have been committed.
     """
+    if not _gpu_cutover_ready:
+        return False
     j = jobs.get(job_id)
     if not j or j.get("status") != "queued":
         return False
@@ -7785,6 +8781,8 @@ def run_queued_job(job_id):
             # Unknown code defects are deliberately NOT retried. A broad retry
             # loop turned one missing-directory bug into 18 immediate failures.
             fail(j, "Something went wrong — the studio stopped this job safely.", e)
+        finally:
+            _gpu_finish_job_operation()
         if j.get("cancel"):
             # A runner may unwind through packaging after its engine has already
             # been killed. Cancellation wins over any late success/error write.
@@ -7848,6 +8846,8 @@ def worker():
             while not queue:
                 cv.wait()
             job_id = pick_next_job()
+        if job_id is None:
+            continue
         if not run_queued_job(job_id):
             with cv:
                 # A recovery hold must not silently drop the popped queue row.
@@ -7869,6 +8869,7 @@ except Exception as _recovery_error:
 # MEDIA_LAB_DISABLE_BACKGROUND_WORKERS=1 is for isolated API tests and CLI drives
 # under a disposable HOME: the routes stay up, nothing renders or reconciles.
 if os.getenv("MEDIA_LAB_DISABLE_BACKGROUND_WORKERS") != "1":
+    initialize_gpu_cutover()
     threading.Thread(target=worker, daemon=True).start()
     threading.Thread(target=online_worker, daemon=True).start()
     threading.Thread(target=reaper, daemon=True).start()
@@ -8298,15 +9299,18 @@ def music_plan(r: MusicPlanReq):
     cot = r.cot.strip().lower() or "full"
     if cot not in ("full", "melody"):
         return JSONResponse({"error": "plan needs cot=full or melody"}, status_code=400)
-    st = ensure_engine("yue2")
-    if st == "busy":
-        return JSONResponse({"error": BUSY_MSG}, status_code=409)
-    if st != "up":
-        return JSONResponse({"error": friendly("comfy_boot")}, status_code=503)
     body = {"style": style, "lyrics": r.lyrics.strip() or "[Instrumental]", "cot": cot,
             "seed": int(r.seed or 0), "request_id": f"plan-{uuid.uuid4().hex[:12]}"}
     try:
-        res = http_json(_yue2_url("/plan"), body, timeout=900)
+        with gpu_operation("yue2", "plan"):
+            st = _ensure_engine_under_lease("yue2")
+            if st == "busy":
+                return JSONResponse({"error": BUSY_MSG}, status_code=409)
+            if st != "up":
+                return JSONResponse({"error": friendly("comfy_boot")}, status_code=503)
+            lease = gpu_render_ready("yue2", "plan")
+            res = http_json(_yue2_url("/plan"), body, timeout=900,
+                            headers=delegation_headers(lease))
     except Exception as e:
         code = 409 if "HTTP 409" in str(e) else 502
         return JSONResponse({"error": "YuE2 could not plan the score", "detail": str(e)[:300]},

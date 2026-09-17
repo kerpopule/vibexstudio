@@ -430,6 +430,7 @@ def test_endpoint_preserves_every_word_mode_and_manual_override(
 def test_exact_worker_preserves_words_resolves_auto_and_runs_director_qa(
         media_app, tmp_path, monkeypatch):
     import builtins
+    from contextlib import nullcontext
     from types import SimpleNamespace
 
     jobs_dir = tmp_path / "jobs"
@@ -442,6 +443,8 @@ def test_exact_worker_preserves_words_resolves_auto_and_runs_director_qa(
     monkeypatch.setattr(media_app, "MEDIA", media_dir)
     monkeypatch.setattr(media_app, "COMFY_MUSIC_DIR", comfy_dir)
     monkeypatch.setattr(media_app, "ensure_engine", lambda *_args: "up")
+    monkeypatch.setattr(media_app, "gpu_operation", lambda *_args, **_kwargs: nullcontext())
+    monkeypatch.setattr(media_app, "gpu_render_ready", lambda *_args: object())
     monkeypatch.setattr(media_app, "touch_engine", lambda *_args: None)
     monkeypatch.setattr(media_app.fcntl, "flock", lambda *_args: None)
 

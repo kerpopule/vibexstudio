@@ -2,6 +2,13 @@
 # Media Lab simple render transaction. Env: JOB_ID, ENGINE(ltx25|h3), LAB_FRAMES, LAB_WIDTH, LAB_HEIGHT
 set -Eeuo pipefail
 umask 022
+
+# Retired: this cold launcher owns neither the durable lease row nor its fence.
+# Keeping it executable would preserve a direct GPU-start bypass around the
+# canonical controller. Callers must use the queued warm-engine route instead.
+echo "FAIL=retired_unfenced_cold_path" >&2
+exit 77
+
 JOB_ID=${JOB_ID:?}
 ENGINE=${ENGINE:-ltx25}
 ROOT="$HOME/media-lab-simple"

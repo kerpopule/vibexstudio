@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import threading
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -134,6 +135,14 @@ def shim(studio, tmp_path, monkeypatch):
     fake = FakeYue2(tmp_path / "music-out")
     monkeypatch.setitem(studio.ENGINES["yue2"], "port", fake.port)
     monkeypatch.setattr(studio, "ensure_engine", lambda name, j=None: "up")
+    monkeypatch.setattr(studio, "_ensure_engine_under_lease", lambda name, j=None: "up")
+    monkeypatch.setattr(studio, "gpu_render_ready", lambda engine, task: object())
+    monkeypatch.setattr(studio, "delegation_headers", lambda lease: {"X-Test-Fence": "1"})
+    monkeypatch.setattr(studio, "_gpu_finish_job_operation", lambda *args: None)
+    @contextmanager
+    def fake_gpu_operation(*args, **kwargs):
+        yield object()
+    monkeypatch.setattr(studio, "gpu_operation", fake_gpu_operation)
     monkeypatch.setattr(studio, "touch_engine", lambda name: None)
     monkeypatch.setattr(studio, "qwen_json",
                         lambda system, user, max_tokens=2400: {"caption": CAPTION, "lyrics": LYRICS})
@@ -303,7 +312,7 @@ def test_run_music_cover_transcribes_and_strips_chords(studio, shim):
 
 
 def test_run_music_shim_busy_is_reported_as_busy(studio, shim, monkeypatch):
-    def refuse(url, payload=None, timeout=10):
+    def refuse(url, payload=None, timeout=10, **kwargs):
         raise RuntimeError(f"HTTP 409 from {url}: busy")
     monkeypatch.setattr(studio, "http_json", refuse)
     j = _submit(studio)

@@ -189,10 +189,22 @@ class SolSafety(unittest.TestCase):
         raw=json.dumps({'prompt':'fixture','request_id':'fixture'}).encode()
         handler.headers={'Content-Length':str(len(raw))};handler.rfile=io.BytesIO(raw)
         handler._send=lambda status,data:reply.append((status,data))
-        handler.do_POST()
+        with patch.object(s, 'authorize_values', return_value=True):
+            handler.do_POST()
         self.assertEqual(reply[0][0],500)
         self.assertTrue(s.safety_latched())
         self.assertFalse(s.STATE['busy'])
+
+    def test_generation_without_exact_gpu_lease_is_rejected(self):
+        import io,json
+        s=self.s;reply=[]
+        handler=s.H.__new__(s.H);handler.path='/generate'
+        raw=json.dumps({'prompt':'fixture','request_id':'fixture'}).encode()
+        handler.headers={'Content-Length':str(len(raw))};handler.rfile=io.BytesIO(raw)
+        handler._send=lambda status,data:reply.append((status,data))
+        handler.do_POST()
+        self.assertEqual(reply[0][0],403)
+        self.assertIn('GPU lease', reply[0][1]['error'])
 
     def test_surviving_child_process_group_blocks_replacement(self):
         s=self.s
