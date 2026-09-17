@@ -209,7 +209,10 @@ def test_h3_boot_binds_and_waits_for_exact_task_family():
         n for n in ast.parse(text).body
         if isinstance(n, ast.FunctionDef) and n.name == 'ensure_h3_variant'))
     assert boot is not None and switch is not None
-    assert '--setenv=SOL_PRELOAD=' in boot
+    assert 'runtime_env["SOL_PRELOAD"] = task' in boot
+    assert 'write_runtime_environment(runtime_dir / "media-lab-sol-h3.env", runtime_env)' in boot
+    assert '["systemctl", "--user", "start", e["unit"]]' in boot
+    assert 'sol_h3_control_guard_ready()' in boot
     assert 'health.get("loaded") is not True' in boot
     assert '"task": _gpu_task_for_engine("h3", j)' in switch
     assert 'task=target["task"]' in switch

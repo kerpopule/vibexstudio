@@ -1,3 +1,5 @@
+import json
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -46,6 +48,43 @@ class WatchdogMaestroSafetyTests(unittest.TestCase):
         supervisor_source = (ROOT / "runner/service_supervisor.py").read_text(encoding="utf-8")
         self.assertIn("API probe failed while a queue-owned Maestro runner is active — standing clear", queue_source)
         self.assertIn("probe failed during a queue-owned Maestro render — standing clear", supervisor_source)
+
+    def test_queue_watchdog_stands_clear_while_durable_gpu_recovery_is_held(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "gpu-recovery-hold.json"
+            with mock.patch.object(queue_watchdog, "GPU_RECOVERY_HOLD", marker):
+                self.assertFalse(queue_watchdog.gpu_recovery_held())
+                marker.write_text('{"reason":"boot-changed"}')
+                self.assertTrue(queue_watchdog.gpu_recovery_held())
+
+    def test_recovery_hold_suppresses_restart_when_api_is_unreachable(self):
+        service = SimpleNamespace(stdout="inactive\n", returncode=3)
+        with mock.patch.object(queue_watchdog, "load_state", return_value={}), \
+             mock.patch.object(queue_watchdog.LOCAL_OPENER, "open", side_effect=OSError("down")), \
+             mock.patch.object(queue_watchdog, "gpu_recovery_held", return_value=True), \
+             mock.patch.object(queue_watchdog.subprocess, "run", return_value=service) as run, \
+             mock.patch.object(queue_watchdog, "save_state"), \
+             mock.patch.object(queue_watchdog, "log"):
+            queue_watchdog.main()
+        self.assertFalse(any("restart" in call.args[0] for call in run.call_args_list))
+
+    def test_recovery_hold_suppresses_stalled_running_restart(self):
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = json.dumps({
+            "active": [{"id": "job-1", "kind": "video", "status": "running", "stage": "loading"}],
+        }).encode()
+        state = {"run_seen": {"sig": "job-1:loading", "since": 0}}
+        with mock.patch.object(queue_watchdog, "load_state", return_value=state), \
+             mock.patch.object(queue_watchdog.LOCAL_OPENER, "open", return_value=response), \
+             mock.patch.object(queue_watchdog, "gpu_recovery_held", return_value=True), \
+             mock.patch.object(queue_watchdog, "ensure_pool_lock"), \
+             mock.patch.object(queue_watchdog, "check_tunnel"), \
+             mock.patch.object(queue_watchdog, "restart_app") as restart, \
+             mock.patch.object(queue_watchdog, "save_state"), \
+             mock.patch.object(queue_watchdog, "log"):
+            queue_watchdog.main()
+        restart.assert_not_called()
 
 
 if __name__ == "__main__":
