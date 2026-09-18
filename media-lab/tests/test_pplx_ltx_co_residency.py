@@ -35,9 +35,16 @@ class PplxLtxCoResidencyContractTests(unittest.TestCase):
         self.assertNotIn(" qwen38-27b", starter)
         self.assertIn('"default_profile": "qwen-ltx-default"', policy)
         self.assertIn('"decode": 46', policy)
-        # Sol-H3-Spark: the text model is remote (1 GB placeholder), so the
-        # operational floor dropped from 24 to 3 and H3 owns the pool.
-        self.assertIn('"operational_floor_gb": 3', policy)
+        # Sol-H3-Spark: the text model is remote (1 GB placeholder). The
+        # measured 115 GiB decode envelope plus the approved 2 GiB operating
+        # floor makes the exact cold-admission boundary 117 GiB.
+        self.assertIn('"operational_floor_gb": 2', policy)
+        live_policy = json.loads(policy)
+        self.assertEqual(
+            117,
+            live_policy["models"]["h3"]["phases_gb"]["decode"]
+            + live_policy["operational_floor_gb"],
+        )
         self.assertIn('"display_name": "Sol-H3-Spark"', policy)
 
     def test_ltx_keeps_promoted_maestro_profile_and_pplx_is_not_evicted(self):
