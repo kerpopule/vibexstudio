@@ -156,7 +156,7 @@ def find_unit_cgroup(root: Path, unit: str = UNIT) -> Path | None:
 
 
 def cgroup_pids(cgroup: Path) -> set[int]:
-    """Read exact recursive membership; inspection failure is never "empty."""
+    """Read exact recursive membership; only a removed unit is safely empty."""
     root_members = cgroup / "cgroup.procs"
     try:
         member_files = [root_members, *(
@@ -169,6 +169,20 @@ def cgroup_pids(cgroup: Path) -> set[int]:
                 if pid > 1 and pid != os.getpid():
                     pids.add(pid)
         return pids
+    except FileNotFoundError as exc:
+        # systemd removes an empty unit cgroup as its last process exits. That
+        # exact disappearance is positive proof of no remaining members, not an
+        # observer failure. A missing member file while the unit still exists
+        # remains fail-closed because membership could not be proven.
+        try:
+            cgroup.stat()
+        except FileNotFoundError:
+            return set()
+        except OSError:
+            pass
+        raise RuntimeError(
+            f"cannot read exact H3 cgroup membership at {cgroup}"
+        ) from exc
     except (OSError, ValueError) as exc:
         raise RuntimeError(
             f"cannot read exact H3 cgroup membership at {cgroup}"
