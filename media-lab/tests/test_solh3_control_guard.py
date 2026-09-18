@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 
 import pytest
@@ -106,6 +107,13 @@ def test_cgroup_membership_read_failure_is_not_misreported_as_empty(tmp_path):
         guard_module.cgroup_pids(unit)
 
 
+def test_cgroup_membership_treats_removed_unit_as_empty(tmp_path):
+    import media_lab_core.solh3_control_guard as guard_module
+
+    unit = tmp_path / "media-lab-sol-h3.service"
+    assert guard_module.cgroup_pids(unit) == set()
+
+
 def test_terminate_cgroup_targets_only_recursive_members(tmp_path):
     unit = tmp_path / "media-lab-sol-h3.service"
     child = unit / "workers"
@@ -174,6 +182,29 @@ def test_terminate_cgroup_revalidates_membership_after_opening_pidfd(tmp_path):
         term_wait_s=0,
         kill_wait_s=0,
         pidfd_open_fn=open_then_move,
+        pidfd_signal_fn=lambda pidfd, sig: sent.append((pidfd, sig)),
+        close_fn=lambda _: None,
+        alive_fn=lambda _: True,
+        sleep_fn=lambda _: None,
+    ) == []
+    assert sent == []
+
+
+def test_terminate_cgroup_accepts_unit_removal_after_member_exits(tmp_path):
+    unit = tmp_path / "media-lab-sol-h3.service"
+    unit.mkdir()
+    (unit / "cgroup.procs").write_text("101\n")
+    sent = []
+
+    def open_then_remove_unit(pid):
+        shutil.rmtree(unit)
+        return pid
+
+    assert terminate_cgroup(
+        unit,
+        term_wait_s=0,
+        kill_wait_s=0,
+        pidfd_open_fn=open_then_remove_unit,
         pidfd_signal_fn=lambda pidfd, sig: sent.append((pidfd, sig)),
         close_fn=lambda _: None,
         alive_fn=lambda _: True,
