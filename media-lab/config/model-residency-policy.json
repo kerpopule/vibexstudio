@@ -1,7 +1,7 @@
 {
   "version": 1,
   "default_profile": "qwen-ltx-default",
-  "operational_floor_gb": 3,
+  "operational_floor_gb": 2,
   "models": {
     "qwen": {
       "slot": "text_primary",
