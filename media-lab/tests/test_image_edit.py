@@ -11,8 +11,14 @@ from PIL import Image
 
 from media_lab_core import image_jobs, image_render, image_worker
 from media_lab_core.image_artifact import inspect_png
-from media_lab_core.image_request import (EDIT, MASK_NAME, SOURCE_NAME, decode_request, reference_name,
-                                          reference_names)
+from media_lab_core.image_request import (
+    EDIT,
+    MASK_NAME,
+    SOURCE_NAME,
+    decode_request,
+    reference_name,
+    reference_names,
+)
 from media_lab_core.job_store import JobStore
 from media_lab_core.studio_inputs import validate_reference
 
@@ -85,7 +91,7 @@ def test_request_contract_admits_edits_and_keeps_text_requests_unchanged():
 
 
 def test_only_the_exact_edit_settings_shape_is_admitted(tmp_path):
-    store, jid, source, reference = staged(tmp_path)
+    _store, _jid, source, reference = staged(tmp_path)
     image_jobs.validate_payload(payload(source, reference), 'r')
     # Zero further references is a valid edit: the source image alone is the condition.
     image_jobs.validate_payload({**payload(source, reference),
@@ -103,7 +109,7 @@ def test_only_the_exact_edit_settings_shape_is_admitted(tmp_path):
 
 
 def test_prepared_request_carries_counts_and_flags_only(tmp_path):
-    store, jid, source, reference = staged(tmp_path)
+    store, jid, _source, _reference = staged(tmp_path)
     body = image_jobs.prepare_request(store.get(jid))
     assert body == {'operation': EDIT, 'prompt': PROMPT, 'size': '1024*1024', 'steps': 9, 'seed': 7,
                     'references': 1, 'mask': False, 'transparent': True}
@@ -111,7 +117,7 @@ def test_prepared_request_carries_counts_and_flags_only(tmp_path):
 
 
 def test_staging_reads_only_this_jobs_accepted_inputs(tmp_path):
-    store, jid, source, reference = staged(tmp_path)
+    store, jid, _source, _reference = staged(tmp_path)
     body = decode_request(request_bytes())
     assert image_worker.stage_names(body) == [SOURCE_NAME, reference_name(0)]
     assert image_worker.stage_names(decode_request(request_bytes(mask=True))) == [SOURCE_NAME, reference_name(0), MASK_NAME]
@@ -138,7 +144,7 @@ class FakeStore:
 
 
 def test_run_publishes_a_verified_transparent_edit(tmp_path):
-    store, jid, source, reference = staged(tmp_path)
+    store, jid, _source, _reference = staged(tmp_path)
     data = request_bytes()
     result = image_worker.run_image_job(job_id=jid, data=data, root=tmp_path / 'results', resident=Resident(),
                                         inference_lock=tmp_path / 'lock', revision='rev', store=store)
@@ -148,7 +154,7 @@ def test_run_publishes_a_verified_transparent_edit(tmp_path):
 
 
 def test_transparent_request_fails_closed_when_the_sampler_is_opaque(tmp_path):
-    store, jid, source, reference = staged(tmp_path)
+    store, jid, _source, _reference = staged(tmp_path)
     with pytest.raises(ValueError):
         image_worker.run_image_job(job_id=jid, data=request_bytes(), root=tmp_path / 'results', resident=Resident('RGB'),
                                    inference_lock=tmp_path / 'lock', revision='rev', store=store)
@@ -229,7 +235,7 @@ def test_edit_fails_closed_when_the_sampler_cannot_deliver_transparency(tmp_path
 
 def test_validate_reference_covers_source_references_and_mask(tmp_path):
     from fastapi import HTTPException
-    store, jid, source, reference = staged(tmp_path)
+    store, _jid, source, reference = staged(tmp_path)
     validate_reference(store, OWNER, payload(source, reference))
     for change in ({'sourceSha256': 'f' * 64}, {'sourceId': 'b' * 32},
                    {'references': [{'inputId': reference['id'], 'inputSha256': 'f' * 64}]},
