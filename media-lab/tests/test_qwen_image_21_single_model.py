@@ -139,3 +139,21 @@ def test_renderer_uses_the_reference_inference_settings():
     assert "use_kv_cache=True" in call
     assert "guidance_scale" not in call, "this pipeline has no guidance_scale parameter"
     assert "torch.compile" not in source, "upstream: the 2.1 transformer breaks under torch.compile"
+
+
+def test_runtime_lock_pins_the_pipeline_commit_and_versions():
+    """The runtime lock must stay in step with the documented runtime.
+
+    The lock is the canonical dependency set for the image host's pinned interpreter;
+    if the diffusers commit or the torch/transformers floor drifts from what the
+    docs and the installer entry advertise, one of the two is wrong.
+    """
+    lock = (ROOT / "media_lab_core" / "data" / "qwen-image-21-runtime.requirements.lock").read_text()
+    assert "diffusers @ git+https://github.com/huggingface/diffusers@80c7ed262aeffbeb43ef13ae04baeb9b84515a69" in lock
+    assert "torch==2.14.0+cu130" in lock
+    assert "transformers==5.17.0" in lock
+    doc = (ROOT / "docs" / "INDEPENDENT-HOST.md").read_text()
+    installs = json.loads((CONFIG / "engine-installs.json").read_text())["image"]
+    for surface in (doc, json.dumps(installs)):
+        assert "80c7ed262aeffbeb43ef13ae04baeb9b84515a69" in surface, "runtime commit drifted"
+    assert "QwenImage21Pipeline" in doc

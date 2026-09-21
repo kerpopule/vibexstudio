@@ -33,6 +33,9 @@ DATA = ('birefnet-cpu.json', 'birefnet-cpu-linux-arm64.json', 'models.example.to
         # Pinned, hash-locked model runtime requirements read by the setup plan/installer.
         'birefnet-cpu.requirements.in', 'birefnet-cpu.requirements.lock',
         'birefnet-cpu-linux-arm64.requirements.in', 'birefnet-cpu-linux-arm64.requirements.lock',
+        # Pinned Qwen-Image-2.1 image runtime (linux aarch64, GB10): the lock is the
+        # canonical dependency set for the diffusers commit that carries QwenImage21Pipeline.
+        'qwen-image-21-runtime.requirements.in', 'qwen-image-21-runtime.requirements.lock',
         # Reviewed supplemental dependency notices recorded by the runtime inventory.
         'runtime-notices/manifest.json', 'runtime-notices/README.md',
         'runtime-notices/antlr4-python3-runtime-4.9.3-LICENSE.txt', 'runtime-notices/tokenizers-0.22.2-LICENSE.txt',

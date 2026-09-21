@@ -65,4 +65,6 @@ print(json.dumps({'legacy_imported':False,'controller_started':True}))
                        cwd=tmp_path,capture_output=True,text=True,timeout=30)
     assert run.returncode==0,run.stderr
     assert json.loads(run.stdout)['controller_started']
-    assert result['files']==94
+    # 96 = 94 + the two pinned Qwen-Image-2.1 image-runtime requirement files, which joined the
+    # bundle when Qwen-Image-2.1 became the studio's only image model (2026-09-20).
+    assert result['files']==96
