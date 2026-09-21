@@ -14,8 +14,7 @@ import re
 import tempfile
 from .cpu_worker import cpu_slot, WorkerStopped
 from .music_worker import gpu_lease, ResidentRenderer
-from .image_request import (MASK_NAME, REFERENCE_PREFIX, SOURCE_NAME, decode_request, is_edit,
-                            reference_names)
+from .image_request import (MASK_NAME, SOURCE_NAME, decode_request, is_edit, reference_names)
 from .image_artifact import inspect_png, MAX_BYTES
 
 RENDER_MODULE = 'media_lab_core.image_render'
