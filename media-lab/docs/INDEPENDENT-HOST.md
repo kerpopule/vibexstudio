@@ -129,6 +129,15 @@ supported size before download or Library save (`Images/Generated`). The pipelin
 loaded with `device_map='cuda'`; on unified-memory hosts a CPU load followed by a device
 copy doubles the footprint and starves CUDA context creation.
 
+Pinned runtime: `diffusers` at commit `80c7ed262aeffbeb43ef13ae04baeb9b84515a69`, the first
+`main` commit that carries `QwenImage21Pipeline` (PyPI 0.40.0 predates it), with
+`transformers>=5.17` and `torch 2.14.0+cu130`. Inference runs the reference DGX Spark image
+lab settings, `true_cfg_scale=1.0` with `use_kv_cache=True`; `guidance_scale` is not a
+parameter of this pipeline. On spark-d16e the staged paths are
+`~/runtime/qwen-image-21/venv` and `~/runtime/qwen-image-21/models/Qwen-Image-2.1`, verified
+against `config/qwen-image-21-weights.json`. Do not enable `torch.compile` on this
+transformer (upstream issue: Qwen Image 2.1 transformer is incompatible with it).
+
 ## Run it as a service (Linux systemd --user)
 
 ```sh

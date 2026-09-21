@@ -124,3 +124,18 @@ def test_catalog_exposes_only_the_new_image_entry():
     row = catalog[MODEL_ID]
     assert row.license_name == "Qwen Research License" and row.license_url
     assert row.status == "planned" and not row.selectable, "must stay unselectable until qualified"
+
+
+def test_renderer_uses_the_reference_inference_settings():
+    """Static contract: the renderer must run CFG 1 with the prefix KV cache.
+
+    The reference DGX Spark image lab ships and benchmarks these two settings; dropping
+    them silently costs throughput with no quality gain, so pin them in source.
+    """
+    source = (ROOT / "media_lab_core" / "image_render.py").read_text()
+    assert "QwenImage21Pipeline" in source
+    call = source.split("image = pipe(", 1)[1].split(".images[0]", 1)[0]
+    assert "true_cfg_scale=1.0" in call
+    assert "use_kv_cache=True" in call
+    assert "guidance_scale" not in call, "this pipeline has no guidance_scale parameter"
+    assert "torch.compile" not in source, "upstream: the 2.1 transformer breaks under torch.compile"

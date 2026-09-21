@@ -47,8 +47,11 @@ def render(pipe, input_path, output_dir, revision):
         data = stream.read(65537)
     request = decode_request(data)
     width, height = (int(part) for part in request['size'].split('*'))
-    # No guidance override: the publisher's text-to-image example runs 40 steps with pipeline defaults.
-    image = pipe(prompt=request['prompt'], width=width, height=height, num_inference_steps=request['steps'],
+    # true_cfg_scale=1.0 plus the prefix KV cache is the configuration the reference DGX Spark
+    # image lab ships and benchmarks (CFG 1, KV cache on); guidance_scale is not a parameter of
+    # this pipeline. Leaving them out costs throughput for no quality gain.
+    image = pipe(prompt=request['prompt'], image=None, width=width, height=height,
+                 num_inference_steps=request['steps'], true_cfg_scale=1.0, use_kv_cache=True,
                  generator=torch.Generator('cuda').manual_seed(request['seed'])).images[0]
     output = Path(output_dir) / 'output.png'
     image.save(str(output), format='PNG')
