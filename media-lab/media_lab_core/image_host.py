@@ -17,10 +17,12 @@ from .image_worker import make_resident, run_image_job
 
 KEYS = {'version', 'runtime', 'runtime_sha256', 'checkpoints', 'weights_manifest', 'inference_lock', 'revision'}
 OPTIONAL = {'resident_idle_seconds', 'memory_gib'}
-# Declared floor, not a host measurement: the pinned BF16 pack is 30.84 GiB of weights on disk
-# (see config/qwen-image-21-weights.json) plus activation and VAE-decode headroom. Replace with the
-# measured peak during qualification; the capacity planner refuses co-residency while the declared
-# active-phase upper bound plus the protected primary exceeds the allocatable pool.
+# Measured, not declared: the clean 2026-09-21 per-phase run on the media Spark (no other GPU process,
+# checkpoint page cache dropped) took system memory from 117.1 GiB down to a 69.06 GiB floor while
+# loading and rendering this pack -- 48.0 GiB consumed -- with the device allocation flat at
+# 38.4 GiB. 48 GiB is therefore the cold-load admission floor the measurement supports, and the
+# capacity planner refuses co-residency while the active-phase upper bound plus the protected
+# primary exceeds the allocatable pool.
 DEFAULT_MEMORY_GIB = 48
 
 
