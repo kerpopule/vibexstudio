@@ -294,16 +294,16 @@
       ],
       "phases": {
         "cold_load": {
-          "lo_gb": 62.0,
-          "hi_gb": 78.0
+          "lo_gb": 40.0,
+          "hi_gb": 48.0
         },
         "warm_idle": {
-          "lo_gb": 34.0,
-          "hi_gb": 46.0
+          "lo_gb": 38.0,
+          "hi_gb": 48.0
         },
         "active_inference": {
-          "lo_gb": 74.0,
-          "hi_gb": 90.0
+          "lo_gb": 44.0,
+          "hi_gb": 48.0
         },
         "decode_vae_mux": {
           "lo_gb": 4.0,
@@ -314,8 +314,8 @@
           "hi_gb": 1.0
         },
         "swap_overlap": {
-          "lo_gb": 34.0,
-          "hi_gb": 46.0
+          "lo_gb": 38.0,
+          "hi_gb": 48.0
         }
       },
       "license_name": "Qwen Research License",
@@ -327,10 +327,10 @@
       "sha256": "2ef675bd78eeefbe746b0a38318eddd1ca923251916851930e271cc02b661292",
       "exclusive_group": "image-engine",
       "disk_gb": 30.84,
-      "estimated_load_seconds": 120,
+      "estimated_load_seconds": 210,
       "trusted": false,
-      "measured": false,
-      "basis": "phase ranges declared from published artifact sizes (30.84 GiB BF16 weights) plus bounded runtime overhead; sha256 is the pack-identity digest over the per-file pins in config/qwen-image-21-weights.json",
+      "measured": true,
+      "basis": "phase lo/hi ranges are measured-derived, not declared: cold_load and active_inference bound the worst system-memory consumption seen in the clean per-phase run (48.0 GiB of 121 GiB unified, device allocation flat at 38.4 GiB), and warm_idle carries that same conservative end. Only cold_load, warm_idle and active_inference were measured; decode_vae_mux, kv_growth and swap_overlap remain declared sub-phase allowances inside that envelope. sha256 is the pack-identity digest over the per-file pins in config/qwen-image-21-weights.json",
       "files": [
         {
           "path": "text_encoder/model-00001-of-00004.safetensors",
@@ -391,26 +391,35 @@
         ]
       },
       "measurement": {
-        "state": "measured-once",
-        "host": "spark-d16e (NVIDIA GB10, 121 GiB unified, no other GPU work)",
-        "when": "2026-09-21T01:08:56-05:00",
-        "receipt": "~/runtime/qwen-image-21/receipts/qualification-measured-20260921-010856.json",
+        "state": "measured-per-phase",
+        "host": "the media Spark (NVIDIA GB10, 121 GiB unified; nvidia-smi reported no compute process and 117.10 GiB was available before the run)",
+        "when": "2026-09-21T06:27Z",
+        "receipts": [
+          "docs/receipts/qwen-image-21-qualification-20260921-per-phase.json",
+          "~/runtime/qwen-image-21/receipts/qualification-measured-20260921-010856.json"
+        ],
         "settings": "1024*1024, 40 steps, true_cfg_scale=1.0, use_kv_cache=True, bfloat16",
+        "stack": "torch 2.14.0+cu130, torchvision 0.29.0+cu130, diffusers @ 80c7ed26, transformers 5.17.0",
         "weights_gib": 30.84,
-        "cold_wall_seconds": 307.5,
-        "warm_wall_seconds": 304.9,
-        "load_seconds_derived": 250,
-        "steps_seconds_40": [
-          49,
-          58
+        "device_gib_per_process": 38.4,
+        "mem_available_gib_baseline": 117.1,
+        "mem_available_gib_floor": 69.06,
+        "mem_available_gib_warm_steady": 76.44,
+        "mem_available_gib_after_reap": 117.01,
+        "cold_job_wall_seconds": 256.4,
+        "warm_render_seconds_40_steps": 52.9,
+        "pack_reverify_seconds": 14.0,
+        "phases_measured": [
+          "cold_load",
+          "warm_idle",
+          "active_inference"
         ],
-        "seconds_per_step": [
-          1.24,
-          1.49
+        "phases_declared": [
+          "decode_vae_mux",
+          "kv_growth",
+          "swap_overlap"
         ],
-        "mem_available_gib_floor": 30.4,
-        "mem_available_gib_after": 117.8,
-        "note": "Cold and warm passes each start a fresh renderer process, so both walls include a full model load; load is derived as wall minus sampling and save. Phase lo/hi values here are a conservative envelope consistent with the measured MemAvailable floor, not a per-phase measurement. Replace with a phase run (idle host, dropped page cache) before promoting this entry to qualified."
+        "note": "The device allocation is flat at 38.4 GiB from load through render and warm idle, so the phases separate only in system memory: 40.7 GiB warm steady and 48.0 GiB at the worst point. This run started from a genuinely idle host and the renderer drops the checkpoint page cache before loading. The earlier measured-once pass began with about 41 GiB already held, so its 30.4 GiB floor and its 74-90 GiB active envelope are superseded. warm_idle keeps the worst observed 48.0 GiB rather than the 40.7 GiB warm-steady figure, because the pair with the protected language primary would otherwise land within about 1 GiB of the pool."
       }
     }
   },

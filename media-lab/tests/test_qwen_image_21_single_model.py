@@ -53,7 +53,7 @@ def test_manifest_entry_is_pinned_and_licensed():
     assert entry["license_name"] == "Qwen Research License"
     assert entry["commercial_use_requires_separate_license"] is True
     assert entry["terms_acceptance_required"] is True
-    assert entry["measured"] is False, "declared bounds must not masquerade as measurements"
+    assert entry["measured"] is True, "the envelope must come from the qualification run, not from artifact sizes"
 
 
 def test_engine_id_satisfies_the_request_schema_pattern():
@@ -89,24 +89,31 @@ def test_residency_policy_replaced_the_old_image_companions():
     assert "qwen-image" not in members and "flux-kontext" not in members
     bounds = policy["measured_or_bounded_gib"][MODEL_ID]
     assert bounds["qualified_with_pplx"] is False
-    assert "NOT measured" in bounds["status"], "unmeasured bounds must say so"
+    assert bounds["status"].startswith("per-phase measured"), bounds["status"]
+    assert "NOT qualified with the protected primary" in bounds["status"], bounds["status"]
 
 
 def test_planner_refuses_image_plus_primary_language_after_the_measurement():
-    """Measured, not declared: rendering took MemAvailable down to 30.4 GiB on an idle GB10.
+    """Measured, not declared: the clean per-phase run took MemAvailable to 69.06 GiB on an idle GB10.
 
-    Warm residency of the protected primary (28 GiB hi) plus this pack (46 GiB hi) is 74 GiB
-    against a 69.7 GiB pool, so the planner must refuse the pair. This replaces an earlier
-    version of this test that asserted the optimistic declared numbers admitted it.
+    Warm residency of the protected primary (28 GiB hi) plus this pack (48 GiB hi) is 76 GiB
+    against a 69.7 GiB pool, so the planner must refuse the pair. The pack's observed warm-steady
+    consumption was 40.7 GiB, which would put the pair within about 1 GiB of the pool, so the
+    envelope deliberately keeps the worst observed consumption until a co-residency canary runs.
     """
     planner = Planner(CONFIG / "capacity-budget.json", CONFIG / "model-manifests.json", CONFIG / "capacity-policy.json")
     plan = planner.plan({"language": "qwen", "image": MODEL_ID})
     assert plan["admitted"] is False, plan
     manifests = json.loads((CONFIG / "model-manifests.json").read_text())["manifests"]
-    assert manifests[MODEL_ID]["measurement"]["mem_available_gib_floor"] == 30.4
-    assert manifests[MODEL_ID]["measurement"]["state"] == "measured-once"
+    entry = manifests[MODEL_ID]
+    assert entry["measured"] is True
+    assert entry["measurement"]["state"] == "measured-per-phase"
+    assert entry["measurement"]["mem_available_gib_floor"] == 69.06
+    assert entry["measurement"]["device_gib_per_process"] == 38.4
+    assert entry["phases"]["warm_idle"] == {"lo_gb": 38.0, "hi_gb": 48.0}, entry["phases"]["warm_idle"]
+    assert entry["phases"]["active_inference"] == {"lo_gb": 44.0, "hi_gb": 48.0}, entry["phases"]["active_inference"]
     warm = [c for c in plan["checks"] if c["phase"] == "warm_idle"]
-    assert warm and warm[0]["required_gb"] == 74.0, warm  # qwen 28 + image 46
+    assert warm and warm[0]["required_gb"] == 76.0, warm  # qwen 28 + image 48
     assert "warm-idle-overflow" in {b["kind"] for b in plan["blockers"]}, plan["blockers"]
 
 
@@ -124,7 +131,8 @@ def test_catalog_exposes_only_the_new_image_entry():
     assert image_ids == [MODEL_ID], image_ids
     row = catalog[MODEL_ID]
     assert row.license_name == "Qwen Research License" and row.license_url
-    assert row.status == "planned" and not row.selectable, "must stay unselectable until qualified"
+    assert row.status == "qualified" and row.selectable, "a measured per-phase qualification makes the entry selectable"
+    assert row.terms_acceptance_required is True, "the research license terms still gate installation"
 
 
 def test_renderer_uses_the_reference_inference_settings():
