@@ -12,6 +12,14 @@ Usage:
     python3 media-lab/tools/identity_guard.py            # scan tracked files
     python3 media-lab/tools/identity_guard.py PATH...     # scan given paths
 
+Scope: tracked files plus untracked files git would not ignore
+(`git ls-files --cached --others --exclude-standard`). Scanning untracked
+files is deliberate pre-add safety -- a brand-new file is checked before it is
+ever staged -- so do not drop `--others` to make local runs green. Local run
+scratch (`.artifacts/`, `.worktrees/`) is instead excluded by the repo-root
+`.gitignore`; anything that must not be committed gets an ignore rule there,
+never an exemption in this script.
+
 Exit 0 when clean, 1 with a listing of file:line hits otherwise. Patterns live
 in PRIVATE_PATTERNS; add a line there when a new private identifier appears.
 The list is intentionally explicit so a false positive is a one-line fix.
