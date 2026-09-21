@@ -85,7 +85,8 @@
       ],
       "active_upper_bound": 44.0,
       "qualified_with_pplx": false,
-      "status": "declared-2026-09-20 from published artifact sizes (Qwen/Qwen-Image-2.1 @ b3179ad355be); NOT measured on this host \u2014 replace after the Spark qualification run"
+      "status": "measured once 2026-09-21 on spark-d16e: MemAvailable fell to 30.4 GiB during 1024x1024 40-step renders with no other GPU work, and returned to 117.8 GiB afterwards. Phase breakdown still NOT measured; not qualified with the protected primary.",
+      "measured_floor_gib": 30.4
     }
   },
   "operational_floor_gib": 24.0,

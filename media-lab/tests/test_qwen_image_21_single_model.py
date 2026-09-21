@@ -92,21 +92,22 @@ def test_residency_policy_replaced_the_old_image_companions():
     assert "NOT measured" in bounds["status"], "unmeasured bounds must say so"
 
 
-def test_planner_admits_the_declared_single_image_selection():
-    """The declared phase numbers must be the ones the planner actually prices.
+def test_planner_refuses_image_plus_primary_language_after_the_measurement():
+    """Measured, not declared: rendering took MemAvailable down to 30.4 GiB on an idle GB10.
 
-    This pins the numbers so a later silent edit (e.g. dropping the unmeasured
-    image bounds into something optimistic) fails here instead of on the host.
+    Warm residency of the protected primary (28 GiB hi) plus this pack (46 GiB hi) is 74 GiB
+    against a 69.7 GiB pool, so the planner must refuse the pair. This replaces an earlier
+    version of this test that asserted the optimistic declared numbers admitted it.
     """
     planner = Planner(CONFIG / "capacity-budget.json", CONFIG / "model-manifests.json", CONFIG / "capacity-policy.json")
     plan = planner.plan({"language": "qwen", "image": MODEL_ID})
-    assert plan["selected"]["image"] == MODEL_ID
+    assert plan["admitted"] is False, plan
     manifests = json.loads((CONFIG / "model-manifests.json").read_text())["manifests"]
-    phases = manifests[MODEL_ID]["phases"]
-    assert phases["warm_idle"] == {"lo_gb": 31.0, "hi_gb": 35.0}, phases["warm_idle"]
-    assert phases["active_inference"] == {"lo_gb": 38.0, "hi_gb": 44.0}, phases["active_inference"]
+    assert manifests[MODEL_ID]["measurement"]["mem_available_gib_floor"] == 30.4
+    assert manifests[MODEL_ID]["measurement"]["state"] == "measured-once"
     warm = [c for c in plan["checks"] if c["phase"] == "warm_idle"]
-    assert warm and warm[0]["required_gb"] == 63.0, warm  # qwen 28 + image 35
+    assert warm and warm[0]["required_gb"] == 74.0, warm  # qwen 28 + image 46
+    assert "warm-idle-overflow" in {b["kind"] for b in plan["blockers"]}, plan["blockers"]
 
 
 def test_planner_refuses_the_image_model_in_the_video_slot():

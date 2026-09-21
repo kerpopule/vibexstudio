@@ -294,16 +294,16 @@
       ],
       "phases": {
         "cold_load": {
-          "lo_gb": 31.0,
-          "hi_gb": 35.0
+          "lo_gb": 62.0,
+          "hi_gb": 78.0
         },
         "warm_idle": {
-          "lo_gb": 31.0,
-          "hi_gb": 35.0
+          "lo_gb": 34.0,
+          "hi_gb": 46.0
         },
         "active_inference": {
-          "lo_gb": 38.0,
-          "hi_gb": 44.0
+          "lo_gb": 74.0,
+          "hi_gb": 90.0
         },
         "decode_vae_mux": {
           "lo_gb": 4.0,
@@ -314,8 +314,8 @@
           "hi_gb": 1.0
         },
         "swap_overlap": {
-          "lo_gb": 31.0,
-          "hi_gb": 35.0
+          "lo_gb": 34.0,
+          "hi_gb": 46.0
         }
       },
       "license_name": "Qwen Research License",
@@ -389,6 +389,28 @@
             "sha256": "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9"
           }
         ]
+      },
+      "measurement": {
+        "state": "measured-once",
+        "host": "spark-d16e (NVIDIA GB10, 121 GiB unified, no other GPU work)",
+        "when": "2026-09-21T01:08:56-05:00",
+        "receipt": "~/runtime/qwen-image-21/receipts/qualification-measured-20260921-010856.json",
+        "settings": "1024*1024, 40 steps, true_cfg_scale=1.0, use_kv_cache=True, bfloat16",
+        "weights_gib": 30.84,
+        "cold_wall_seconds": 307.5,
+        "warm_wall_seconds": 304.9,
+        "load_seconds_derived": 250,
+        "steps_seconds_40": [
+          49,
+          58
+        ],
+        "seconds_per_step": [
+          1.24,
+          1.49
+        ],
+        "mem_available_gib_floor": 30.4,
+        "mem_available_gib_after": 117.8,
+        "note": "Cold and warm passes each start a fresh renderer process, so both walls include a full model load; load is derived as wall minus sampling and save. Phase lo/hi values here are a conservative envelope consistent with the measured MemAvailable floor, not a per-phase measurement. Replace with a phase run (idle host, dropped page cache) before promoting this entry to qualified."
       }
     }
   },
