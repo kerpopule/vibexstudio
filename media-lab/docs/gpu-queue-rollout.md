@@ -162,3 +162,43 @@ approved tagged deployment, use the deploy road's generated backup path and tag;
 do not edit live `app.py`. If the durable DB cannot be reconciled, stop admission,
 retain its recovery row and restore the prior tagged release. Never delete a
 lease/recovery database as a recovery shortcut.
+
+## Ownership adapter for the legacy pool shim (2026-09-21)
+
+Once the durable controller owns `/run/user/1000/spark-gpu.lock` itself, the
+legacy residency handshake has to agree with that owner instead of fighting it.
+It did not: on the media Spark the controller held the lock for a fenced image
+operation, `runner/pool_lock.sh acquire` matched no managing unit and no stale
+`flock ... sleep infinity` holder and answered `BUSY`, and the shim in front of
+the image engine turned that into
+
+```
+HTTP 503 {"error": "gpu reserved elsewhere", "detail": "pool_lock reports an external holder"}
+```
+
+on an idle box — every image job waited at "waiting for the camera crew" while
+nothing rendered. The "external holder" was media-lab-simple itself.
+
+The adapter is `runner/lease_owner_probe.py` plus one call site in
+`runner/pool_lock.sh`:
+
+* `acquire` grants `OK` when the live controller lease owns the lock (exclusion
+  is genuinely held, and the pool unit could not take the flock anyway);
+* `release` becomes a no-op in that case, so the idle reservation is never
+  started against a lock we already hold (it would restart-loop);
+* everything else keeps the pre-existing behaviour, including `BUSY` for an
+  outside production batch, a stale/duplicate holder, a dead holder, a
+  `gpu-recovery-hold.json` (unresolved outcome), or unreadable evidence.
+
+The probe is read-only: it never takes, releases, starts, stops or kills
+anything, and it grants nothing that memory/capacity admission does not already
+grant. Ownership proof is layered: lock present and not free; exactly one
+exclusive FLOCK holder read from `/proc/locks`; holder alive and inside the
+`media-lab-simple.service` cgroup; command line matches the controller when it
+is readable; no unresolved-outcome marker.
+
+Note this does not remove the older holders: `media-lab-pool.service` (warm
+engines) and `media-lab-gpu-reservation.service` (cold idle) stay authoritative
+whenever the controller is not the holder, and `handoff` still transfers the
+lock to the controller before a durable acquire.
+

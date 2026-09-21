@@ -5,14 +5,48 @@
 # Uses the proven override-toggle recipe (reservation service is RefuseManualStart;
 # the ONLY working restore is: move override aside, daemon-reload, reset-failed,
 # systemd-run flock holder, move override back, daemon-reload).
+#
+# Since 2026-09-21 the controller owns the canonical flock itself for the
+# duration of every fenced local GPU operation, so the legacy holders above are
+# no longer the only legitimate owners. `controller_owns_lock` (read-only, below)
+# names that owner so this shim stops reporting the controller as an "external
+# holder" — that misreport is what answered BUSY, and every image job then died
+# with 503 "gpu reserved elsewhere" on an idle box.
 set -Eeuo pipefail
 LOCK=/run/user/1000/spark-gpu.lock
 OVERRIDE=$HOME/.config/systemd/user/media-lab-gpu-reservation.service.d/override.conf
 CMD=${1:?acquire|release|handoff}
+POOL_SH_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+LEASE_PROBE=$POOL_SH_DIR/lease_owner_probe.py
+
+# Our own canonical owner, read-only; never takes, releases or kills. Any doubt
+# (missing probe, foreign holder, dead holder, unreadable evidence) is false, so
+# the legacy BUSY behaviour below is preserved exactly.
+#
+# controller_owns_lock  : may residency be granted? False while the controller
+#                         has an unresolved GPU outcome (fail closed).
+# controller_holds_lock : is our own live controller the current holder? Used by
+#                         release, whose only question is whether starting an
+#                         idle reservation would fight our own held lock.
+controller_owns_lock() {
+  [ -f "$LEASE_PROBE" ] || return 1
+  /usr/bin/python3 "$LEASE_PROBE" --lock "$LOCK" >/dev/null 2>&1
+}
+
+controller_holds_lock() {
+  [ -f "$LEASE_PROBE" ] || return 1
+  /usr/bin/python3 "$LEASE_PROBE" --lock "$LOCK" --ignore-hold >/dev/null 2>&1
+}
 
 case "$CMD" in
   acquire)
     if systemctl --user is-active --quiet media-lab-pool.service; then echo OK; exit 0; fi
+    if controller_owns_lock; then
+      # The controller already holds canonical exclusion for a fenced local GPU
+      # operation. Residency is therefore granted: do not start a second holder
+      # (its flock could not be taken anyway) and do not call it "external".
+      echo OK; exit 0
+    fi
     if systemctl --user is-active --quiet media-lab-gpu-reservation.service; then
       # Reservation holds the lock (GPU idle-reserved): take over via override toggle.
       mv "$OVERRIDE" "$OVERRIDE.pool"; systemctl --user daemon-reload
@@ -48,6 +82,19 @@ case "$CMD" in
     echo FAIL; exit 63
     ;;
   release)
+    if controller_holds_lock; then
+      # Our own live controller holds the canonical lock, so nothing else can
+      # hold it: only stand the legacy holders down (the pool unit, as this
+      # command always did, plus any reservation waiting on the lock) and never
+      # start the idle reservation. A waiting flock is precisely the debris that
+      # stalled every take on 2026-08-17. The controller releases its own fd when
+      # the operation ends, and `handoff` takes over before the next acquire.
+      systemctl --user stop media-lab-pool.service >/dev/null 2>&1 || true
+      systemctl --user reset-failed media-lab-pool.service >/dev/null 2>&1 || true
+      systemctl --user stop media-lab-gpu-reservation.service >/dev/null 2>&1 || true
+      systemctl --user reset-failed media-lab-gpu-reservation.service >/dev/null 2>&1 || true
+      echo OK; exit 0
+    fi
     systemctl --user stop media-lab-pool.service >/dev/null 2>&1 || true
     systemctl --user reset-failed media-lab-pool.service >/dev/null 2>&1 || true
     if ! systemctl --user is-active --quiet media-lab-gpu-reservation.service; then
