@@ -55,9 +55,23 @@ def router(get_store, authorize, authorize_library, read_library):
 
 
 def validate_reference(store, owner, payload):
+    """Every accepted-image reference a payload names must be this device's own snapshot, by id and digest.
+
+    Text-to-image names none. An edit names a source, up to ten further references and an optional mask; each is
+    checked the same way, so a job can never reach the renderer carrying an image its owner was not granted.
+    """
     settings = payload.get('settings', {})
-    if 'inputId' not in settings:
-        return
-    item = store.input_metadata(owner, settings['inputId']) if isinstance(settings['inputId'], str) else None
-    if item is None or item['sha256'] != settings.get('inputSha256'):
-        raise HTTPException(404, 'This accepted image is not available to this device.')
+    declared = []
+    if 'inputId' in settings:
+        declared.append((settings.get('inputId'), settings.get('inputSha256')))
+    if 'sourceId' in settings:
+        declared.append((settings.get('sourceId'), settings.get('sourceSha256')))
+    for entry in settings.get('references') or []:
+        if isinstance(entry, dict):
+            declared.append((entry.get('inputId'), entry.get('inputSha256')))
+    if isinstance(settings.get('mask'), dict):
+        declared.append((settings['mask'].get('inputId'), settings['mask'].get('inputSha256')))
+    for input_id, digest in declared:
+        item = store.input_metadata(owner, input_id) if isinstance(input_id, str) else None
+        if item is None or item['sha256'] != digest:
+            raise HTTPException(404, 'This accepted image is not available to this device.')
