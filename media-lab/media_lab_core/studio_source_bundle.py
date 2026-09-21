@@ -26,7 +26,7 @@ MODULES = (
     'music_host', 'music_jobs', 'music_worker', 'music_render', 'music_request', 'music_artifact',
     # Wan2.2 TI2V-5B video pack (GPU, canonical inference lease, warm renderer).
     'video_host', 'video_jobs', 'video_worker', 'video_render', 'video_request', 'video_artifact',
-    # Z-Image-Turbo image pack (GPU, canonical inference lease, warm renderer).
+    # Qwen-Image-2.1 image pack (GPU, canonical inference lease, warm renderer).
     'image_host', 'image_jobs', 'image_worker', 'image_render', 'image_request', 'image_artifact',
 )
 DATA = ('birefnet-cpu.json', 'birefnet-cpu-linux-arm64.json', 'models.example.toml',

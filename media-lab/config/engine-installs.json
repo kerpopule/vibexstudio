@@ -38,9 +38,9 @@
     "blocked_reason": "This video setup depends on a private Maestro runtime. An independent, verified installer is not available yet."
   },
   "music": {
-    "title": "Music — full songs & music videos",
+    "title": "Music \u2014 full songs & music videos",
     "blurb": "MiniMax Music 3 pipeline through ComfyUI.",
-    "size_label": "large — ComfyUI runtime + music weights (already staged)",
+    "size_label": "large \u2014 ComfyUI runtime + music weights (already staged)",
     "est_minutes": 6,
     "default": false,
     "requires_gpu": true,
@@ -50,17 +50,23 @@
     "port": 8196,
     "health": "/system_stats",
     "boot_wait": 150,
-    "ready_push": "Your music studio is ready 🎵",
+    "ready_push": "Your music studio is ready \ud83c\udfb5",
     "manual_note": "The Music 3 ComfyUI runtime and its weights must already exist at ~/runtime/music3-iso/ComfyUI; the repo ships no automated download for them.",
     "steps": [
-      {"label": "Check the Music ComfyUI runtime", "run": "test -x \"$HOME/runtime/music3-iso/ComfyUI/.venv/bin/python\""},
-      {"label": "Start the music engine", "run": "systemctl --user reset-failed media-lab-comfy-music.service 2>/dev/null; systemd-run --user --unit=media-lab-comfy-music.service bash -lc 'cd \"$HOME/runtime/music3-iso/ComfyUI\" && exec .venv/bin/python main.py --disable-api-nodes --listen 127.0.0.1 --port 8196 --disable-auto-launch --extra-model-paths-config extra_model_paths.yaml'"}
+      {
+        "label": "Check the Music ComfyUI runtime",
+        "run": "test -x \"$HOME/runtime/music3-iso/ComfyUI/.venv/bin/python\""
+      },
+      {
+        "label": "Start the music engine",
+        "run": "systemctl --user reset-failed media-lab-comfy-music.service 2>/dev/null; systemd-run --user --unit=media-lab-comfy-music.service bash -lc 'cd \"$HOME/runtime/music3-iso/ComfyUI\" && exec .venv/bin/python main.py --disable-api-nodes --listen 127.0.0.1 --port 8196 --disable-auto-launch --extra-model-paths-config extra_model_paths.yaml'"
+      }
     ]
   },
   "image": {
-    "title": "Image suite — generation & tap-to-edit",
-    "blurb": "Qwen + FLUX image pipelines through ComfyUI.",
-    "size_label": "medium — ComfyUI runtime + image weights (already staged)",
+    "title": "Image studio \u2014 Qwen-Image-2.1 generation & editing",
+    "blurb": "Qwen-Image-2.1 is the studio's only image model (generation, editing, transparency).",
+    "size_label": "large \u2014 30.84 GiB of BF16 weights plus a pinned image runtime",
     "est_minutes": 5,
     "default": false,
     "requires_gpu": true,
@@ -70,17 +76,27 @@
     "port": 8195,
     "health": "/system_stats",
     "boot_wait": 150,
-    "ready_push": "Your image studio is ready 🖼",
-    "manual_note": "The image ComfyUI runtime and its weights must already exist at ~/runtime/comfy-ltx25/ComfyUI; the repo ships no automated download for them.",
+    "ready_push": "Your image studio is ready \ud83d\uddbc",
+    "manual_note": "Weights and the runtime are not downloaded by the repo: stage Qwen-Image-2.1 (revision b3179ad355be050328e483a9dfdd9e60cd62adfa) using config/qwen-image-21-weights.json, then point the image host at it. The ComfyUI path additionally needs a build with the Qwen-Image-2.1 nodes; the accelerated NVFP4 pack is pinned in config/model-manifests.json.",
     "steps": [
-      {"label": "Check the image ComfyUI runtime", "run": "test -x \"$HOME/runtime/comfy-ltx25/ComfyUI/.venv/bin/python\""},
-      {"label": "Start the image engine", "run": "systemctl --user reset-failed media-lab-comfy-image.service 2>/dev/null; systemd-run --user --unit=media-lab-comfy-image.service bash -lc 'cd \"$HOME/runtime/comfy-ltx25/ComfyUI\" && exec .venv/bin/python main.py --disable-api-nodes --listen 127.0.0.1 --port 8195 --disable-auto-launch'"}
+      {
+        "label": "Check the image runtime",
+        "run": "test -x \"$HOME/runtime/comfy-ltx25/ComfyUI/.venv/bin/python\" || test -x \"$HOME/runtime/image-svc/.venv/bin/python\""
+      },
+      {
+        "label": "Check the pinned weights are staged",
+        "run": "test -f \"$HOME/models/Qwen-Image-2.1/transformer/diffusion_pytorch_model-00001-of-00002.safetensors\""
+      },
+      {
+        "label": "Start the image engine",
+        "run": "systemctl --user reset-failed media-lab-comfy-image.service 2>/dev/null; systemd-run --user --unit=media-lab-comfy-image.service bash -lc 'cd \"$HOME/runtime/comfy-ltx25/ComfyUI\" && exec .venv/bin/python main.py --disable-api-nodes --listen 127.0.0.1 --port 8195 --disable-auto-launch'"
+      }
     ]
   },
   "voicebox": {
-    "title": "Voicebox — clone yours, give characters theirs",
-    "blurb": "Voice cloning and character voices (Qwen TTS, Kokoro…).",
-    "size_label": "medium — separate Voicebox service",
+    "title": "Voicebox \u2014 clone yours, give characters theirs",
+    "blurb": "Voice cloning and character voices (Qwen TTS, Kokoro\u2026).",
+    "size_label": "medium \u2014 separate Voicebox service",
     "est_minutes": 20,
     "default": false,
     "requires_gpu": false,
@@ -89,7 +105,7 @@
     "port": 17493,
     "health": "/health",
     "boot_wait": 120,
-    "ready_push": "Your voice studio is ready 🎙",
+    "ready_push": "Your voice studio is ready \ud83c\udf99",
     "manual_note": "Voicebox is a separate TTS service this repo does not ship an installer for. If it is already running on port 17493 it shows as ready; otherwise install and start it by hand (see AGENTS.md), then reopen this screen.",
     "steps": []
   }

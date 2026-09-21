@@ -1,4 +1,4 @@
-"""Opt-in Z-Image-Turbo image host for the independent server (GPU, canonical lease, warm renderer).
+"""Opt-in Qwen-Image-2.1 image host for the independent server (GPU, canonical lease, warm renderer).
 
 An operator config names the pinned runtime interpreter (hashed), the checkpoint directory plus its per-file
 manifest, the shared inference lock and the exact revision. Every weight file is re-verified before the engine
@@ -17,7 +17,11 @@ from .image_worker import make_resident, run_image_job
 
 KEYS = {'version', 'runtime', 'runtime_sha256', 'checkpoints', 'weights_manifest', 'inference_lock', 'revision'}
 OPTIONAL = {'resident_idle_seconds', 'memory_gib'}
-DEFAULT_MEMORY_GIB = 32  # 20fr tracer peaked at 23.1 GB on the GB10's unified memory
+# Declared floor, not a host measurement: the pinned BF16 pack is 30.84 GiB of weights on disk
+# (see config/qwen-image-21-weights.json) plus activation and VAE-decode headroom. Replace with the
+# measured peak during qualification; the capacity planner refuses co-residency while the declared
+# active-phase upper bound plus the protected primary exceeds the allocatable pool.
+DEFAULT_MEMORY_GIB = 48
 
 
 def read_config(path):

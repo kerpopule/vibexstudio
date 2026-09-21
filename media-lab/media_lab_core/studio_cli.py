@@ -144,7 +144,7 @@ def import_media(root, source, title=None, *, edited=False, cutout=False, speech
             if existing is None:
                 rows.append({'id':asset_id, 'url':'/media/'+quote(relative,safe='/'), 'status':'done',
                              'title':display_title,
-                             'ts':time.time(), 'engine':'Speech (Chatterbox English CPU)' if speech else 'Music (ACE-Step)' if music else 'Video (Wan2.2 TI2V-5B)' if generated else 'Image (Z-Image-Turbo)' if generated_image else 'Imported file'})
+                             'ts':time.time(), 'engine':'Speech (Chatterbox English CPU)' if speech else 'Music (ACE-Step)' if music else 'Video (Wan2.2 TI2V-5B)' if generated else 'Image (Qwen-Image-2.1)' if generated_image else 'Imported file'})
                 if len(json.dumps(rows).encode()) > 8*1024**2:
                     raise ValueError('The Library catalog is full.')
                 cut._atomic_write(root/'library.json', rows)
@@ -246,7 +246,7 @@ def parser():
             s.add_argument('--triposr-config',help='Absolute path to a verified candidate image-to-3D pack configuration (JSON)')
             s.add_argument('--music-config',help='Absolute path to a verified ACE-Step music pack configuration (JSON)')
             s.add_argument('--video-config',help='Absolute path to a verified Wan2.2 video pack configuration (JSON)')
-            s.add_argument('--image-config',help='Absolute path to a verified Z-Image-Turbo image pack configuration (JSON)')
+            s.add_argument('--image-config',help='Absolute path to a verified Qwen-Image-2.1 image pack configuration (JSON)')
             s.add_argument('--setup-python',help='Python 3.12 interpreter used to build the isolated model runtime')
             s.add_argument('--setup-uv',help='uv binary used to install the pinned model runtime')
             s.add_argument('--director-model',help='Exact already-running local vLLM model ID')

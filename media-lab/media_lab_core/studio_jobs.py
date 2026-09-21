@@ -299,7 +299,7 @@ def router(get_store, authorize, engines, admit, artifact_root=None, save_image=
         if verified.media_type != 'image/png':
             raise HTTPException(422, 'Choose a completed PNG cutout, WAV audio or MP4 video result.')
         owned = get_store().get_owned(require(request), job_id) or {}
-        generated = owned.get('payload', {}).get('engineId') == 'zimage-turbo-gpu'
+        generated = owned.get('payload', {}).get('engineId') == 'qwen-image-21-gpu'
         if generated and not callable(save_generated_image):
             raise HTTPException(409, 'Update this server to save generated images in Library.')
         if not generated and not callable(save_image):

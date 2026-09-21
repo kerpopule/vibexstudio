@@ -1,4 +1,4 @@
-"""Z-Image-Turbo image pack: request contract, PNG gate, host verification and server routing."""
+"""Qwen-Image-2.1 image pack: request contract, PNG gate, host verification and server routing."""
 import io
 import json
 import threading
@@ -25,7 +25,7 @@ def write_pack(tmp_path):
     manifest = tmp_path/'weights-manifest.json'
     manifest.write_text(json.dumps({'files': [{'path': 'w.safetensors', 'bytes': 50, 'sha256': host.sha256_file(ck/'w.safetensors')}]}))
     config = {'version': 1, 'runtime': str(runtime), 'runtime_sha256': host.sha256_file(runtime), 'checkpoints': str(ck),
-              'weights_manifest': str(manifest), 'inference_lock': str(tmp_path/'lock'), 'revision': 'zimage-test-rev', 'resident_idle_seconds': 0}
+              'weights_manifest': str(manifest), 'inference_lock': str(tmp_path/'lock'), 'revision': 'qwen-image-21-test-rev', 'resident_idle_seconds': 0}
     path = tmp_path/'image.json'; path.write_text(json.dumps(config))
     return path, config
 
@@ -33,7 +33,7 @@ def write_pack(tmp_path):
 def test_request_bounds():
     good = {'prompt': 'a cat', 'size': '1024*1024', 'steps': 9, 'seed': 7}
     assert decode_request(json.dumps(good).encode())['steps'] == 9
-    for bad in ({**good, 'size': '512*512'}, {**good, 'steps': 2}, {**good, 'steps': 40}, {**good, 'seed': -1}, {**good, 'prompt': ' '},
+    for bad in ({**good, 'size': '512*512'}, {**good, 'steps': 2}, {**good, 'steps': 60}, {**good, 'seed': -1}, {**good, 'prompt': ' '},
                 {k: v for k, v in good.items() if k != 'size'}):
         with pytest.raises(ValueError):
             decode_request(json.dumps(bad).encode())
@@ -85,7 +85,7 @@ def test_server_routes_image_jobs_and_saves_generated_images(tmp_path, monkeypat
             if engines: break
             threading.Event().wait(0.1)
         assert [e['id'] for e in engines] == [image_jobs.ENGINE] and engines[0]['operation'] == 'text-to-image'
-        good = {'requestId': 'image-request-00001', 'engineId': image_jobs.ENGINE, 'revision': 'zimage-test-rev', 'kind': 'image',
+        good = {'requestId': 'image-request-00001', 'engineId': image_jobs.ENGINE, 'revision': 'qwen-image-21-test-rev', 'kind': 'image',
                 'prompt': 'a sleeping cat', 'settings': {'operation': 'text-to-image', 'size': '1024*1024', 'steps': 9, 'seed': 7}}
         assert client.post('/api/studio/jobs', headers=render, json={**good, 'settings': {**good['settings'], 'steps': 1}}).status_code == 409
         job = client.post('/api/studio/jobs', headers=render, json=good).json()
@@ -99,4 +99,4 @@ def test_server_routes_image_jobs_and_saves_generated_images(tmp_path, monkeypat
         saved = client.post(f"/api/studio/jobs/{job['id']}/library", headers=render)
         assert saved.status_code == 200, saved.text
         rows = json.loads((root/'library.json').read_text())
-        assert rows[-1]['url'].startswith('/media/Images/Generated/') and rows[-1]['engine'] == 'Image (Z-Image-Turbo)' and rows[-1]['title'] == 'a sleeping cat'
+        assert rows[-1]['url'].startswith('/media/Images/Generated/') and rows[-1]['engine'] == 'Image (Qwen-Image-2.1)' and rows[-1]['title'] == 'a sleeping cat'

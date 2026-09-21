@@ -90,47 +90,25 @@ exclusive_group = ""
 hardware = ["nvidia-cuda"]
 
 [[models]]
-id = "flux-dev-image"
-name = "FLUX Dev image and likeness preparation"
+id = "qwen-image-21"
+name = "Qwen-Image-2.1"
 category = "image"
 status = "planned"
 recommended = true
-quality = "high photographic composition and character-source preparation"
-speed = "moderate"
-summary = "Recommended starting-frame and likeness-preparation option. Separate model terms may restrict software/service use."
-disk_gb = 0
-memory_floor_gb = 0
-license_name = "unresolved"
-license_url = ""
+quality = "high; unified text-to-image and editing, native transparency, strong typography"
+speed = "moderate; the published recipe runs 40 steps unless a qualifier proves fewer"
+summary = "The studio's only image model. Research-license weights: internal evaluation is permitted, commercial output needs a separate Qwen license."
+disk_gb = 30.84
+memory_floor_gb = 48
+license_name = "Qwen Research License"
+license_url = "https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE"
 terms_acceptance_required = true
-source_url = ""
-immutable_revision = ""
-sha256 = ""
+source_url = "https://huggingface.co/Qwen/Qwen-Image-2.1"
+immutable_revision = "b3179ad355be050328e483a9dfdd9e60cd62adfa"
+sha256 = "2ef675bd78eeefbe746b0a38318eddd1ca923251916851930e271cc02b661292"
 requires = []
 exclusive_group = "image-engine"
 hardware = ["nvidia-cuda"]
-
-[[models]]
-id = "qwen-image-edit"
-name = "Qwen Image Edit"
-category = "image"
-status = "planned"
-recommended = false
-quality = "high instruction editing; useful text rendering and scene changes"
-speed = "moderate to slow depending on quantization"
-summary = "Optional editing backend for scene placement, controlled changes, and images containing text."
-disk_gb = 0
-memory_floor_gb = 0
-license_name = "unresolved"
-license_url = ""
-terms_acceptance_required = true
-source_url = ""
-immutable_revision = ""
-sha256 = ""
-requires = []
-exclusive_group = "image-engine"
-hardware = ["nvidia-cuda"]
-
 [[models]]
 id = "voicebox-tts"
 name = "Local Voicebox-compatible speech"

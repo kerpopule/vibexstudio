@@ -1,9 +1,9 @@
-"""Image queue adapter (Z-Image-Turbo); the host supplies the exact revision and a bounded executor."""
+"""Image queue adapter (Qwen-Image-2.1); the host supplies the exact revision and a bounded executor."""
 import json
 from .cpu_jobs import run_next_cpu
 from .image_request import SIZES, MIN_STEPS, MAX_STEPS
 
-ENGINE = 'zimage-turbo-gpu'
+ENGINE = 'qwen-image-21-gpu'
 
 
 def validate_payload(payload, revision):

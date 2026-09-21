@@ -49,8 +49,8 @@ Choose video engines:
   [ ] H3 Ref2VA — Adds reference identity/style/video/audio weights
 
 Choose image engines:
-  [x] FLUX Dev — Recommended for source-frame and likeness preparation
-  [ ] Qwen Image Edit — Strong instruction editing and useful text rendering
+  [x] Qwen-Image-2.1 — the studio's only image model: generation, editing and transparency.
+      Research-license weights (evaluation only; commercial use needs a separate Qwen license).
 
 Choose speech/audio:
   [x] Local speech

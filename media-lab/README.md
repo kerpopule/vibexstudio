@@ -21,7 +21,7 @@ and charge for generation. Engine support and licenses vary; see the
   text-to-video, image-to-video, reference-identity, v2v motion transfer),
   long-form via segment chaining, 500+ curated style templates.
 - **Music & music videos** — full songs and storyboarded MVs. Screenshot songs default to Exact Auto-fit: reviewed words remain immutable, text is reflowed into short melodic phrases, Auto chooses each part's runtime, and long inputs split into ordered queue-owned songs plus matching screenshot videos. Director checks both the words and measurable pitch movement, so read/recited takes are retried instead of published. See [docs/screenshot-songs.md](docs/screenshot-songs.md).
-- **Images** — generation, SAM-powered tap-to-select editing, FLUX Kontext,
+- **Images** — generation, SAM-powered tap-to-select editing, Qwen-Image-2.1,
   and a big template library.
 - **Characters** — reusable identities with consistent look and voice
   (Voicebox voice cloning included).
@@ -104,6 +104,6 @@ their respective licenses. Legacy execution paths still depend on Maestro/WanGP.
 The independent background-removal and experimental 3D adapters do not use those
 runtimes, but do not replace all existing generation features. Other integrations
 include LTX-Video, ComfyUI, Qwen,
-FLUX, and a generous community of prompt-craft — see
+Qwen-Image-2.1, and a generous community of prompt-craft — see
 [CREDITS.md](CREDITS.md). We credit everything we build on, required or
 not; if your work appears uncredited, open an issue.

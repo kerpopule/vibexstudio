@@ -1,4 +1,4 @@
-"""Isolated Z-Image-Turbo renderer, invoked by the owned worker inside the pinned GPU runtime.
+"""Isolated Qwen-Image-2.1 renderer, invoked by the owned worker inside the pinned GPU runtime.
 
 On unified-memory hosts the pipeline is loaded with device_map='cuda' (a CPU load followed by .to('cuda') doubles
 the footprint and starves CUDA context creation); the owner sets THP_MEM_ALLOC_ENABLE=1 for the GB10 page-fault trap.
@@ -34,8 +34,11 @@ def drop_page_cache(root):
 def load_pipeline(checkpoints):
     drop_page_cache(checkpoints)
     import torch
-    from diffusers import ZImagePipeline
-    return ZImagePipeline.from_pretrained(str(checkpoints), torch_dtype=torch.bfloat16, local_files_only=True, device_map='cuda')
+    # The pinned runtime must expose QwenImage21Pipeline (diffusers with Qwen-Image-2.1 support,
+    # transformers>=5.17). Load straight onto the device: a CPU load plus .to('cuda') doubles the
+    # footprint on unified-memory hosts.
+    from diffusers import QwenImage21Pipeline
+    return QwenImage21Pipeline.from_pretrained(str(checkpoints), torch_dtype=torch.bfloat16, local_files_only=True, device_map='cuda')
 
 
 def render(pipe, input_path, output_dir, revision):
@@ -44,7 +47,8 @@ def render(pipe, input_path, output_dir, revision):
         data = stream.read(65537)
     request = decode_request(data)
     width, height = (int(part) for part in request['size'].split('*'))
-    image = pipe(prompt=request['prompt'], width=width, height=height, num_inference_steps=request['steps'], guidance_scale=0.0,
+    # No guidance override: the publisher's text-to-image example runs 40 steps with pipeline defaults.
+    image = pipe(prompt=request['prompt'], width=width, height=height, num_inference_steps=request['steps'],
                  generator=torch.Generator('cuda').manual_seed(request['seed'])).images[0]
     output = Path(output_dir) / 'output.png'
     image.save(str(output), format='PNG')

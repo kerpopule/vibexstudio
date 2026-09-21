@@ -1,8 +1,9 @@
-"""Bounded request contract shared by the image queue and the isolated renderer (Z-Image-Turbo)."""
+"""Bounded request contract shared by the image queue and the isolated renderer (Qwen-Image-2.1)."""
 import json
 
 SIZES = ('1024*1024', '1280*768', '768*1280')
-MIN_STEPS, MAX_STEPS = 4, 16
+# Qwen-Image-2.1 is a full (non-distilled) sampler: the published recipe runs 40 steps.
+MIN_STEPS, MAX_STEPS = 4, 50
 
 
 def decode_request(data):

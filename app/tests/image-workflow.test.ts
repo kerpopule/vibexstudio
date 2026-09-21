@@ -10,7 +10,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({default:{
 vi.mock('expo-crypto', () => ({getRandomBytes:(size: number) => new Uint8Array(size).fill(mocks.next++)}));
 vi.mock('@/lib/remote-generation', () => ({submitImageJob:mocks.submit, readImageJob:mocks.read, IMAGE_PROMPT_LIMIT:600}));
 const origin = 'https://media.example';
-const engine = {id:'zimage-turbo-gpu' as const,revision:'image-rev',operation:'text-to-image' as const,sizes:['1024*1024','1280*768','768*1280']};
+const engine = {id:'qwen-image-21-gpu' as const,revision:'image-rev',operation:'text-to-image' as const,sizes:['1024*1024','1280*768','768*1280']};
 const job = {id:'d'.repeat(32),kind:'image' as const,status:'queued' as const,createdAt:1,updatedAt:1};
 beforeEach(() => {
   mocks.storage.clear();mocks.next=1;vi.clearAllMocks();

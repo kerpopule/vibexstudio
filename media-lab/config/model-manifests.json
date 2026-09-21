@@ -191,53 +191,6 @@
       "estimated_load_seconds": 120,
       "trusted": true
     },
-    "flux": {
-      "name": "FLUX Dev",
-      "modality": "image",
-      "slot": "image",
-      "runtime": "comfyui",
-      "color_hint": "purple",
-      "behavior": [
-        "primary",
-        "always_resident"
-      ],
-      "phases": {
-        "cold_load": {
-          "lo_gb": 14.0,
-          "hi_gb": 16.0
-        },
-        "warm_idle": {
-          "lo_gb": 13.0,
-          "hi_gb": 15.0
-        },
-        "active_inference": {
-          "lo_gb": 28.0,
-          "hi_gb": 31.0
-        },
-        "decode_vae_mux": {
-          "lo_gb": 6.0,
-          "hi_gb": 8.0
-        },
-        "kv_growth": {
-          "lo_gb": 0.5,
-          "hi_gb": 1.0
-        },
-        "swap_overlap": {
-          "lo_gb": 13.0,
-          "hi_gb": 15.0
-        }
-      },
-      "license_name": "FLUX.1 [dev] Non-Commercial",
-      "license_url": "https://huggingface.co/black-forest-labs/FLUX.1-dev",
-      "terms_acceptance_required": true,
-      "source_url": "https://huggingface.co/black-forest-labs/FLUX.1-dev",
-      "immutable_revision": "main",
-      "sha256": "73ff864857b7419df6203597350bf8dda6e31aa90c0db6d3ced258789ecf418c",
-      "exclusive_group": "image-engine",
-      "disk_gb": 20.0,
-      "estimated_load_seconds": 15,
-      "trusted": true
-    },
     "voicebox": {
       "name": "Voicebox (local TTS)",
       "modality": "speech",
@@ -329,6 +282,114 @@
       "disk_gb": 3.0,
       "estimated_load_seconds": 5,
       "trusted": true
+    },
+    "qwen-image-21": {
+      "name": "Qwen-Image-2.1",
+      "modality": "image",
+      "slot": "image",
+      "runtime": "diffusers",
+      "color_hint": "purple",
+      "behavior": [
+        "primary"
+      ],
+      "phases": {
+        "cold_load": {
+          "lo_gb": 31.0,
+          "hi_gb": 35.0
+        },
+        "warm_idle": {
+          "lo_gb": 31.0,
+          "hi_gb": 35.0
+        },
+        "active_inference": {
+          "lo_gb": 38.0,
+          "hi_gb": 44.0
+        },
+        "decode_vae_mux": {
+          "lo_gb": 4.0,
+          "hi_gb": 6.0
+        },
+        "kv_growth": {
+          "lo_gb": 0.5,
+          "hi_gb": 1.0
+        },
+        "swap_overlap": {
+          "lo_gb": 31.0,
+          "hi_gb": 35.0
+        }
+      },
+      "license_name": "Qwen Research License",
+      "license_url": "https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE",
+      "commercial_use_requires_separate_license": true,
+      "terms_acceptance_required": true,
+      "source_url": "https://huggingface.co/Qwen/Qwen-Image-2.1",
+      "immutable_revision": "b3179ad355be050328e483a9dfdd9e60cd62adfa",
+      "sha256": "2ef675bd78eeefbe746b0a38318eddd1ca923251916851930e271cc02b661292",
+      "exclusive_group": "image-engine",
+      "disk_gb": 30.84,
+      "estimated_load_seconds": 120,
+      "trusted": false,
+      "measured": false,
+      "basis": "phase ranges declared from published artifact sizes (30.84 GiB BF16 weights) plus bounded runtime overhead; sha256 is the pack-identity digest over the per-file pins in config/qwen-image-21-weights.json",
+      "files": [
+        {
+          "path": "text_encoder/model-00001-of-00004.safetensors",
+          "bytes": 4998056552,
+          "sha256": "dde00291b5f7fb92013895310a3da0ddba78674df9f10d505d375243dc01fc6f"
+        },
+        {
+          "path": "text_encoder/model-00002-of-00004.safetensors",
+          "bytes": 4915962464,
+          "sha256": "9047faccc0a6d98496a52d55f27be1c94a9c259d1e283fbea0128d054a948d42"
+        },
+        {
+          "path": "text_encoder/model-00003-of-00004.safetensors",
+          "bytes": 4915962496,
+          "sha256": "8c54187654c0176b73ae73785bf791dc9a14c9df7fb4310083a09d42048cb57e"
+        },
+        {
+          "path": "text_encoder/model-00004-of-00004.safetensors",
+          "bytes": 2704357976,
+          "sha256": "5311532aaaeae3259eb6a7b2c600636be1159adf7ded35f53579f7d0e7d43cdd"
+        },
+        {
+          "path": "transformer/diffusion_pytorch_model-00001-of-00002.safetensors",
+          "bytes": 9968332504,
+          "sha256": "9e6bc2d641e67bf277895ea8777141044a38f3edb7101bc469b2961dd7c36b4b"
+        },
+        {
+          "path": "transformer/diffusion_pytorch_model-00002-of-00002.safetensors",
+          "bytes": 4261951904,
+          "sha256": "3aaf234dcbe128530479735854a346b5e3e66283b7c11db56f836bbd1c13ebaa"
+        },
+        {
+          "path": "vae/diffusion_pytorch_model.safetensors",
+          "bytes": 1350989512,
+          "sha256": "a07a1b7c4ee2966a1b3bdc37de9b4f983d56937e46619f709a80b6e490675417"
+        }
+      ],
+      "accelerated_route": {
+        "note": "NVFP4 pack for ComfyUI on Blackwell (GB10) \u2014 11.57 GiB total, not yet staged or qualified on this host; requires a ComfyUI build that provides the Qwen-Image-2.1 nodes.",
+        "source_url": "https://huggingface.co/BennyDaBall/Qwen-Image-2.1-NVFP4",
+        "immutable_revision": "1a38d44a3a2f35cb0b543a25b04da0a963e7b5e6",
+        "files": [
+          {
+            "path": "diffusion_models/qwen_image_2.1_nvfp4.safetensors",
+            "bytes": 4197574664,
+            "sha256": "4fdbaec94c19f7b8888f1e1ddbae05354c014492f9b2547b1cd8dca0ce923526"
+          },
+          {
+            "path": "text_encoders/qwen3vl_8b_nvfp4.safetensors",
+            "bytes": 7549882768,
+            "sha256": "cdd9b85bcb60d5cb358ddecfd45a48fa15cb728b70d88bd2028840eaef095d16"
+          },
+          {
+            "path": "vae/qwen_image_2.1_vae_bf16.safetensors",
+            "bytes": 675509688,
+            "sha256": "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9"
+          }
+        ]
+      }
     }
   },
   "notes": [

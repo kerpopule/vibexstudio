@@ -17,7 +17,9 @@ owner installs and licenses themselves:
 - **LTX-Video** by Lightricks — fast video generation engine.
 - **ComfyUI** and its node ecosystem — image and music pipelines.
 - **Qwen** (Alibaba) — image editing and on-box chat.
-- **FLUX / FLUX Kontext** by Black Forest Labs — image generation/editing.
+- **Qwen-Image-2.1** by Qwen (Alibaba) — the studio's only image model (generation, editing,
+  transparency). Released under the Qwen Research License: research or evaluation use only, and
+  commercial use requires a separate license from Qwen. Attribution notice kept in NOTICE terms.
 - **fal.ai** — optional cloud rendering provider (bring your own key).
 
 ## Ideas & prior art

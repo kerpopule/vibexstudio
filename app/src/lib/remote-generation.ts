@@ -267,14 +267,14 @@ export const VIDEO_MIN_FRAMES = 9;
 export const VIDEO_STEPS = 20;
 export const VIDEO_SIZES = ['704*1280', '1280*704'] as const;
 /** Experimental Z-Image-Turbo text-to-image on the server GPU: exact engine identity, fixed sizes. */
-export type ImageEngine = {id:'zimage-turbo-gpu'; revision:string; operation:'text-to-image'; sizes:string[]};
+export type ImageEngine = {id:'qwen-image-21-gpu'; revision:string; operation:'text-to-image'; sizes:string[]};
 export type ImageJob = Omit<StudioJob, 'kind'> & {kind:'image'};
 export const IMAGE_PROMPT_LIMIT = 600;
 export const IMAGE_STEPS = 9;
 export const IMAGE_SIZES = ['1024*1024', '1280*768', '768*1280'] as const;
 
 function exactImageEngine(value: ImageEngine): boolean {
-  return !!value && value.id === 'zimage-turbo-gpu' && typeof value.revision === 'string' &&
+  return !!value && value.id === 'qwen-image-21-gpu' && typeof value.revision === 'string' &&
     /^[A-Za-z0-9._-]{1,128}$/.test(value.revision) && value.operation === 'text-to-image' &&
     Array.isArray(value.sizes) && value.sizes.length > 0 && value.sizes.every(size => (IMAGE_SIZES as readonly string[]).includes(size));
 }

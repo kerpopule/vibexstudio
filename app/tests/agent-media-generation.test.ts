@@ -6,7 +6,7 @@ import type {PairedAgent} from '../src/lib/agent-connect/core';
 const origin='https://private.example';
 const agent:PairedAgent={id:'a'.repeat(24),name:'Test',pairedAt:'2026-01-01',mediaGenerate:true};
 const denied:PairedAgent={...agent,mediaGenerate:false};
-const image={id:'zimage-turbo-gpu',revision:'rev-1',operation:'text-to-image' as const,sizes:['1024*1024']};
+const image={id:'qwen-image-21-gpu',revision:'rev-1',operation:'text-to-image' as const,sizes:['1024*1024']};
 const video={id:'wan22-ti2v-5b-gpu',revision:'rev-2',operation:'text-to-video' as const,maxFrames:121,fps:24,sizes:['704*1280']};
 
 type Saved={requestId:string;origin:string;agentOwner?:string;prompt?:string;size?:string;frames?:number;

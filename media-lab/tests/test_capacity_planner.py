@@ -77,7 +77,7 @@ class PhaseFloorRefusals(unittest.TestCase):
             make_planner().plan({"language": "not-a-model"})
 
     def test_model_not_allowed_in_slot_explains(self):
-        plan = make_planner().plan({"video": "flux"})  # flux is image, wrong slot
+        plan = make_planner().plan({"video": "qwen-image-21"})  # image model, wrong slot
         self.assertFalse(plan["admitted"])
         kinds = [b["kind"] for b in plan["blockers"]]
         self.assertIn("model-not-allowed-in-slot", kinds)

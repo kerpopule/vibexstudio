@@ -12,7 +12,7 @@ Runtime: `~/media-lab-simple/`
 1. LTX-2.5
 2. MiniMax H3
 3. Qwen-Image
-4. FLUX Kontext
+4. Qwen-Image-2.1 (declared bounds; not yet run on this host)
 5. MiniMax Music 3
 6. one loaded Voicebox TTS model (Qwen3-TTS or another installed preset engine)
 
@@ -58,7 +58,7 @@ Every canary must enter through the visible Media Lab queue. Sample `MemAvailabl
 | LTX-2.5 | 3-second 1280×704 T2V with native audio | Valid H.264/AAC artifact; all PPLX probes pass; floor ≥24 GiB | Qualified |
 | MiniMax H3 | 3-second 864×480 private FL2VA/Ref2VA canary | Valid artifact; preserved input audio when used; all PPLX probes pass; floor ≥24 GiB | Not yet run |
 | Qwen-Image | One 1024×1024 4-step image | Valid PNG; `loaded_model=qwen`; only one companion; floor ≥24 GiB | Not yet run |
-| FLUX Kontext | One 20-step edit of a small approved source | Valid PNG; outgoing Qwen weights freed first; only one companion; floor ≥24 GiB | Not yet run |
+| Qwen-Image-2.1 | One bounded text-to-image run at 1024² | Valid PNG; outgoing weights freed first; only one companion; floor ≥24 GiB | Not yet run |
 | Music 3 | One shortest supported 60-second instrumental | Valid FLAC/MP3; all PPLX probes pass; floor ≥24 GiB | Not yet run |
 | Qwen3-TTS 1.7B | One short sentence using an approved internal voice | Valid WAV/MP3; PPLX probes pass; `/models/status` shows all models unloaded afterward | Not yet run |
 | Kokoro preset | One short sentence | Same as TTS above | Not yet run |

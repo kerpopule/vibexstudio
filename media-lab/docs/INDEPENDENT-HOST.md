@@ -119,12 +119,12 @@ save (`Videos/Generated`). On hosts with unified GPU memory (DGX Spark) the rend
 started with `THP_MEM_ALLOC_ENABLE=1`; without it CPU-side model loading is hundreds of
 times slower. When the GPU lease or memory is busy the job returns to the queue untouched.
 
-## Image pack (Z-Image-Turbo, GPU)
+## Image pack (Qwen-Image-2.1, GPU)
 
 `serve --image-config <json>` serves experimental text-to-image. The config names the pinned
 runtime interpreter and its SHA-256, the checkpoint directory and its per-file manifest,
 the shared inference lock and the exact revision; optional `resident_idle_seconds`
-(default 600) and `memory_gib` (default 32). Results are gated as single-frame PNGs of a
+(default 600) and `memory_gib` (default 48). Results are gated as single-frame PNGs of a
 supported size before download or Library save (`Images/Generated`). The pipeline is
 loaded with `device_map='cuda'`; on unified-memory hosts a CPU load followed by a device
 copy doubles the footprint and starves CUDA context creation.

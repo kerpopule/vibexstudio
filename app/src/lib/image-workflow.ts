@@ -20,7 +20,7 @@ function decode(raw: string, id: string): ImageRequest {
       typeof value.size !== 'string' || !/^\d{3,4}\*\d{3,4}$/.test(value.size) ||
       !Number.isSafeInteger(value.seed) || value.seed < 0 || !Number.isSafeInteger(value.createdAt) || typeof value.cancelRequested !== 'boolean' ||
       (value.libraryAssetId !== undefined && (typeof value.libraryAssetId !== 'string' || !/^[A-Za-z0-9._-]{1,200}$/.test(value.libraryAssetId))) ||
-      !value.engine || value.engine.id !== 'zimage-turbo-gpu' || value.engine.operation !== 'text-to-image' ||
+      !value.engine || value.engine.id !== 'qwen-image-21-gpu' || value.engine.operation !== 'text-to-image' ||
       !Array.isArray(value.engine.sizes) || typeof value.engine.revision !== 'string' || !value.engine.revision ||
       (value.job !== null && (!/^[a-f0-9]{32}$/.test(value.job.id) || value.job.kind !== 'image' ||
         !['queued','running','cancel_requested','cancelled','failed','succeeded'].includes(value.job.status)))) {
