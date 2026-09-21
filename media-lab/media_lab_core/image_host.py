@@ -99,7 +99,7 @@ class ImageHost:
                                               memory_bytes=config.get('memory_gib', DEFAULT_MEMORY_GIB) * 1024**3,
                                               shutting_down=self.stop_requested.is_set)
                 execute = partial(run_image_job, resident=self.resident, inference_lock=Path(config['inference_lock']),
-                                  revision=config['revision'])
+                                  revision=config['revision'], store=self.get_store)
                 self.ready = True
                 while not self.stop_requested.is_set():
                     try:
@@ -121,7 +121,8 @@ class ImageHost:
     def engines(self):
         if not self.ready or not self.thread or not self.thread.is_alive() or self.stop_requested.is_set():
             return []
-        return [{'id': image_jobs.ENGINE, 'revision': self.config['revision'], 'operation': 'text-to-image',
+        return [{'id': image_jobs.ENGINE, 'revision': self.config['revision'], 'operation': image_jobs.TEXT,
+                 'operations': [image_jobs.TEXT, image_jobs.EDIT],
                  'device': 'gpu', 'sizes': ['1024*1024', '1280*768', '768*1280'], 'experimental': True,
                  'warm': bool(self.resident is not None and self.resident.alive())}]
 
