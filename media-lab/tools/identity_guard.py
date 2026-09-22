@@ -6,7 +6,10 @@ one team's usernames, tailnet addresses and hostnames for placeholders on the
 way out). That step is gone: everything per-host now comes from
 config/local.env (see config/local.env.example and media_lab_core/local_config.py),
 so the tracked tree must simply never contain such strings. This script is the
-verification half of the old sanitizer turned into a CI gate.
+verification half of the old sanitizer turned into a CI gate. Python bytecode
+artifacts are refused outright: a CPython .pyc header embeds the absolute source
+path, so a committed .pyc leaks the builder's machine identity without ever
+being read.
 
 Usage:
     python3 media-lab/tools/identity_guard.py            # scan tracked files
@@ -64,6 +67,11 @@ BINARY_EXT = {
     ".jsonl", ".bin", ".pt", ".pth",
 }
 
+# Python bytecode is never allowed in the tree, whatever it contains: the .pyc
+# header carries the absolute source path it was compiled from. Checked before
+# the BINARY_EXT skip so it is a violation, not an ignored blob.
+BYTECODE_EXT = {".pyc", ".pyo", ".pyd"}
+
 # Files that legitimately mention the patterns: this guard and its docs.
 ALLOW_FILES = {
     "media-lab/tools/identity_guard.py",
@@ -116,7 +124,15 @@ def scan(files: list[pathlib.Path], root: pathlib.Path) -> list[str]:
             rel = str(p.resolve().relative_to(root.resolve()))
         except ValueError:
             rel = str(p)
-        if rel in ALLOW_FILES or p.suffix.lower() in BINARY_EXT:
+        if rel in ALLOW_FILES:
+            continue
+        if p.suffix.lower() in BYTECODE_EXT or "__pycache__" in pathlib.PurePath(rel).parts:
+            hits.append(
+                f"{rel}: Python bytecode must not be committed "
+                "(it can embed absolute local paths)"
+            )
+            continue
+        if p.suffix.lower() in BINARY_EXT:
             continue
         try:
             data = p.read_bytes()
