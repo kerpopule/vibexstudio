@@ -128,3 +128,52 @@ def test_untracked_bytecode_is_rejected(tmp_path: pathlib.Path) -> None:
 
     assert result.returncode == 1
     assert "pkg/mod.pyc" in result.stderr
+
+
+def test_bytecode_hit_stderr_omits_local_env_remedy(tmp_path: pathlib.Path) -> None:
+    """A committed .pyc is a file-type violation: the local.env remedy is wrong.
+
+    "Move the value into config/local.env" is the fix for a leaked secret, not
+    for a committed artifact, so a developer following it would mishandle the
+    leak. The bytecode branch must print its own removal remedy instead.
+    """
+    _init_repo(tmp_path)
+    cache = tmp_path / "pkg" / "__pycache__"
+    cache.mkdir(parents=True)
+    (cache / "mod.cpython-312.pyc").write_bytes(b"\x55\x0d\x0d\x0a\x00\x00\x00\x00")
+    _git(tmp_path, "add", "-f", "pkg/__pycache__/mod.cpython-312.pyc")
+
+    result = _run_guard(tmp_path)
+
+    assert result.returncode == 1
+    assert "pkg/__pycache__/mod.cpython-312.pyc" in result.stderr
+    assert "config/local.env" not in result.stderr
+    assert "Remove the bytecode artifact from the repository" in result.stderr
+
+
+def test_private_pattern_hit_stderr_keeps_local_env_remedy(tmp_path: pathlib.Path) -> None:
+    """The real secret remedy survives the split epilogue."""
+    _init_repo(tmp_path)
+    (tmp_path / "notes.md").write_text(f"host: {PRIVATE_HOSTNAME}\n")
+    _git(tmp_path, "add", "notes.md")
+
+    result = _run_guard(tmp_path)
+
+    assert result.returncode == 1
+    assert "config/local.env" in result.stderr
+    assert "Remove the bytecode artifact from the repository" not in result.stderr
+
+
+def test_clean_tree_reports_clean_and_no_remedy(tmp_path: pathlib.Path) -> None:
+    """Negative control: a clean tree stays exit 0 with no remedy text at all."""
+    _init_repo(tmp_path)
+    (tmp_path / "mod.py").write_text("print('hello')\n")
+    _git(tmp_path, "add", "mod.py")
+    _commit(tmp_path, "add module")
+
+    result = _run_guard(tmp_path)
+
+    assert result.returncode == 0
+    assert "identity_guard: 1 files clean" in result.stdout
+    assert "config/local.env" not in result.stderr
+    assert "Remove the bytecode artifact from the repository" not in result.stderr
