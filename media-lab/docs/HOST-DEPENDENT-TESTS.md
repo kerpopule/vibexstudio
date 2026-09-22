@@ -49,6 +49,12 @@ Skipped by the test itself, with the reason in the log (`-rs`):
 | `test_solh3_control_guard.py::test_terminate_cgroup_stops_a_real_synthetic_member` | `os.pidfd_open` (Linux) |
 | every Cut media case | `ffmpeg` + `ffprobe` on `PATH` |
 
+`.github/workflows/media-lab-suite.yml` installs `ffmpeg` before it runs the
+suite, because a GitHub ubuntu runner does not ship it: without it 61 cases
+skipped and 25 failed on real rendered media. The job also fails loudly if
+either binary is missing, so a runner image change cannot silently downgrade
+the run into a green-but-shallow one.
+
 A run is only fully green *for the capabilities it had*. Read the skip list
 before claiming a suite covered the studio host.
 
