@@ -58,6 +58,10 @@ def test_cut_end_to_end_over_http(media_app, cut_media):
     assert [cl["duration_frames"] for cl in project["timeline"]["tracks"][0]["clips"]] == [72, 96]
     assert project["assets"][0]["source"]["path"] == f"/media/{a['id']}.mp4"
     assert client.get(project["assets"][0]["source"]["path"]).status_code == 200      # the player can fetch it
+    # the poster keeps the library URL the player fetches (docs/CUT.md); a bare
+    # basename here made every gallery project with a poster fail closed
+    assert project["assets"][0]["poster"] == f"/media/{a['id']}.jpg"
+    assert client.get(project["assets"][0]["poster"]).status_code == 200
     assert client.get("/api/cut/projects").json()["projects"][0]["project_id"] == pid
     assert client.get("/cut").status_code == 200 and "cut.js" in client.get("/cut").text
 

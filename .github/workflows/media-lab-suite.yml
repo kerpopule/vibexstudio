@@ -1,0 +1,58 @@
+name: media-lab suite
+
+# The whole Media Lab suite, minus the cases that need the studio host. Nothing
+# else in CI ran these: editor-store.yml covers three Cut modules and
+# identity-guard.yml covers the tree's private strings, so a regression in
+# app.py's Cut surface or in the residency policies reached main unrun.
+#
+# docs/HOST-DEPENDENT-TESTS.md is the inventory of what this job cannot cover
+# and why; every excluded case names the capability it needs, and the job prints
+# the skip list so a green run is never mistaken for host coverage.
+
+on:
+  pull_request:
+    paths:
+      - 'media-lab/**'
+      - '.github/workflows/media-lab-suite.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'media-lab/**'
+      - '.github/workflows/media-lab-suite.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  suite:
+    name: CPU suite (ubuntu, no host-only cases)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test runner and dependencies
+        run: python -m pip install -r media-lab/requirements-dev.txt
+      - name: ffmpeg must be present, or the Cut media cases only skip
+        run: |
+          ffmpeg -version | head -1
+          ffprobe -version | head -1
+      - name: Which cases this job excludes (needs the studio host)
+        working-directory: media-lab
+        run: |
+          echo "Excluded by the spark marker:"
+          python -m pytest -q --collect-only -m spark | tail -40
+      - name: Run the suite
+        working-directory: media-lab
+        run: >-
+          python -m pytest -q -rs -m "not spark"
+          --junitxml=media-lab-suite-results.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: media-lab-suite
+          path: media-lab/media-lab-suite-results.xml
+          if-no-files-found: warn

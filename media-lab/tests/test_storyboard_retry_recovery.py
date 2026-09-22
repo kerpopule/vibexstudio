@@ -14,6 +14,23 @@ from unittest.mock import Mock
 import pytest
 
 APP = Path(__file__).parents[1] / "app.py"
+POLICY = Path(__file__).parents[1] / "config/model-residency-policy.json"
+
+
+def h3_retry_admission_floor():
+    """The approved H3 recovery admission boundary, read from the live policy.
+
+    ``_auto_retry_recovery_error`` admits a retry only when available memory
+    covers the largest H3 phase plus the operational floor. A literal stood here
+    while the approved boundary moved (115 GiB decode + 2 GiB floor = 117 GiB).
+    """
+    policy = json.loads(POLICY.read_text())
+    phases = policy["models"]["h3"]["phases_gb"]
+    return (max(float(phases[p]) for p in ("cold_load", "sampler", "decode"))
+            + float(policy["operational_floor_gb"]))
+
+
+H3_RETRY_FLOOR_GB = h3_retry_admission_floor()
 
 
 def controller_functions(*names, **dependencies):
@@ -149,13 +166,26 @@ def test_malformed_health_is_not_recovery(recovery, payload):
     assert j["status"] == "error" and ns["queue"] == []
 
 
-@pytest.mark.parametrize("available", [0, 3, 10.8, 117.9, -1, float("nan"), float("inf"), None])
+@pytest.mark.parametrize("available", [0, 3, 10.8, H3_RETRY_FLOOR_GB - 0.1, -1, float("nan"), float("inf"), None])
 def test_h3_memory_floor_is_fail_closed(recovery, available):
     ns, j, _ = recovery
     ns["_mem_available_gb"].return_value = available
     ns["auto_requeue"]()
     assert j["status"] == "error" and ns["queue"] == []
     assert "memory" in j["auto_retry_hold"]["reason"]
+
+
+def test_h3_memory_admits_only_at_the_approved_boundary(recovery):
+    """117 GiB is the approved cold admission; one tenth below it must hold."""
+    ns, j, _ = recovery
+    assert H3_RETRY_FLOOR_GB == 117
+    ns["_mem_available_gb"].return_value = H3_RETRY_FLOOR_GB - 0.1
+    ns["auto_requeue"]()
+    assert j["status"] == "error" and ns["queue"] == []
+    assert "memory" in j["auto_retry_hold"]["reason"]
+    ns["_mem_available_gb"].return_value = H3_RETRY_FLOOR_GB
+    ns["auto_requeue"]()
+    assert j["status"] == "queued" and ns["queue"] == [j["id"]]
 
 
 @pytest.mark.parametrize("update", [

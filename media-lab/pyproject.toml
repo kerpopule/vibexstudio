@@ -44,6 +44,6 @@ target-version = "py311"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 markers = [
-  "spark: needs the Spark host's private trees (productions/, image-svc/, research/); deselect with -k 'not spark'",
-  "gpu: needs a resident GPU engine",
+  "spark: needs the Spark host's private productions/ or image-svc/ tree, or a live engine on that host; exclude with -m 'not spark' (not -k, which also matches test names)",
+  "gpu: needs a resident GPU engine on the machine running the suite (no tracked test requires one today; the engine boundaries are mocked)",
 ]

@@ -28,16 +28,16 @@
       "sha256": "0164f63ba5f376c81fedd6cb4d30690bacc079c10139b56591ad5878cba6c32c"
     },
     "docs/triposr-safetensors-rebuild-review.json": {
-      "bytes": 3394,
-      "sha256": "0124dfc37ae92d24f265539f2f8439e514e9bf4f183b27312748706c6f118801"
+      "bytes": 3356,
+      "sha256": "692b6b6f5551d91cf1e726047365c744b1f24b7c476ae97b0c30fa334dc34f43"
     },
     "docs/triposr-tokenizers-rebuild-review.json": {
-      "bytes": 5435,
-      "sha256": "98b33d7bd6685b7a040f2461c493dc4c34c08628e6d5e6b6aa45d40268505f93"
+      "bytes": 5397,
+      "sha256": "465d875894e2fa5b53b4138462613530c01515e596b591be47a743615c969d81"
     },
     "docs/triposr-hf-xet-rebuild-review.json": {
-      "bytes": 12850,
-      "sha256": "258e75a77729f660a9bfce90c7a0d193b984199a05b0ba1e7f311a2073e3ee35"
+      "bytes": 12812,
+      "sha256": "8726ab3e0304b842837f0d69d2d430cb78e06819245092ba32a493b75bc68525"
     },
     "media_lab_core/data/triposr-cpu-linux-arm64-rebuilt-rust.lock.in": {
       "bytes": 57526,

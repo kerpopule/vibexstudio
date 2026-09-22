@@ -457,7 +457,7 @@ def test_music_docs_exist():
 
 # --------------------------------------------------------------- Spark only
 
-@pytest.mark.spark
+@pytest.mark.spark  # needs a live YuE2 engine on the studio host (YUE2_PORT)
 def test_live_yue2_shim_health():
     """Needs the real engine on the studio host (YUE2_PORT)."""
     import urllib.request

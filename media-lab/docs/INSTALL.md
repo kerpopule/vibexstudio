@@ -205,13 +205,19 @@ this repo has no `pytest`. Into the `.venv` the installer created:
 
 ```sh
 uv pip install --python .venv -r requirements-dev.txt   # runtime + test tooling
-.venv/bin/python -m pytest -q                           # the suite
+.venv/bin/python -m pytest -q -rs -m "not spark"        # the suite a checkout can run
 .venv/bin/ruff check .                                  # the linter
 ```
 
 `requirements-dev.txt` pulls in `requirements.txt`, so that one install is
 enough. `ruff check .` reports the tree's pre-existing findings as well; a
 change is expected to add none.
+
+`-m "not spark"` and `-rs` exclude the cases that need the studio host and print
+the skip reasons. Use the marker, not `-k`: `-k "not spark"` also matches every
+test id containing the word "spark" and silently drops 13 runnable cases.
+[docs/HOST-DEPENDENT-TESTS.md](HOST-DEPENDENT-TESTS.md) is the inventory of what
+is excluded and which capability each excluded case needs.
 
 # Independent video setup status
 
