@@ -36,8 +36,18 @@ jobs:
           python-version: '3.12'
       - name: Install test runner and dependencies
         run: python -m pip install -r media-lab/requirements-dev.txt
+      # ubuntu-latest does not ship ffmpeg (verified 2026-09-22). Without it an
+      # engine-less Cut case can only skip — and a handful fail, because they
+      # assert on real rendered media rather than skipping. Install it, then
+      # fail loudly if the runner is still missing either binary.
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
       - name: ffmpeg must be present, or the Cut media cases only skip
         run: |
+          command -v ffmpeg || { echo "ffmpeg is missing: the Cut media cases would skip" >&2; exit 1; }
+          command -v ffprobe || { echo "ffprobe is missing: the Cut media cases would skip" >&2; exit 1; }
           ffmpeg -version | head -1
           ffprobe -version | head -1
       - name: Which cases this job excludes (needs the studio host)
