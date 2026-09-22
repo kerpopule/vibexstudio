@@ -7,20 +7,41 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-# Tests that read the Spark host's private trees (productions/, image-svc/,
-# research/) carry the `spark` marker or import from those paths; on any other
-# checkout they skip instead of failing on a FileNotFoundError.
-_SPARK_ONLY_TESTS = {"test_aas_native_h3_face_safety.py", "test_coupled_av_trim.py",
-                     "test_true_lipsync_gate.py", "test_pplx_ltx_co_residency.py"}
+# Tests that read the Spark host's private trees carry the `spark` marker or
+# import from those paths; on any other checkout they skip instead of failing on
+# a FileNotFoundError. Each skip reason names the capability that is *not* being
+# covered, so a green run cannot be mistaken for coverage (docs/
+# HOST-DEPENDENT-TESTS.md lists the same inventory for humans).
+_SPARK_ONLY_TESTS = {
+    "test_aas_native_h3_face_safety.py": "the Spark host's private AAS productions/ tree",
+    "test_coupled_av_trim.py": "the Spark host's private productions/ tree",
+    "test_true_lipsync_gate.py": "the Spark host's private productions/ tree",
+    "test_pplx_ltx_co_residency.py": "the Spark host's private image-svc/ tree",
+}
+# Module → reason for individual `@pytest.mark.spark` cases outside that map.
+_SPARK_MARKER_REASONS = {
+    "test_yue2_music.py": "a live YuE2 engine on the studio host (YUE2_PORT)",
+}
+_SPARK_TREE_REASON = "the Spark host's private productions/ or image-svc/ tree"
+
+
+def _host_capability(item):
+    """What a host-only case needs, or None when this checkout can run it."""
+    name = Path(str(item.fspath)).name
+    if name in _SPARK_ONLY_TESTS:
+        return _SPARK_ONLY_TESTS[name]
+    if item.get_closest_marker("spark"):
+        return _SPARK_MARKER_REASONS.get(name, _SPARK_TREE_REASON)
+    return None
 
 
 def pytest_collection_modifyitems(config, items):
     if (ROOT / "productions").is_dir():
         return
-    skip = pytest.mark.skip(reason="needs the Spark host's private productions/ tree")
     for item in items:
-        if item.get_closest_marker("spark") or Path(str(item.fspath)).name in _SPARK_ONLY_TESTS:
-            item.add_marker(skip)
+        needs = _host_capability(item)
+        if needs:
+            item.add_marker(pytest.mark.skip(reason="needs " + needs))
 
 FFMPEG = shutil.which("ffmpeg") and shutil.which("ffprobe")
 

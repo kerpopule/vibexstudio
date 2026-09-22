@@ -11952,11 +11952,15 @@ def _cut_gallery_item(job_id: str):
     except cut_core.CutError:
         return None
     req = row.get("request") or {}
+    # Cut's asset record keeps portable ``/media/`` references (docs/CUT.md), and
+    # the player fetches the poster directly (static/cut.js), so hand over the
+    # library URL rather than a bare basename.
+    poster = posixpath.basename(str(row.get("poster") or ""))
     info.update({
         "job_id": jid,
         "title": str(row.get("title") or row.get("prompt") or req.get("title") or jid)[:160],
         "prompt": str(row.get("src_prompt") or req.get("prompt") or row.get("prompt") or "")[:2000],
-        "poster": posixpath.basename(str(row.get("poster") or "")) or None,
+        "poster": f"/media/{poster}" if poster else None,
     })
     return info
 
