@@ -72,6 +72,11 @@ BINARY_EXT = {
 # the BINARY_EXT skip so it is a violation, not an ignored blob.
 BYTECODE_EXT = {".pyc", ".pyo", ".pyd"}
 
+# Shared bytecode-hit text. `scan()` still returns a flat `list[str]`, so the
+# epilogue in `main()` tells the two hit classes apart by this marker instead of
+# widening the public return type.
+BYTECODE_HIT = "Python bytecode must not be committed"
+
 # Files that legitimately mention the patterns: this guard and its docs.
 ALLOW_FILES = {
     "media-lab/tools/identity_guard.py",
@@ -127,10 +132,7 @@ def scan(files: list[pathlib.Path], root: pathlib.Path) -> list[str]:
         if rel in ALLOW_FILES:
             continue
         if p.suffix.lower() in BYTECODE_EXT or "__pycache__" in pathlib.PurePath(rel).parts:
-            hits.append(
-                f"{rel}: Python bytecode must not be committed "
-                "(it can embed absolute local paths)"
-            )
+            hits.append(f"{rel}: {BYTECODE_HIT} (it can embed absolute local paths)")
             continue
         if p.suffix.lower() in BINARY_EXT:
             continue
@@ -156,8 +158,12 @@ def main(argv: list[str]) -> int:
         print("identity_guard: private machine identity found in the tree:", file=sys.stderr)
         for h in hits:
             print(f"  {h}", file=sys.stderr)
-        print("\nMove the value into config/local.env (see config/local.env.example) and read it "
-              "through media_lab_core/local_config.py.", file=sys.stderr)
+        if any(BYTECODE_HIT not in h for h in hits):
+            print("\nMove the value into config/local.env (see config/local.env.example) and read it "
+                  "through media_lab_core/local_config.py.", file=sys.stderr)
+        if any(BYTECODE_HIT in h for h in hits):
+            print("\nRemove the bytecode artifact from the repository (add it to .gitignore "
+                  "instead of committing it).", file=sys.stderr)
         return 1
     print(f"identity_guard: {len(files)} files clean")
     return 0

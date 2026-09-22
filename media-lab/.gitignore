@@ -11,8 +11,6 @@ vapid_private.pem
 __pycache__/
 *.py[cod]
 *.egg-info/
-__pycache__/
-*.pyc
 
 # Local virtualenv created by ./install.sh
 .venv/
