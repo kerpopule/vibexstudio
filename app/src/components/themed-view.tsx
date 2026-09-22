@@ -10,7 +10,10 @@ export type ThemedViewProps = ViewProps & {
 };
 
 /**
- * The Co-Agent ground washes — the "orbs".
+ * The Co-Agent ambient ground washes.
+ *
+ * Media Lab's word for these is "washes", not "orbs" — `styles.orb` in this
+ * app is the circular gradient badge, which is a different element.
  *
  * Geometry and order are Media Lab's own
  * (`media-lab/static/index.html`, `:root[data-theme="coagent"] body`):
@@ -18,16 +21,16 @@ export type ThemedViewProps = ViewProps & {
  *
  * These used to be three hardcoded literals here (`rgba(58,139,195,.11)` /
  * `rgba(113,75,169,.09)`, no amber) which is why the visible ground ignored the
- * palette entirely. They are theme tokens now — see `Theme.orbBlue` and friends.
+ * palette entirely. They are theme tokens now — see `Theme.washBlue` and friends.
  *
  * React Native has no radial gradients, so this is web-only (desktop + PWA);
  * native keeps the flat `background` token.
  */
-function orbWashes(theme: Theme): string {
+function groundWashes(theme: Theme): string {
   return [
-    `radial-gradient(900px 620px at 14% -6%, ${theme.orbBlue} 0%, transparent 70%)`,
-    `radial-gradient(820px 560px at 92% 10%, ${theme.orbViolet} 0%, transparent 70%)`,
-    `radial-gradient(720px 520px at 50% 102%, ${theme.orbAmber} 0%, transparent 72%)`,
+    `radial-gradient(900px 620px at 14% -6%, ${theme.washBlue} 0%, transparent 70%)`,
+    `radial-gradient(820px 560px at 92% 10%, ${theme.washViolet} 0%, transparent 70%)`,
+    `radial-gradient(720px 520px at 50% 102%, ${theme.washAmber} 0%, transparent 72%)`,
   ].join(',');
 }
 
@@ -39,7 +42,7 @@ export function ThemedView({ style, lightColor, darkColor, type, ...otherProps }
       style={[
         {
           backgroundColor: theme[type ?? 'background'],
-          ...(!type && Platform.OS === 'web' ? ({ backgroundImage: orbWashes(theme) } as object) : {}),
+          ...(!type && Platform.OS === 'web' ? ({ backgroundImage: groundWashes(theme) } as object) : {}),
         },
         style,
       ]}

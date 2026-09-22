@@ -2,7 +2,8 @@
  * Design tokens for VibeXStudio.
  *
  * The current Media Lab reference uses near-black, neutral glass surfaces,
- * fine luminous edges, blue accents, and dim blue/purple background orbs.
+ * fine luminous edges, blue accents, and three dim ground washes (blue,
+ * violet, amber) painted over the ink.
  * Dark is canonical; light retains its warm-paper palette.
  * Components share these tokens across desktop and mobile.
  */
@@ -36,14 +37,18 @@ export interface Theme {
   /** Saturated brand color used for floating shadows/glows. */
   glow: string;
   /**
-   * Ambient background washes — the "orbs" that make the Co-Agent ground read
-   * as Co-Agent rather than as flat near-black. Web only; RN has no radial
-   * gradients, so native renders the flat `background` token alone.
+   * Ambient ground washes — what Media Lab's own source calls "three fixed
+   * radial washes" (`media-lab/static/index.html`, `:root[data-theme="coagent"]
+   * body`). Web only; RN has no radial gradients, so native renders the flat
+   * `background` token alone.
+   *
+   * Deliberately NOT named "orb": in this app `styles.orb` is already the
+   * circular gradient badge (onboarding, `Create`), a different element.
    * Transcribed from `media-lab/static/index.html` `:root[data-theme="coagent"] body`.
    */
-  orbBlue: string;
-  orbViolet: string;
-  orbAmber: string;
+  washBlue: string;
+  washViolet: string;
+  washAmber: string;
 }
 
 /**
@@ -136,9 +141,9 @@ const dark: Theme = {
    * Positions live in `themed-view.tsx`: blue top-left, violet top-right,
    * warm amber bottom-centre.
    */
-  orbBlue: 'rgba(94,194,255,0.16)',
-  orbViolet: 'rgba(139,124,255,0.14)',
-  orbAmber: 'rgba(255,180,84,0.08)',
+  washBlue: 'rgba(94,194,255,0.16)',
+  washViolet: 'rgba(139,124,255,0.14)',
+  washAmber: 'rgba(255,180,84,0.08)',
 };
 
 /**
@@ -176,9 +181,9 @@ const light: Theme = {
    * `accent` #5A47D4, `warning` #D98324). Media Lab's own `paper` theme has no
    * washes, so these have no source-exact counterpart.
    */
-  orbBlue: 'rgba(10,111,178,0.10)',
-  orbViolet: 'rgba(90,71,212,0.08)',
-  orbAmber: 'rgba(217,131,36,0.06)',
+  washBlue: 'rgba(10,111,178,0.10)',
+  washViolet: 'rgba(90,71,212,0.08)',
+  washAmber: 'rgba(217,131,36,0.06)',
 };
 
 /** The single NOIR palette; the Appearance setting (or the OS) picks the scheme. */
