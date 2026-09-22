@@ -45,6 +45,7 @@ Skipped by the test itself, with the reason in the log (`-rs`):
 | Case | Needs |
 | --- | --- |
 | `test_triposr_conversion.py` | a qualified torch/safetensors interpreter |
+| `test_background_install.py` (3 cases) | macOS arm64 or Linux aarch64 — `media_lab_core/background_install.py` refuses any other platform |
 | `test_lease_owner_probe.py` (2 cases) | `/proc/locks` (Linux) |
 | `test_solh3_control_guard.py::test_terminate_cgroup_stops_a_real_synthetic_member` | `os.pidfd_open` (Linux) |
 | every Cut media case | `ffmpeg` + `ffprobe` on `PATH` |
@@ -53,7 +54,9 @@ Skipped by the test itself, with the reason in the log (`-rs`):
 suite, because a GitHub ubuntu runner does not ship it: without it 61 cases
 skipped and 25 failed on real rendered media. The job also fails loudly if
 either binary is missing, so a runner image change cannot silently downgrade
-the run into a green-but-shallow one.
+the run into a green-but-shallow one. It runs on `ubuntu-24.04-arm` for the same
+reason it excludes the studio host: Media Lab ships for macOS arm64 and Linux
+aarch64, and on x86_64 the three `background_install` cases can only fail.
 
 A run is only fully green *for the capabilities it had*. Read the skip list
 before claiming a suite covered the studio host.
