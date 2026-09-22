@@ -9,6 +9,8 @@ import { AppState, Linking } from 'react-native';
 
 import { FONT_ASSETS } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useTheme } from '@/hooks/use-theme';
+import { applyGroundWashes } from '@/lib/web-ground';
 import { initMediaServerWatch } from '@/lib/media-server-watch';
 import { mediaLabJobFromResponse, projectIdFromResponse } from '@/lib/notifications';
 import { agentConnectRuntime } from '@/lib/agent-connect/runtime';
@@ -35,11 +37,18 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const theme = useTheme();
   const [fontsLoaded, fontError] = useFonts(FONT_ASSETS);
   const hydrate = useApp((s) => s.hydrate);
   const hydrated = useApp((s) => s.hydrated);
   const onboardingComplete = useApp((s) => s.onboardingComplete);
   const segments = useSegments();
+
+  // Publish the ambient ground washes for the active theme. Web-only; a no-op
+  // everywhere else. See lib/web-ground for why this is CSS and not a style.
+  useEffect(() => {
+    applyGroundWashes(theme);
+  }, [theme]);
 
   useEffect(() => {
     hydrate();
