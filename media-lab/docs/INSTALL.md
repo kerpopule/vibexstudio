@@ -196,6 +196,23 @@ have no user session bus — log in once over SSH as that user, or run
 without it.
 
 **Python too old** — needs 3.11+. Install `uv` and re-run: it fetches its own.
+
+## Running the checks
+
+The tests and the linter are developer-only: `./install.sh` installs
+`requirements.txt` and never `requirements-dev.txt`, so a box deployed from
+this repo has no `pytest`. Into the `.venv` the installer created:
+
+```sh
+uv pip install --python .venv -r requirements-dev.txt   # runtime + test tooling
+.venv/bin/python -m pytest -q                           # the suite
+.venv/bin/ruff check .                                  # the linter
+```
+
+`requirements-dev.txt` pulls in `requirements.txt`, so that one install is
+enough. `ruff check .` reports the tree's pre-existing findings as well; a
+change is expected to add none.
+
 # Independent video setup status
 
 The public first-run catalog does not currently provide a verified independent
