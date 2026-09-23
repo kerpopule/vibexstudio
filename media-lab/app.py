@@ -5047,8 +5047,35 @@ def kontext_graph(prompt, prefix, seed, edit_image=None, w=1024, h=1024):
         g["lat"] = {"class_type": "EmptySD3LatentImage", "inputs": {"width": w, "height": h, "batch_size": 1}}
     return g
 
+# ---------- Ming-Image-0.1-Design (research candidate; configured OFF) ----------
+# Selection-surface wiring only (t_e3595a34): the option resolves only when
+# explicitly configured through the environment (config/local.env on the Spark).
+# This build ships no installer, no warm-host default, no queue activation and
+# no render path for it. Research benchmark: model-research-intake t_e3595a34.
+def ming_image_ready():
+    """True only with explicit opt-in AND a staged model root (off by default)."""
+    root = os.environ.get("MING_IMAGE_MODEL_ROOT", "")
+    return (os.environ.get("MING_IMAGE_ENABLED", "") == "1"
+            and bool(root) and Path(root).is_dir())
+
+
+def ming_render_refusal(engine_pick):
+    """Fail-closed message for a Ming-Image pick while the research engine has no
+    render path (t_e3595a34 Phase 2): selectable, never silently rendered on
+    another engine. None means proceed normally."""
+    if engine_pick == "ming":
+        return "The Ming-Image engine is configured but not enabled for rendering yet."
+    return None
+
+
 def char_engine(requested, selfie=False):
-    """auto → Kontext for likeness work when installed, else Qwen."""
+    """auto → Kontext for likeness work when installed, else Qwen.
+
+    "ming" resolves to the Ming-Image engine only when explicitly configured
+    (ming_image_ready); otherwise it follows the auto rule like any fallback.
+    """
+    if requested == "ming" and ming_image_ready():
+        return "ming"
     if requested == "kontext" and kontext_ready():
         return "kontext"
     if requested == "qwen":
@@ -5312,7 +5339,12 @@ def _run_image_authorized(j, r, prompt, iw, ih):
             comfy_upload(8195, src, edit_name)
         except Exception as e:
             return fail(j, "Could not hand the picture to the studio — try again.", e)
-    builder = kontext_graph if char_engine(r.get("engine", "auto")) == "kontext" else img_graph
+    engine_pick = char_engine(r.get("engine", "auto"))
+    # Configured-off research engine (t_e3595a34): selectable, deliberately
+    # without a render path in this build — never silently render elsewhere.
+    if (msg := ming_render_refusal(engine_pick)):
+        return fail(j, msg)
+    builder = kontext_graph if engine_pick == "kontext" else img_graph
     seed = int(r["seed"]) if r.get("seed") is not None \
            else int(j["id"][:8], 16) % (2 ** 31)
     g = builder(prompt, f"lab-img/LAB_{j['id']}_p1",
@@ -5337,6 +5369,8 @@ def run_character(j):
         return fail(j, "The character writer is unavailable — try again in a minute.", e)
     style_line = CHAR_STYLES.get(r.get("style", "photoreal"), CHAR_STYLES["photoreal"])
     engine = char_engine(r.get("engine", "auto"))
+    if (msg := ming_render_refusal(engine)):
+        return fail(j, msg)
     builder = kontext_graph if engine == "kontext" else img_graph
     seed = random.randrange(1, 2**31)
     graphs = {}
@@ -5404,6 +5438,8 @@ def run_selfchar(j):
         data = {}
     style_line = CHAR_STYLES.get(r.get("style", "photoreal"), CHAR_STYLES["photoreal"])
     engine = char_engine(r.get("engine", "auto"), selfie=True)
+    if (msg := ming_render_refusal(engine)):
+        return fail(j, msg)
     st = ensure_engine("image", j)
     if st == "busy":
         return fail(j, BUSY_MSG)
@@ -5825,6 +5861,8 @@ def run_charremix(j):
         return fail(j, "No source picture found to carry the likeness from.")
     style_line = CHAR_STYLES.get(r.get("style", "photoreal"), CHAR_STYLES["photoreal"])
     engine = char_engine(r.get("engine", "auto"), selfie=True)   # prefer the likeness-keeper
+    if (msg := ming_render_refusal(engine)):
+        return fail(j, msg)
     appearance = str(root.get("appearance") or "").strip()
     st = ensure_engine("image", j)
     if st == "busy":
@@ -6233,6 +6271,8 @@ def run_storyboard(j):
                         uploaded[cid] = None
                 if uploaded.get(cid):
                     eng = char_engine(lchar.get("engine", "auto"), selfie=True)
+                    if (msg := ming_render_refusal(eng)):
+                        return fail(j, msg)
                     builder = kontext_graph if eng == "kontext" else img_graph
                     graphs[f"p{i}"] = builder(prompt, f"lab-img/LAB_{j['id']}_p{i}",
                                               seed + i, edit_image=uploaded[cid])
@@ -10805,7 +10845,8 @@ def styles_catalog():
                       for g, entries in TEMPLATE_LIB],
         "char_engines": [{"id": "auto", "label": "Auto (best pick)"},
                          {"id": "qwen", "label": "Qwen — best with text"}]
-                        + ([{"id": "kontext", "label": "FLUX Kontext — best likeness"}] if kontext_ready() else []),
+                        + ([{"id": "kontext", "label": "FLUX Kontext — best likeness"}] if kontext_ready() else [])
+                        + ([{"id": "ming", "label": "Ming-Image — text-rich design (research)"}] if ming_image_ready() else []),
         # Cloud engines are ADDITIVE chips the frontend appends only where they
         # genuinely work (fal-image on the image maker, fal-video on the video
         # maker) — deliberately NOT merged into char_engines, because the
