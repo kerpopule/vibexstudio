@@ -93,6 +93,18 @@
       }
     ]
   },
+  "ming-image": {
+    "title": "Ming-Image-0.1-Design \u2014 research image engine (configured off)",
+    "blurb": "Ant Group MIT-licensed unified understanding-and-generation model. Selection-surface option only in this build.",
+    "size_label": "large \u2014 about 50 GiB of BF16 weights plus an isolated runtime (research staging only)",
+    "est_minutes": null,
+    "default": false,
+    "requires_gpu": true,
+    "requires_manual": true,
+    "blocked": true,
+    "blocked_reason": "Research candidate from the model-research-intake t_e3595a34 benchmark; not Steve-approved and not production-qualified. This build ships no installer, no download automation, no warm-host default, no queue activation and no render path for it \u2014 enablement is a separate gated step.",
+    "steps": []
+  },
   "voicebox": {
     "title": "Voicebox \u2014 clone yours, give characters theirs",
     "blurb": "Voice cloning and character voices (Qwen TTS, Kokoro\u2026).",
