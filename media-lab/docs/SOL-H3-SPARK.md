@@ -41,6 +41,9 @@ switch.
   `MEDIA_LAB_H3_BATCH_MAX_WAIT_S`, default 900 s), and the idle reload starts
   only after no local GPU job has finished for `MEDIA_LAB_H3_RESTORE_QUIET_S`
   seconds (default 300). A queued H3 job never waits for that: it loads H3.
+  Like an H3 job, that idle reload first stands every idle companion down
+  (an idle image ComfyUI shell alone holds ~2.4 GiB, enough to fail the
+  planner's H3 decode floor).
 * Every H3 cold load first waits, at most `MEDIA_LAB_H3_LOAD_SETTLE_MAX_WAIT_S`
   seconds (default 120), until memory pressure (PSI `full avg10`, the signal the
   guard trips on) is at most `MEDIA_LAB_H3_LOAD_SETTLE_MAX_PSI` (default 2) and

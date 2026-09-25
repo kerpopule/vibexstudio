@@ -9010,6 +9010,15 @@ def restore_warm_ltx_idle():
         released = release_image_weights("restoring chat after media work")
         if released is None and engine_up("image"):
             stop_engine("image")
+        if "h3" in desired["models"] and not engine_up("h3"):
+            # H3 needs the whole box.  Stand every idle companion down exactly
+            # as an H3 job does; releasing image weights alone left the idle
+            # image ComfyUI shell holding ~2.4 GiB, which kept the planner's
+            # H3 decode floor out of reach until the hourly reaper stopped it.
+            companions = stand_down_other_companions("h3")
+            if companions != "up":
+                raise ResidencyError(
+                    f"idle companions would not stand down for the H3 restore: {companions}")
         target = desired["name"]
         slots = desired["slots"] if target == "custom" else None
         receipt = RESIDENCY.apply(target, slots, commit_desired=False)
