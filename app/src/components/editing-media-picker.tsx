@@ -11,7 +11,7 @@ import {matchesLibrarySearch} from '@/lib/library-entries';
 import type {RemoteLibraryAsset} from '@/lib/library-core';
 
 /** Shared editor source selection: selections survive search, folders and pages. */
-export function EditingMediaPicker({assets,selected,onChange,disabled,maxSelected=8,kinds=['video','image','audio']}:{assets:RemoteLibraryAsset[];selected:string[];onChange:(ids:string[])=>void;disabled:boolean;maxSelected?:number;kinds?:ReadonlyArray<'video'|'image'|'audio'>}){
+export function EditingMediaPicker({assets,selected,onChange,disabled,maxSelected=8,kinds=['video','image','audio']}:{assets:RemoteLibraryAsset[];selected:string[];onChange:(ids:string[])=>void;disabled:boolean;maxSelected?:number;kinds?:readonly ('video'|'image'|'audio')[]}){
  const theme=useTheme();
  const [query,setQuery]=useState(''),[kind,setKind]=useState('all'),[folder,setFolder]=useState('');
  const [foldersOpen,setFoldersOpen]=useState(false),[count,setCount]=useState(24),[folderCount,setFolderCount]=useState(24);

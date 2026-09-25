@@ -14,7 +14,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radii, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { parsePairDeepLinkV2 } from '@/lib/media-pairing';
+import { parsePairDeepLinkV2, type PairPayload } from '@/lib/media-pairing';
 import { useApp } from '@/lib/store';
 import { performPair, type PairOutcome } from '@/lib/pair-actions';
 
@@ -50,21 +50,23 @@ export default function PairScreen() {
   const hydrated = useApp(state=>state.hydrated);
   const onboardingComplete = useApp(state=>state.onboardingComplete);
   const params = useLocalSearchParams<{ medialab?: string; url?: string; workbench?: string; wbt?: string; wbi?: string }>();
-  const [showSync, setShowSync] = useState(false);
-  const [outcome, setOutcome] = useState<PairOutcome | null>(null);
   // Static web routes hydrate their search parameters after the first render.
-  const payload = useMemo(() => parsePairDeepLinkV2(linkFromParams(params)),
-    [params.medialab, params.url, params.workbench, params.wbt, params.wbi]);
+  const link = linkFromParams(params);
+  const payload = useMemo(() => parsePairDeepLinkV2(link), [link]);
   const unusable = hydrated && !payload;
+  // Each result belongs to the link it paired, so a new link shows "Pairing…"
+  // again (with the sync panel closed) instead of the previous outcome.
+  const [paired, setPaired] = useState<{ payload: PairPayload; outcome: PairOutcome; showSync: boolean } | null>(null);
+  const current = paired !== null && paired.payload === payload ? paired : null;
+  const outcome = current?.outcome ?? null;
+  const showSync = current?.showSync ?? false;
 
   useEffect(() => {
     if (!hydrated || !payload) return;
     let active = true;
-    setOutcome(null);
-    setShowSync(false);
     performPair(payload).then((result) => {
       if (!active) return;
-      setOutcome(result);
+      setPaired({ payload, outcome: result, showSync: false });
       const anyOk = result.workbench?.ok || result.mediaLab?.ok;
       Haptics.notificationAsync(
         anyOk ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error
@@ -141,7 +143,7 @@ export default function PairScreen() {
                 Move your AI connections next to bring API keys and model choices. Subscription accounts still need a fresh sign-in.
               </ThemedText>
               <Pressable accessibilityRole="button" accessibilityState={{expanded:showSync}}
-                onPress={() => setShowSync(value => !value)}
+                onPress={() => setPaired(value => value && { ...value, showSync: !value.showSync })}
                 style={[styles.secondary, {borderColor:theme.border}]}>
                 <ThemedText type="smallBold">{showSync ? 'Hide project sync' : 'Set up project sync'}</ThemedText>
               </Pressable>

@@ -90,18 +90,20 @@ export default function MediaLabScreen() {
   // Which studio the probe has answered for (reachable or not): until then the
   // server view waits, so an older page never flashes before the in-app one.
   const [probedFor, setProbedFor] = useState<string | null>(null);
+  // Re-probe only when the paired address changes, not on every settings update.
+  const mediaLabUrl = mediaLab?.url;
   useFocusEffect(useCallback(() => {
     let active = true;
     // Re-checked on every focus, but a known answer for the same studio stays
     // until the new one lands: switching tabs must not reload the studio.
-    setHostUi(previous => previous?.origin === mediaLab?.url ? previous : null);
-    if (mediaLab) void probeMediaHost(mediaLab.url).then(host => {
+    setHostUi(previous => previous?.origin === mediaLabUrl ? previous : null);
+    if (mediaLabUrl) void probeMediaHost(mediaLabUrl).then(host => {
       if (!active) return;
-      if (host) setHostUi({origin: mediaLab.url, available: host.webInterface, embed: host.embed === true, editingDrafts:host.editingDrafts});
-      setProbedFor(mediaLab.url);
+      if (host) setHostUi({origin: mediaLabUrl, available: host.webInterface, embed: host.embed === true, editingDrafts:host.editingDrafts});
+      setProbedFor(mediaLabUrl);
     });
     return () => { active = false; };
-  }, [mediaLab]));
+  }, [mediaLabUrl]));
   const view = choice ?? (mediaLab && webInterface !== false ? 'server' : 'device');
   const serverActive = mediaLab != null && view === 'server';
   const embedded = serverActive && webInterface === true && embedCapable === true;
@@ -349,7 +351,14 @@ function StudioView({ topInset, onOpenServerPage, serverWebsite, editingDrafts }
   const [restoringDraft, setRestoringDraft] = useState(true);
 
   const {task, drafts, storageError, setTask, setPrompt: updatePrompt, setProvider} = useCreationDraft();
-  useEffect(()=>{setTool(previous=>task==='audio'?(previous==='image'||previous==='video'||previous==='game'?'song':previous):task);},[task]);
+  // Follow the draft's task when it changes (a restored draft, a template) and
+  // keep the audio tool the user picked. Adjusted during render, not in an
+  // effect, so the old tool never paints for a frame.
+  const [toolTask,setToolTask]=useState(task);
+  if(toolTask!==task){
+    setToolTask(task);
+    setTool(previous=>task==='audio'?(previous==='image'||previous==='video'||previous==='game'?'song':previous):task);
+  }
   const mode = task === 'video' ? 'video' : 'image';
   const {prompt, providerId: selectedId} = drafts[mode];
   const setPrompt = (value: string) => updatePrompt(mode, value);

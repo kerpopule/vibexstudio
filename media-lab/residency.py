@@ -158,9 +158,9 @@ def plan_residency(policy: Mapping[str, Any], actual: Mapping[str, Any], profile
         available -= float(phases["warm_idle"])
 
     if ("qwen" in actual_set and "qwen" not in desired_set and
-            profile not in ("dual-video-ltx-h3", "custom")):
+            profile != "dual-video-ltx-h3"):
         blockers.append({"kind": "silent-qwen-eviction", "model": "qwen",
-                         "reason": "Qwen eviction is allowed only by dual-video-ltx-h3 or explicit custom"})
+                         "reason": "Qwen eviction is allowed only by dual-video-ltx-h3"})
 
     actions: list[dict[str, Any]] = []
     actions.extend({"action": "retain", "model": m} for m in retain)
@@ -168,7 +168,7 @@ def plan_residency(policy: Mapping[str, Any], actual: Mapping[str, Any], profile
         actions.append({"action": "release-image-weights", "reason": "video residency admission"})
     actions.extend({"action": "drain", "model": m} for m in evict)
     actions.extend({"action": "evict", "model": m,
-                    "intentional": m != "qwen" or profile in ("dual-video-ltx-h3", "custom")}
+                    "intentional": m != "qwen" or profile == "dual-video-ltx-h3"}
                    for m in evict)
     actions.extend({"action": "load", "model": m} for m in load)
     actions.extend({"action": "health-check", "model": m} for m in desired["models"])
