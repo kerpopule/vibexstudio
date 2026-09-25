@@ -8,6 +8,8 @@ optionally publish to their own GitHub + Pages.
 
 - `npm run typecheck` — strict tsc, must stay clean
 - `npm run lint` — expo lint (eslint 9), zero warnings policy in CI
+  (`.github/workflows/app-desktop-checks.yml` runs `npm run lint -- --max-warnings 0`,
+  typecheck, tests and the web export on every app/ or desktop/ change)
 - `npm test` — vitest; tests cover the pure logic in `src/lib` (parser,
   prompts, share page). Modules with Expo/native imports are not unit-tested.
 

@@ -11,17 +11,17 @@ export function EditingExport({origin,id,revision,disabled,librarySave}:{library
  const [libraryAsset,setLibraryAsset]=useState<string|null>(null);
  const epoch=useRef(0),lock=useRef(false);
  useFocusEffect(useCallback(()=>()=>{epoch.current++;},[]));
- useFocusEffect(useCallback(()=>{
-  if(jobState!=='running'||disabled)return;
-  const timer=setInterval(()=>void checkSaved(),4000);
-  return ()=>clearInterval(timer);
- },[jobState,disabled,origin,id,revision]));
- async function checkSaved(){
+ const checkSaved=useCallback(async()=>{
   if(lock.current)return;lock.current=true;setBusy(true);setError('');const current=epoch.current;
   try{const value=await readEditingExportJob(origin,id,revision);if(current===epoch.current){setReceipt(value.receipt);setJobState(value.state);}}
   catch(e){if(current===epoch.current)setError(e instanceof Error?e.message:'Could not check this export.');}
   finally{lock.current=false;setBusy(false);}
- }
+ },[origin,id,revision]);
+ useFocusEffect(useCallback(()=>{
+  if(jobState!=='running'||disabled)return;
+  const timer=setInterval(()=>void checkSaved(),4000);
+  return ()=>clearInterval(timer);
+ },[jobState,disabled,checkSaved]));
  async function run(save:boolean,library=false){
   if(lock.current)return;lock.current=true;setBusy(true);setError('');const current=epoch.current;
   try{if(library&&receipt){const asset=await saveExportToLibrary(origin,id,receipt.revision);if(current===epoch.current)setLibraryAsset(asset);}else if(save&&receipt){await saveEditingExport(origin,receipt);}else{const value=await startEditingExportJob(origin,id,revision);if(current===epoch.current){setReceipt(value.receipt);setJobState(value.state);}}}
