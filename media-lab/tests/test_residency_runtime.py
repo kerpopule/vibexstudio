@@ -495,7 +495,7 @@ class AlwaysWarmH3Tests(unittest.TestCase):
         stop.assert_not_called()
         boot.assert_not_called()
 
-    def _restore(self, desired, job_list, h3_up=False):
+    def _restore(self, desired, job_list, h3_up=False, stand_down="up"):
         previous = studio.jobs
         studio.jobs = {j["id"]: j for j in job_list}
         try:
@@ -506,10 +506,13 @@ class AlwaysWarmH3Tests(unittest.TestCase):
                  mock.patch.object(studio, "engine_busy", return_value=False), \
                  mock.patch.object(studio, "release_voice_weights", return_value=True), \
                  mock.patch.object(studio, "release_image_weights", return_value=0.0), \
+                 mock.patch.object(studio, "stand_down_other_companions",
+                                   return_value=stand_down) as companions, \
                  mock.patch.object(studio, "stop_engine"):
                 result = studio.restore_warm_ltx_idle()
         finally:
             studio.jobs = previous
+        self.stand_down_calls = [c.args for c in companions.call_args_list]
         return result, apply
 
     @staticmethod
@@ -549,6 +552,27 @@ class AlwaysWarmH3Tests(unittest.TestCase):
         result, apply = self._restore(self.QWEN_H3, [cloud])
         self.assertTrue(result)
         apply.assert_called_once_with("qwen-h3", None, commit_desired=False)
+
+    def test_h3_restore_stands_idle_companions_down_like_an_h3_job(self):
+        result, apply = self._restore(self.QWEN_H3, [])
+        self.assertTrue(result)
+        self.assertEqual([("h3",)], self.stand_down_calls)
+        apply.assert_called_once_with("qwen-h3", None, commit_desired=False)
+
+    def test_h3_restore_waits_when_a_companion_will_not_stand_down(self):
+        result, apply = self._restore(self.QWEN_H3, [], stand_down="busy")
+        self.assertFalse(result)
+        apply.assert_not_called()
+
+    def test_ltx_idle_restore_does_not_stand_companions_down(self):
+        result, apply = self._restore(self.LTX_IDLE, [])
+        self.assertTrue(result)
+        self.assertEqual([], self.stand_down_calls)
+
+    def test_warm_h3_restore_does_not_stand_companions_down(self):
+        result, apply = self._restore(self.QWEN_H3, [], h3_up=True)
+        self.assertTrue(result)
+        self.assertEqual([], self.stand_down_calls)
 
     def test_queued_local_work_blocks_the_h3_restore(self):
         queued = {"id": "img2", "kind": "image", "status": "queued", "request": {}}
