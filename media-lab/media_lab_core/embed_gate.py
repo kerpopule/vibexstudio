@@ -199,12 +199,14 @@ def _mac(secret: str, message: str) -> str:
     return hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
 
 
-def pass_role(authorization: Optional[str], secret: str, role_code: RoleCode) -> str:
-    """The role of a valid generation (render) pass in an Authorization header."""
+def pass_role(authorization: Optional[str], secret: str, role_code: RoleCode,
+              max_age: Optional[int] = None) -> str:
+    """The role of a valid generation (render) pass in an Authorization header.
+    ``max_age`` is the host's pass lifetime (studio_jobs.identity)."""
     m = _RENDER_PASS.fullmatch((authorization or "").strip())
     if not m:
         return ""
-    return m.group(2) if studio_jobs.identity(m.group(1), secret, role_code) else ""
+    return m.group(2) if studio_jobs.identity(m.group(1), secret, role_code, max_age=max_age) else ""
 
 
 def mint_ticket(secret: str, role: str, role_code: RoleCode, bound_origin: str,
@@ -462,8 +464,9 @@ class RedeemReq(BaseModel):
 
 def router(*, secret: Callable[[], str], role_code: RoleCode, origins: Callable[[], list[str]],
            secure: Callable[[Request], bool], signed_in: Callable[[Request], bool],
-           book: Optional[TicketBook] = None) -> APIRouter:
-    """The embed door. ``signed_in`` is the studio's own request_role check."""
+           pass_max_age: Optional[int] = None, book: Optional[TicketBook] = None) -> APIRouter:
+    """The embed door. ``signed_in`` is the studio's own sign-in check and
+    ``pass_max_age`` how long this host keeps device passes."""
     api = APIRouter()
     tickets = book or TicketBook()
 
@@ -474,7 +477,7 @@ def router(*, secret: Callable[[], str], role_code: RoleCode, origins: Callable[
 
     @api.post(TICKET_PATH)
     def embed_ticket(request: Request):
-        role = pass_role(request.headers.get("authorization"), secret(), role_code)
+        role = pass_role(request.headers.get("authorization"), secret(), role_code, pass_max_age)
         if not role:
             return JSONResponse({"error": "A Media Lab generation pass is required."}, status_code=401)
         origin = request.headers.get("origin") or ""

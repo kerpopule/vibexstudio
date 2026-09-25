@@ -166,6 +166,10 @@ def test_render_pass_is_the_only_pass_that_mints():
     assert embed_gate.pass_role(f"bearer {render}", SECRET, role_code) == ""
     assert embed_gate.pass_role("Bearer mlab-library-v1.user.1790000000." + "a" * 64, SECRET, role_code) == ""
     assert embed_gate.pass_role(f"Bearer {render}", SECRET, lambda r: "ROTATED") == ""
+    # a pass older than the default 30 days still mints on a host that keeps passes longer
+    old = studio_jobs.ticket(SECRET, "user", CODES["user"], DEVICE, now=time.time() - 40 * 86400)
+    assert embed_gate.pass_role(f"Bearer {old}", SECRET, role_code) == ""
+    assert embed_gate.pass_role(f"Bearer {old}", SECRET, role_code, max_age=365 * 86400) == "user"
 
 
 def test_bootstrap_page_cannot_be_broken_out_of():
@@ -320,8 +324,25 @@ def test_plain_http_studio_gets_a_lax_cookie(studio):
     assert "SameSite=Lax" in r.headers["set-cookie"] and "Secure" not in r.headers["set-cookie"]
 
 
+def test_loopback_is_not_trusted_but_can_still_embed_through_the_handshake(studio):
+    # one family login: no Host/loopback trust, so even a local frame signs in
+    local = _client(studio, "http://127.0.0.1:7863")
+    assert local.get("/api/embed/status", headers=SAME).json()["signedIn"] is False
+    framed = local.get("/", headers={"Accept": "text/html", "Sec-Fetch-Dest": "iframe"}, follow_redirects=False)
+    assert framed.status_code == 303 and framed.headers["location"].startswith("/embed?next=")
+
+
+def test_a_year_old_family_pass_still_mints_a_ticket(studio):
+    old = studio_jobs.ticket(studio.ACCESS_SECRET, "user", studio._role_code("user"), DEVICE,
+                             now=time.time() - 200 * 86400)
+    r = _client(studio).post("/api/embed/ticket", headers={"Origin": APP, "Authorization": f"Bearer {old}"})
+    assert r.status_code == 200, r.text
+
+
 def test_the_studio_page_ships_embed_mode(studio):
-    html = _client(studio, "http://127.0.0.1:7863").get("/").text
+    c = _client(studio, "http://127.0.0.1:7863")
+    assert c.post("/api/gate", json={"code": studio.ACCESS_CODE}).status_code == 200
+    html = c.get("/").text
     assert "window.MEDIALAB_EMBED" in html and "html.embed nav" in html
     assert "html.embed .mlc-fab" in html
     assert "!window.MEDIALAB_EMBED" in html      # no service worker inside the app

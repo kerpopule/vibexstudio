@@ -1,8 +1,8 @@
 """``media-lab`` — the terminal control surface install.sh leaves behind.
 
     media-lab status [--json]      health, GPU, engines, service state
-    media-lab pair   [--json]      the pairing QR, URLs and access code again
-    media-lab code   [--rotate]    show / rotate the access code (admin: --admin)
+    media-lab pair   [--json]      the pairing QR, URLs and family code again
+    media-lab code   [--rotate]    show / rotate the family code (admin: --admin)
     media-lab start|stop|restart   service-aware (systemd --user / launchd),
                                    foreground/detached fallback otherwise
     media-lab logs   [-f]          journal, launchd log file, or the pid-mode log
@@ -16,8 +16,9 @@ runs under the system Python when the venv is gone — ``status`` and
 Facts it relies on from app.py (never edited here):
   * the data root is ``~/media-lab-simple`` (``MEDIA_LAB_HOME`` is honoured by
     install.sh via a symlink, see there);
-  * ``access-code.txt`` / ``admin-pin.txt`` under that root are the two door
-    codes, read once at import — rotating them needs a restart;
+  * ``access-code.txt`` (the family code) / ``admin-pin.txt`` (the admin code)
+    under that root are the two door codes, mode 0600. A running server picks up
+    a rewritten code within a second, so rotating needs no restart;
   * ``/manifest.json`` is gate-exempt and CORS-open: the liveness probe;
   * ``/api/setup/status`` needs a session cookie from ``POST /api/gate``.
 """
@@ -28,7 +29,6 @@ import http.cookiejar
 import json
 import os
 import platform
-import random
 import shutil
 import signal
 import subprocess
@@ -38,7 +38,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from . import pairing
+from . import family_code, pairing, secret_files
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_PORT = pairing.DEFAULT_PORT
@@ -49,7 +49,6 @@ SYSTEMD_UNIT = "media-lab.service"
 LEGACY_UNIT = "media-lab-simple.service"     # a Spark deployed by hand
 LAUNCHD_LABEL = "com.medialab.server"
 MANAGED_MARKER = "managed by media-lab install.sh"
-CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
 
 # ---------------------------------------------------------------------------
@@ -98,8 +97,10 @@ def venv_python(cfg: dict | None = None) -> Path:
 
 
 def read_code(path: Path) -> str | None:
+    """The code as stored (word codes stay lower-case and dashed, which is how
+    people read them; the server ignores case and separators)."""
     try:
-        text = path.read_text().strip().upper()
+        text = path.read_text().strip()
     except OSError:
         return None
     return text or None
@@ -109,21 +110,19 @@ def code_paths(root: Path) -> tuple[Path, Path]:
     return root / "access-code.txt", root / "admin-pin.txt"
 
 
-def mint_access_code(rng=random.SystemRandom()) -> str:
-    return "".join(rng.choice(CODE_ALPHABET) for _ in range(8))
+def mint_access_code(rng=None) -> str:
+    """A new FAMILY code: four everyday words (about 41 bits)."""
+    return family_code.mint_family(rng)
 
 
-def mint_admin_code(rng=random.SystemRandom()) -> str:
-    return f"{rng.randrange(0, 10000):04d}"
+def mint_admin_code(rng=None) -> str:
+    """A new ADMIN code: six words (about 62 bits) — never a 4-digit PIN."""
+    return family_code.mint_admin(rng)
 
 
 def write_code(path: Path, value: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(value + "\n")
-    try:
-        path.chmod(0o600)
-    except OSError:
-        pass
+    """Atomically replace a code file; 0600 from birth, never world-readable."""
+    secret_files.write_private(path, value + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +174,7 @@ def gpu_info() -> dict:
 
 
 def setup_status(port: int, bind: str, access_code: str | None, timeout: float = 8) -> dict | None:
-    """``/api/setup/status`` through the front door: POST the access code to
+    """``/api/setup/status`` through the front door: POST the family code to
     ``/api/gate`` for a session cookie, then read. None when unreachable."""
     if not access_code:
         return None
@@ -465,7 +464,7 @@ def print_status(st: dict) -> None:
         if st.get("fal_configured"):
             print("  fal.ai     configured")
     elif st["ok"]:
-        print("Engines        (could not read /api/setup/status — is the access code file readable?)")
+        print("Engines        (could not read /api/setup/status — is the family code file readable?)")
 
 
 def cmd_status(args, cfg, root) -> int:
@@ -508,23 +507,54 @@ def cmd_pair(args, cfg, root) -> int:
 
 
 def cmd_code(args, cfg, root) -> int:
+    """Show, create or rotate the door codes.
+
+    ``--rotate`` replaces the family code (``--admin``: the admin code). The
+    running server notices within a second and every device signed in with the
+    old code is signed out — each one enters the new code once. ``--quiet``
+    never prints a code (for automation and remote shells): it names the file.
+    ``--ensure`` creates whichever code files are missing and changes nothing
+    that exists (install.sh uses it)."""
     access_path, admin_path = code_paths(root)
+    if args.ensure:
+        made = []
+        if secret_files.ensure(access_path, lambda: mint_access_code() + "\n"):
+            made.append(("family", access_path))
+        if secret_files.ensure(admin_path, lambda: mint_admin_code() + "\n"):
+            made.append(("admin", admin_path))
+        secret_files.tighten([access_path, admin_path])
+        for name, path in made:
+            print(f"{name} code created in {path}")
+        if not made:
+            print(f"codes kept ({access_path.name}, {admin_path.name})")
+        return 0
     path = admin_path if args.admin else access_path
+    name = "admin" if args.admin else "family"
     if args.rotate:
         new = mint_admin_code() if args.admin else mint_access_code()
         write_code(path, new)
-        print(new)
-        print(f"written to {path}. The server reads codes at start — run `media-lab restart` "
-              "so the new code (and only it) opens the door; every existing session "
-              "for that role is signed out.", file=sys.stderr)
+        if args.quiet:
+            print(f"new {name} code written to {path} (mode 0600; not shown — "
+                  f"`media-lab code{' --admin' if args.admin else ''}` prints it)")
+        else:
+            print(new)
+        print(f"The server picks it up within a second: every device signed in with the "
+              f"old {name} code is signed out and needs the new one once.", file=sys.stderr)
         if args.restart:
             return cmd_restart(args, cfg, root)
         return 0
     code = read_code(path)
     if code is None:
-        print(f"no code at {path} yet — run ./install.sh or `media-lab code --rotate`", file=sys.stderr)
+        print(f"no code at {path} yet — run ./install.sh or `media-lab code --ensure`", file=sys.stderr)
         return 1
-    print(code)
+    secret_files.tighten([path])
+    if args.quiet:
+        print(f"{name} code is in {path}")
+    else:
+        print(code)
+    if family_code.is_weak(code):
+        print(f"warning: this {name} code is short and guessable — replace it with "
+              f"`media-lab code --rotate{' --admin' if args.admin else ''}`", file=sys.stderr)
     return 0
 
 
@@ -717,15 +747,21 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_status)
 
-    s = sub.add_parser("pair", help="print the pairing QR, URLs and access code")
+    s = sub.add_parser("pair", help="print the pairing QR, URLs and family code")
     s.add_argument("--json", action="store_true")
     s.add_argument("--no-invert", action="store_true", help="QR for a light terminal theme")
     s.set_defaults(fn=cmd_pair)
 
-    s = sub.add_parser("code", help="show or rotate the access code")
-    s.add_argument("--rotate", action="store_true")
+    s = sub.add_parser("code", help="show or rotate the family code (--admin: the admin code)")
+    s.add_argument("--rotate", action="store_true",
+                   help="replace the code; every device that used the old one is signed out")
     s.add_argument("--admin", action="store_true", help="the admin code instead")
-    s.add_argument("--restart", action="store_true", help="restart the server after rotating")
+    s.add_argument("--quiet", action="store_true",
+                   help="never print a code; name the file that holds it")
+    s.add_argument("--ensure", action="store_true",
+                   help="create missing code files (0600); change nothing that exists")
+    s.add_argument("--restart", action="store_true",
+                   help="also restart the server (not needed: it picks the code up live)")
     s.add_argument("--timeout", type=float, default=120)
     s.set_defaults(fn=cmd_code)
 
