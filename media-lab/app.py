@@ -18,7 +18,8 @@ from media_lab_core import installer as engine_installer
 from media_lab_core import cut as cut_core
 from media_lab_core.durable_gpu_protocol import CapacityUnqualified, LeaseBusy, StaleFence
 from media_lab_core.gpu_lease_runtime import delegation_env, delegation_headers, open_protocol
-from media_lab_core.solh3_control_guard import current_heartbeat_allows_h3, write_runtime_environment
+from media_lab_core.solh3_control_guard import (current_heartbeat_allows_h3, read_pressure_sample,
+                                                write_runtime_environment)
 from runner.audio_signal_gate import audio_signal_metrics
 from runner import h3_reference as _h3ref   # H3 Ref2VA / Qwen quality contract
 from runner.maestro_safety import admission_error as maestro_admission_error, reap_orphan_runners as reap_orphan_maestro_runners
@@ -2319,6 +2320,41 @@ PPLX_MODELS_URL = local_config.text_upstream() + "/v1/models"   # MEDIA_LAB_TEXT
 QWEN_GB = local_config.int_value("MEDIA_LAB_QWEN_GB", 0)
 MEM_CAP_GB = local_config.int_value("MEDIA_LAB_MEM_CAP_GB", 120)
 IDLE_REAP_S = 3600  # 60-minute keep-warm for h3 / music / image; LTX is the idle default
+# Always-warm H3.  When the persistent idle profile includes h3 (qwen-h3):
+#  * the reaper never unloads H3 (it used to stop it after an idle hour and the
+#    idle reconciler reloaded it a minute later, a ~112 GB cold load roughly
+#    every 67 minutes; one of those loads tripped the memory guard);
+#  * the idle preload boots the Sol task real jobs use (text-only t2va by
+#    default), so a plain H3 job reuses the warm engine without a reload;
+#  * other GPU work still pushes H3 out (nothing heavy fits beside it); the
+#    queue finishes that non-H3 batch first, and H3 is reloaded once the studio
+#    has had no local GPU job for H3_RESTORE_QUIET_S seconds.
+H3_IDLE_TASKS = ("t2va", "fl2va")
+
+
+def _h3_idle_task(raw):
+    """The Sol task an idle H3 preload boots; anything unknown means t2va."""
+    task = str(raw or "").strip().lower()
+    return task if task in H3_IDLE_TASKS else "t2va"
+
+
+def _float_setting(key, default):
+    try:
+        return float(str(local_config.get(key, str(default))).strip() or default)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+H3_IDLE_TASK = _h3_idle_task(local_config.get("MEDIA_LAB_H3_IDLE_TASK", "t2va"))
+H3_RESTORE_QUIET_S = max(0, local_config.int_value("MEDIA_LAB_H3_RESTORE_QUIET_S", 300))
+H3_BATCH_MAX_WAIT_S = max(0, local_config.int_value("MEDIA_LAB_H3_BATCH_MAX_WAIT_S", 900))
+# Before any H3 cold load starts, wait (bounded) until memory has stopped moving
+# and memory pressure is calm, measured exactly the way the control-plane guard
+# measures it.  This never pauses or loosens the guard.
+H3_LOAD_SETTLE_MAX_PSI = max(0.0, _float_setting("MEDIA_LAB_H3_LOAD_SETTLE_MAX_PSI", 2.0))
+H3_LOAD_SETTLE_MAX_WAIT_S = max(0.0, _float_setting("MEDIA_LAB_H3_LOAD_SETTLE_MAX_WAIT_S", 120.0))
+H3_LOAD_SETTLE_STEADY_GIB = 0.5
+H3_LOAD_SETTLE_SAMPLES = 3
 _pool_mutex = threading.Lock()
 _idle_restore_mutex = threading.Lock()
 _last_ltx_attempt = 0.0
@@ -2625,7 +2661,130 @@ def sol_h3_control_guard_ready():
     return current_heartbeat_allows_h3()
 
 
+def wait_for_h3_load_headroom(j=None, *, read=None, sleep=time.sleep,
+                              clock=time.monotonic):
+    """Hold an H3 cold load until memory has settled; bounded, never blocking.
+
+    Settled means memory pressure (PSI full avg10, the signal the guard trips
+    on) is at most H3_LOAD_SETTLE_MAX_PSI and MemAvailable has stopped moving
+    (within H3_LOAD_SETTLE_STEADY_GIB) for H3_LOAD_SETTLE_SAMPLES one-second
+    samples in a row.  On 2026-09-25 the reaper stopped H3 and a new H3 load
+    started three seconds later; that load tripped the guard.  After
+    H3_LOAD_SETTLE_MAX_WAIT_S the load proceeds as before and the result says
+    so: an admitted lease is never abandoned here.
+    """
+    read = read or read_pressure_sample
+    started = clock()
+    deadline = started + H3_LOAD_SETTLE_MAX_WAIT_S
+    steady = 0
+    last = None
+    while True:
+        try:
+            sample = read()
+        except Exception as exc:
+            return {"settled": None, "waited_s": round(clock() - started, 1),
+                    "detail": f"no memory-pressure data: {type(exc).__name__}"}
+        calm = sample.psi_full_avg10 <= H3_LOAD_SETTLE_MAX_PSI
+        still = (last is not None and abs(sample.available_kib - last.available_kib)
+                 <= H3_LOAD_SETTLE_STEADY_GIB * 1048576)
+        steady = steady + 1 if (calm and still) else 0
+        last = sample
+        result = {"waited_s": round(clock() - started, 1),
+                  "available_gib": round(sample.available_kib / 1048576, 2),
+                  "psi_full_avg10": sample.psi_full_avg10}
+        if steady >= H3_LOAD_SETTLE_SAMPLES:
+            return {"settled": True, **result}
+        if clock() >= deadline:
+            return {"settled": False, **result}
+        if j is not None and j.get("cancel"):
+            return {"settled": None, **result, "detail": "cancelled"}
+        sleep(1.0)
+
+
+H3_LOAD_PRESSURE_LOG = POOL_DIR / "h3-load-pressure.jsonl"
+
+
+class H3LoadPressureRecorder:
+    """Record the memory pressure one H3 cold load produced (evidence only).
+
+    The guard only writes an incident when it trips, so successful loads left
+    no pressure record and no threshold could be tuned from evidence.  This
+    samples the same /proc signals once a second while the load runs and
+    appends one JSON line per load to pool/h3-load-pressure.jsonl.  It never
+    stops, delays, or signals anything.
+    """
+
+    def __init__(self, task=None, job_id=None, *, read=None, interval_s=1.0):
+        self.read = read or read_pressure_sample
+        self.interval_s = interval_s
+        self.row = {"task": task, "job_id": job_id, "started_at": time.time(),
+                    "samples": 0, "peak_psi_full_avg10": None, "peak_psi_some_avg10": None,
+                    "min_available_gib": None, "max_swap_growth_gib": None,
+                    "longest_run_at_guard_psi": 0, "guard_psi_limit": None}
+        self._baseline_swap_kib = None
+        self._run = 0
+        self._stop = threading.Event()
+        self._thread = None
+        try:
+            limits = (json.loads(Path(os.getenv("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+                                 .joinpath("solh3-control-plane-guard.json").read_text())
+                      .get("thresholds") or {})
+            self.row["guard_psi_limit"] = float(limits["max_psi_full_avg10"])
+        except Exception:
+            pass
+
+    def observe(self, sample):
+        row = self.row
+        row["samples"] += 1
+        full, some = float(sample.psi_full_avg10), float(sample.psi_some_avg10)
+        avail = round(sample.available_kib / 1048576, 2)
+        if self._baseline_swap_kib is None:
+            self._baseline_swap_kib = sample.swap_used_kib
+        growth = round((sample.swap_used_kib - self._baseline_swap_kib) / 1048576, 2)
+        row["peak_psi_full_avg10"] = max(full, row["peak_psi_full_avg10"] or 0.0)
+        row["peak_psi_some_avg10"] = max(some, row["peak_psi_some_avg10"] or 0.0)
+        row["min_available_gib"] = (avail if row["min_available_gib"] is None
+                                    else min(avail, row["min_available_gib"]))
+        row["max_swap_growth_gib"] = max(growth, row["max_swap_growth_gib"] or 0.0)
+        limit = row["guard_psi_limit"]
+        self._run = self._run + 1 if (limit is not None and full >= limit) else 0
+        row["longest_run_at_guard_psi"] = max(row["longest_run_at_guard_psi"], self._run)
+
+    def _loop(self):
+        while not self._stop.is_set():
+            try:
+                self.observe(self.read())
+            except Exception:
+                pass
+            self._stop.wait(self.interval_s)
+
+    def start(self):
+        self._thread = threading.Thread(target=self._loop, daemon=True,
+                                        name="h3-load-pressure")
+        self._thread.start()
+        return self
+
+    def finish(self, outcome, settle=None, path=None):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+        row = {**self.row, "outcome": outcome, "settle": settle,
+               "load_s": round(time.time() - self.row["started_at"], 1)}
+        try:
+            with Path(path or H3_LOAD_PRESSURE_LOG).open("a") as fh:
+                fh.write(json.dumps(row, sort_keys=True) + "\n")
+        except Exception:
+            pass
+        print(f"[h3-load] task={row['task']} outcome={outcome} load_s={row['load_s']} "
+              f"peak_psi_full={row['peak_psi_full_avg10']} "
+              f"longest_run_at_guard_psi={row['longest_run_at_guard_psi']} "
+              f"min_avail_gib={row['min_available_gib']} "
+              f"swap_growth_gib={row['max_swap_growth_gib']}", flush=True)
+        return row
+
+
 def _boot_engine(name, j=None, variant=None, turbo_preset=None, task=None):
+    settle = None
     if gpu_recovery_pending():
         return False
     # Stop is cooperative even while a heavyweight container is warming. Before
@@ -2641,6 +2800,19 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None, task=None):
     lease = getattr(_gpu_thread, "lease", None)
     if lease is None or lease.phase != "load" or lease.engine != name:
         raise LeaseBusy(f"{name} boot requires its exact load-phase GPU lease")
+    if name == "h3" and not engine_up(name):
+        if j is not None:
+            j["stage"] = "letting memory settle before loading H3…"
+            save_state()
+        settle = wait_for_h3_load_headroom(j)
+        if settle.get("settled") is not True:
+            print(f"[h3-load] memory did not settle before the load: {settle}", flush=True)
+        # The heartbeat is an admission token with a 5 s lifetime: re-check it
+        # after the wait rather than relying on the pre-wait answer.
+        if not sol_h3_control_guard_ready():
+            if j is not None:
+                j["detail"] = "H3 control-plane guard is missing, stale, quarantined, or from another boot"
+            return False
     delegated_env = {**os.environ, **delegation_env(lease)}
     if e["kind"] == "docker":
         env = delegated_env
@@ -2708,34 +2880,45 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None, task=None):
             if j is not None:
                 j["detail"] = f"{name} unit failed to start"
             return False
-    deadline = time.time() + e["boot_wait"]
-    while time.time() < deadline:
-        if name == "h3" and not sol_h3_control_guard_ready():
-            stop_engine(name)
-            if j is not None:
-                j["detail"] = "H3 control-plane guard heartbeat was lost during cold load"
-            maybe_release_pool()
-            return False
-        if j is not None and j.get("cancel"):
-            stop_engine(name)
-            maybe_release_pool()
-            return False
-        if engine_up(name):
-            if name == "h3" and task is not None:
-                try:
-                    health = http_json(
-                        f"http://127.0.0.1:{e['port']}{e['health']}", timeout=3) or {}
-                except Exception:
-                    health = {}
-                expected = {"variant": variant, "task": task,
-                            "turbo_preset": turbo_preset or None}
-                if health.get("loaded") is not True or h3_resident_config() != expected:
-                    time.sleep(3)
-                    continue
-            touch_engine(name)
-            return True
-        time.sleep(3)
-    return False
+    recorder = (H3LoadPressureRecorder(task=task, job_id=(j or {}).get("id")).start()
+                if name == "h3" else None)
+    outcome = "error"
+    try:
+        deadline = time.time() + e["boot_wait"]
+        while time.time() < deadline:
+            if name == "h3" and not sol_h3_control_guard_ready():
+                outcome = "guard-lost"
+                stop_engine(name)
+                if j is not None:
+                    j["detail"] = "H3 control-plane guard heartbeat was lost during cold load"
+                maybe_release_pool()
+                return False
+            if j is not None and j.get("cancel"):
+                outcome = "cancelled"
+                stop_engine(name)
+                maybe_release_pool()
+                return False
+            if engine_up(name):
+                if name == "h3" and task is not None:
+                    try:
+                        health = http_json(
+                            f"http://127.0.0.1:{e['port']}{e['health']}", timeout=3) or {}
+                    except Exception:
+                        health = {}
+                    expected = {"variant": variant, "task": task,
+                                "turbo_preset": turbo_preset or None}
+                    if health.get("loaded") is not True or h3_resident_config() != expected:
+                        time.sleep(3)
+                        continue
+                touch_engine(name)
+                outcome = "ready"
+                return True
+            time.sleep(3)
+        outcome = "timeout"
+        return False
+    finally:
+        if recorder is not None:
+            recorder.finish(outcome, settle=settle)
 
 
 def ensure_h3_variant(j=None):
@@ -3196,7 +3379,7 @@ class _ResidencyRuntime:
             return self.model_healthy("qwen")
         lease = getattr(_gpu_thread, "lease", None)
         if model in ENGINES and lease is None:
-            task = "fl2va" if model == "h3" else "t2va"
+            task = H3_IDLE_TASK if model == "h3" else "t2va"
             restore_job = {"id": f"idle-restore-{model}", "_gpu_task": task,
                            "request": {}}
             with gpu_operation(model, task, restore_job):
@@ -3501,14 +3684,36 @@ def auto_requeue():
         print(f"[recovery] verified retry admission for {jid}", flush=True)
         return
 
+def idle_profile_models():
+    """Models the persistent idle profile keeps resident (empty if unreadable)."""
+    try:
+        return set(RESIDENCY.desired()["models"])
+    except Exception:
+        return set()
+
+
+def h3_kept_warm():
+    """True when the idle profile keeps H3 loaded between jobs (qwen-h3)."""
+    return "h3" in idle_profile_models()
+
+
 def reap_idle_engines():
     """Stop only engines that are both stale and provably not working.
 
     Engine timestamps mark residency activity, not inference progress.  A long
     H3 render can therefore exceed IDLE_REAP_S without being idle.  The busy
     probe is the authoritative guard against killing that active transaction.
+
+    An engine the persistent idle profile keeps resident is never reaped.
+    Under qwen-h3 the reaper used to stop H3 after an idle hour and the idle
+    reconciler reloaded it a minute later: a 112 GB cold load roughly every
+    67 minutes, each one a chance for the memory guard to trip and freeze the
+    studio behind a recovery hold (2026-09-25).
     """
+    wanted = idle_profile_models()
     for name in ("h3", "music", "yue2", "image"):
+        if name in wanted:
+            continue
         idle = engine_idle_s(name)
         if (idle is not None and idle > IDLE_REAP_S
                 and engine_up(name) and not engine_busy(name)):
@@ -8694,13 +8899,37 @@ def pick_next_job():
     Steve's rule: LTX is the default; when H3 comes up, stand LTX down, run
     EVERY queued H3 job, then go back to LTX. Taking the queue in raw order
     would swap 40 GB of weights between every alternating job.
+
+    A warm H3 is the most expensive engine to rebuild (a ~5.5 minute, ~112 GB
+    cold load), so every queued H3 take runs before any job that would push
+    it out.  When the idle profile keeps H3 warm and something else has
+    already pushed it out, the rest of that non-H3 work runs first so H3 is
+    reloaded once, not once per job; an H3 take that has waited
+    H3_BATCH_MAX_WAIT_S goes next regardless.
     Caller holds cv."""
     if not queue:
         return None
     resident = next((n for n in VIDEO_ENGINE_NAMES if engine_up(n)), None)
+    if resident == "h3":
+        for i, jid in enumerate(queue):
+            if job_engine(jobs.get(jid)) == "h3":
+                return queue.pop(i)
     if resident:
         for i, jid in enumerate(queue):
             if job_engine(jobs.get(jid)) in (resident, None):
+                return queue.pop(i)
+    elif h3_kept_warm():
+        now = time.time()
+        for i, jid in enumerate(queue):
+            job = jobs.get(jid) or {}
+            try:
+                waited = now - float(job.get("ts") or now)
+            except (TypeError, ValueError):
+                waited = 0.0
+            if job_engine(job) == "h3" and waited >= H3_BATCH_MAX_WAIT_S:
+                return queue.pop(i)
+        for i, jid in enumerate(queue):
+            if job_engine(jobs.get(jid)) != "h3":
                 return queue.pop(i)
     return queue.pop(0)
 
@@ -8711,16 +8940,49 @@ ENGINE_MAINTENANCE = ROOT / ".engine-maintenance"
 IMAGE_JOB_KINDS = {"image", "charsheets", "character", "selfchar", "charremix", "enhance"}
 COMPANION_JOB_KINDS = IMAGE_JOB_KINDS | {"music", "screenshotsong", "speak", "stems"}
 
+def _local_gpu_job(j):
+    """A job that runs on this box's GPU (video engine or heavyweight companion)."""
+    return (job_queue_lane(j) == "local" and
+            bool(job_engine(j) or j.get("kind") in COMPANION_JOB_KINDS))
+
 def video_work_pending():
     """True while any queued/running companion work still needs exclusivity.
 
     Image, Music 3, and TTS jobs count too. Ignoring them let the 30-second
     settle thread resurrect LTX in the middle of a non-video companion job.
     """
-    return any(j.get("status") in ("running", "queued") and
-               job_queue_lane(j) == "local" and
-               (job_engine(j) or j.get("kind") in COMPANION_JOB_KINDS)
-               for j in jobs.values())
+    return any(j.get("status") in ("running", "queued") and _local_gpu_job(j)
+               for j in list(jobs.values()))
+
+_h3_restore_note = {"last": None}
+
+def h3_restore_deferred(desired, now=None):
+    """True while an idle profile that keeps H3 warm should not reload it yet.
+
+    Other GPU work (image, voice, music, LTX) has to push a warm H3 out, and
+    bringing H3 back is a ~5.5 minute, ~112 GB cold load.  Reloading it 30 s
+    after every short job turned bursts of small jobs into repeated cold
+    loads, and a job queued during a reload waits for it.  Wait until no local
+    GPU job has finished for H3_RESTORE_QUIET_S; the minute reaper retries,
+    so the restore still happens once the studio is quiet.  A real H3 job
+    never waits for this: it loads H3 itself.
+    """
+    if "h3" not in (desired.get("models") or ()) or engine_up("h3"):
+        return False
+    now = time.time() if now is None else now
+    last = 0.0
+    for j in list(jobs.values()):
+        if _local_gpu_job(j):
+            try:
+                last = max(last, float(j.get("finished") or 0))
+            except (TypeError, ValueError):
+                continue
+    deferred = now - last < H3_RESTORE_QUIET_S
+    if deferred and _h3_restore_note["last"] != last:
+        _h3_restore_note["last"] = last
+        print(f"[residency] H3 reload waits {H3_RESTORE_QUIET_S - (now - last):.0f}s "
+              "for a quiet studio", flush=True)
+    return deferred
 
 def restore_warm_ltx_idle():
     """Reconcile the selected idle residency contract, including after a crash.
@@ -8735,6 +8997,9 @@ def restore_warm_ltx_idle():
     try:
         if ENGINE_MAINTENANCE.exists() or gpu_recovery_pending() or video_work_pending():
             return False
+        desired = RESIDENCY.desired()
+        if h3_restore_deferred(desired):
+            return False
         if not release_voice_weights():
             raise ResidencyError("loaded TTS weights would not release before LTX restore")
         for music_engine in ("music", "yue2"):
@@ -8745,7 +9010,6 @@ def restore_warm_ltx_idle():
         released = release_image_weights("restoring chat after media work")
         if released is None and engine_up("image"):
             stop_engine("image")
-        desired = RESIDENCY.desired()
         target = desired["name"]
         slots = desired["slots"] if target == "custom" else None
         receipt = RESIDENCY.apply(target, slots, commit_desired=False)
