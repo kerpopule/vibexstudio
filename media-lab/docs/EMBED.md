@@ -38,9 +38,11 @@ must never ride in a URL. So:
 1. The app loads `/embed?next=/?embed=1` in the frame. `/embed` holds no secret.
 2. If the frame is not signed in, `/embed` asks its parent for a ticket
    (`postMessage` to `window.parent`, or the phone app's native bridge).
-3. The app mints one with the generation pass it got when it was paired:
+3. The app mints one with the generation pass it got when it was paired with
+   the family (or admin) code:
    `POST /api/embed/ticket`, `Authorization: Bearer <render pass>`. A ticket
-   works once, lives 60 seconds, carries the role, and is bound to the app
+   works once, lives 60 seconds, carries the pass's role (family or owner),
+   and is bound to the app
    origin the browser reported (`Origin`). An app origin that is not allowed
    gets `403 {"error": "origin-not-allowed"}`.
 4. The app posts the ticket into the frame, addressed to the studio's exact
@@ -55,7 +57,7 @@ must never ride in a URL. So:
    stick, `/embed` says so and the app offers "Open Media Lab in its own window".
 6. `mlab_embed` counts only on requests the studio page itself made
    (`Sec-Fetch-Site: same-origin`, or `none` for a reload), so no other site
-   can ride on it. Rotating the access or admin code signs every embed session
+   can ride on it. Rotating the family or admin code signs every embed session
    out, like every other pass.
 
 Nothing here trusts a client IP.

@@ -1,6 +1,6 @@
 /**
  * What the in-app Media Lab shows over its frame when the studio page cannot
- * simply open: a one-time sign-in with the Media Lab code, or a plain problem
+ * simply open: a one-time sign-in with the family code, or a plain problem
  * card with a way out. Shared by the web iframe and the phone WebView.
  */
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -19,7 +19,7 @@ export type EmbedState =
   | 'opening'        // the frame is loading /embed
   | 'signing-in'     // the frame asked for a ticket; the app is handing one over
   | 'ready'          // the studio page is up and signed in
-  | 'sign-in'        // this device has no usable Media Lab pass: ask for the code once
+  | 'sign-in'        // this device has no usable Media Lab pass: ask for the family code once
   | 'blocked'        // this browser will not keep a sign-in inside a frame
   | 'not-allowed'    // the studio does not list this app's address
   | 'timeout'        // the frame never answered (blocked from framing, or offline)
@@ -47,7 +47,7 @@ export function EmbedSignIn({ serverUrl, host, onSignedIn }: { serverUrl: string
     } catch (e) {
       const message = e instanceof Error ? e.message : '';
       setError(/generation permission|could not complete this request \(403\)/i.test(message)
-        ? 'That code didn’t open Media Lab. Check it and try again.'
+        ? 'That’s not the family code. Check it and try again.'
         : message || 'Could not sign in. Try again.');
     } finally {
       setBusy(false);
@@ -61,10 +61,10 @@ export function EmbedSignIn({ serverUrl, host, onSignedIn }: { serverUrl: string
         </View>
         <ThemedText type="heading" style={styles.center}>Sign in to Media Lab</ThemedText>
         <ThemedText type="small" themeColor="textSecondary" style={styles.center}>
-          Enter the Media Lab code for {host} once. This device remembers it, and Media Lab opens right here in Create.
+          Enter the family code for {host} once. This device remembers it, and Media Lab opens right here in Create.
         </ThemedText>
         <TextInput
-          accessibilityLabel="Media Lab code"
+          accessibilityLabel="Media Lab family code"
           value={code}
           onChangeText={setCode}
           onSubmitEditing={submit}
@@ -72,7 +72,7 @@ export function EmbedSignIn({ serverUrl, host, onSignedIn }: { serverUrl: string
           secureTextEntry
           autoCapitalize="none"
           autoCorrect={false}
-          placeholder="Media Lab code"
+          placeholder="Family code"
           placeholderTextColor={theme.textSecondary}
           style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundElement }]}
         />
