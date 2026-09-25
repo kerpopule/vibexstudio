@@ -51,6 +51,16 @@ DEFAULTS: dict[str, str] = {
     "MEDIA_LAB_QWEN_GB": "0",
     "MEDIA_LAB_MEM_CAP_GB": "120",
     "MEDIA_LAB_H3_LTX_RETAKE_STRENGTH": "0.35",
+    # Always-warm H3 (idle profile qwen-h3): the Sol task the idle preload boots
+    # (t2va = text-only, what nearly every H3 job uses; or fl2va); the quiet
+    # seconds with no local GPU job before a pushed-out H3 is reloaded; how long
+    # a queued H3 take may wait behind other work while H3 is out; and the
+    # bounded memory-settle gate in front of every H3 cold load.
+    "MEDIA_LAB_H3_IDLE_TASK": "t2va",
+    "MEDIA_LAB_H3_RESTORE_QUIET_S": "300",
+    "MEDIA_LAB_H3_BATCH_MAX_WAIT_S": "900",
+    "MEDIA_LAB_H3_LOAD_SETTLE_MAX_PSI": "2",
+    "MEDIA_LAB_H3_LOAD_SETTLE_MAX_WAIT_S": "120",
     # Sol-H3-Spark (the whole-box H3 video engine). Empty SOL_PKG = not installed.
     "SOL_PKG": "",
     "SOL_ROOT": "~/.local/share/sol-h3-spark",

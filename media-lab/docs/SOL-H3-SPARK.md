@@ -21,6 +21,37 @@ What that means for the box:
 * Output is always 1344x768, 121 frames, 24 fps; `frames/width/height` in a
   request are ignored.
 
+## Keeping H3 warm
+
+Set the idle residency profile to `qwen-h3` (`pool/residency/desired.json`,
+or `POST /api/residency/apply`) to keep H3 loaded between jobs. Set it back
+to `qwen-ltx-default` to make LTX the idle engine again; that is the on/off
+switch.
+
+* The idle reaper never unloads an engine the idle profile keeps resident.
+  Before 2026-09-25 it stopped H3 after an idle hour and the idle reconciler
+  reloaded it a minute later, a cold load about every 67 minutes; one of those
+  loads tripped the memory guard and left a studio-wide recovery hold.
+* The idle preload boots `MEDIA_LAB_H3_IDLE_TASK` (default `t2va`). A text-only
+  H3 job then reuses the warm engine (about 70 s per clip) instead of paying a
+  5-7 minute task switch. First/last-frame and reference jobs still switch.
+* Image, voice, music and LTX jobs still push H3 out: nothing heavy fits beside
+  it. While H3 is warm, every queued H3 take runs first. Once H3 is out, the
+  rest of the non-H3 work runs before H3 is reloaded (an H3 take waits at most
+  `MEDIA_LAB_H3_BATCH_MAX_WAIT_S`, default 900 s), and the idle reload starts
+  only after no local GPU job has finished for `MEDIA_LAB_H3_RESTORE_QUIET_S`
+  seconds (default 300). A queued H3 job never waits for that: it loads H3.
+* Every H3 cold load first waits, at most `MEDIA_LAB_H3_LOAD_SETTLE_MAX_WAIT_S`
+  seconds (default 120), until memory pressure (PSI `full avg10`, the signal the
+  guard trips on) is at most `MEDIA_LAB_H3_LOAD_SETTLE_MAX_PSI` (default 2) and
+  MemAvailable has stopped moving. The guard itself is unchanged.
+* Each H3 cold load appends one line to `pool/h3-load-pressure.jsonl`: peak
+  PSI, the longest run of one-second samples at the guard's PSI limit, lowest
+  MemAvailable, swap growth, and load time. Use it before any guard retune.
+
+Every H3 reload is still a full cold load with the same guard exposure, and a
+guard trip still leaves a recovery hold for an operator.
+
 ## Configuration (`config/local.env`)
 
 ```
