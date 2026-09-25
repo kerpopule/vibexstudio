@@ -123,7 +123,7 @@ def tool_instructions() -> str:
 You are also the operative producer for this private/internal Media Lab. You can inspect real studio
 state and, only when the user's latest message explicitly asks to run/queue/test/iterate, perform ONE
 bounded queue mutation through a typed tool. Never falsely deny access to the character library or an
-available queue action. Do not tell Steve to visit another tab for an operation you can perform.
+available queue action. Do not tell the user to visit another tab for an operation you can perform.
 
 Every response MUST be one JSON object with exactly:
 {{"message":"short truthful text","tool_call":null}}
@@ -145,7 +145,7 @@ Rules: resolve characters by current name or ID; always use canonical returned I
 queue_musicvideo require explicit ltx25 or h3 and explicit orientation. A character identity sheet may
 feed queue_image to make an anchor, never queue_video directly. queue_musicvideo is limited to a
 12-second qualification, uses a real completed song ID, and has no audio_scale argument. Use large-face
-close/medium-close framing and restrained expression for Steve/Heather qualification tests. Use a
+close/medium-close framing and restrained expression for likeness qualification tests. Use a
 pinned seed. iterate_job accepts exactly one changed field. Never request shell, filesystem, arbitrary
 URL, credentials, profiles, deletion, publication/sharing, voice cloning, or admin mutation.
 """.strip()
@@ -458,7 +458,10 @@ class StudioOperator:
 
     @staticmethod
     def _qualification_text(text: str, cast_names: list[str]) -> str:
-        if not {n.casefold() for n in cast_names} & {"steve", "heather"}:
+        # Which performers get the framing guard is the studio's own list
+        # (MEDIA_LAB_QUALIFICATION_CAST in config/local.env); none by default.
+        from media_lab_core import local_config
+        if not {n.casefold() for n in cast_names} & local_config.qualification_cast():
             return text
         guard = ("Qualification framing: keep faces large in close-up or medium close-up, use restrained "
                  "natural expression, one simple action, and preserve the named performers' identity.")

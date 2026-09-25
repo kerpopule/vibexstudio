@@ -27,7 +27,7 @@ class StoryboardTrimAssemblyTests(unittest.TestCase):
             digest = hashlib.sha256(final.read_bytes()).hexdigest()
             self.assertEqual(persisted["final_sha256"], digest)
             self.assertEqual(persisted["last_assembly_job_id"], job["id"])
-            self.assertTrue(persisted["candidate_not_final_until_steve_approves"])
+            self.assertTrue(persisted["candidate_not_final_until_owner_approves"])
             self.assertFalse(persisted["publication_authorized"])
             self.assertEqual(job["status"], "done")
             self.assertTrue(job["storyboard_registered"])

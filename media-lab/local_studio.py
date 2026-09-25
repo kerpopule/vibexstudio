@@ -36,7 +36,7 @@ CTX = ssl.create_default_context()
 # ---- transparent session ----------------------------------------------------
 # Browsing is gate-free on the tailnet, but /api/chat requires the signed
 # session cookie — which a phone that never visited /gate doesn't have. This is
-# Steve's own private proxy, so it signs in once with the studio code (read
+# the owner's own private proxy, so it signs in once with the studio code (read
 # over SSH from the Spark, never stored here) and quietly attaches the session
 # to any request that lacks one.
 SESSION_COOKIE = "mlab_access"

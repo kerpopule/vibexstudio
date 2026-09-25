@@ -41,7 +41,7 @@ from models.TTS.chatterbox.pipeline import ChatterboxPipeline
 # corrupts the KV cache on transformers 4.57, which makes cloned-voice
 # generations babble and never emit the stop token. Merely try/excepting
 # step() is NOT enough — the spy must never attach. (This is the fix the
-# founder-film redo.py shipped with.)
+# production redo shipped with.)
 from models.TTS.chatterbox.models.t3.inference import alignment_stream_analyzer as _asa
 _asa.AlignmentStreamAnalyzer._add_attention_spy = lambda self, *a, **k: None
 _asa.AlignmentStreamAnalyzer.step = lambda self, logits, next_token=None: logits

@@ -21,7 +21,7 @@ def _project(tmp_path, duration=3):
                 "project": "ffmpeg-fixture",
                 "title": "Generated fixture qualification",
                 "private_internal_only": True,
-                "candidate_not_final_until_steve_approves": True,
+                "candidate_not_final_until_owner_approves": True,
                 "publication_authorized": False,
                 "format": {
                     "resolution": "640x360",

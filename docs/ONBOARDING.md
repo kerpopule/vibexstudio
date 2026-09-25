@@ -97,5 +97,5 @@ is a PR, not a release.
    "make media on this computer?" question.
 3. Server: first-run wizard (engine shelf + fal door), install
    orchestrator wired to `media_lab_core`, webpush on engine-ready.
-4. The Spark path (self-hosted, like the founder's) stays what it is:
+4. The self-hosted GPU-box path (a DGX Spark or similar) stays what it is:
    `AGENTS.md` + one command — door 4.

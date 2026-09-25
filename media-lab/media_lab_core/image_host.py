@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 import threading
 
-from . import image_jobs
+from . import engine_licences, image_jobs
 from .background_lifecycle import lifecycle_slot
 from .cpu_worker import WorkerBusy
 from .music_host import _small_regular, sha256_file, DEFAULT_IDLE
@@ -82,6 +82,12 @@ class ImageHost:
 
     def start(self):
         if not self.config_path or (self.thread and self.thread.is_alive()):
+            return
+        if not engine_licences.enabled('qwen-image-21'):
+            # Research-licence weights: a configured pack still stays off until
+            # the host opts in (MEDIA_LAB_PERSONAL_ENGINES in config/local.env).
+            self.ready = False
+            self.error = engine_licences.refusal('qwen-image-21')
             return
         self.stop_requested.clear(); self.ready = False; self.error = None
         self.thread = threading.Thread(target=self._run, name='studio-image-gpu', daemon=True)

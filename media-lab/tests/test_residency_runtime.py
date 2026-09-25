@@ -27,7 +27,7 @@ TEST_HOME = Path(tempfile.mkdtemp(prefix="media-lab-residency-tests-"))
 ROOT = TEST_HOME / "media-lab-simple"
 ROOT.mkdir(parents=True)
 os.environ["HOME"] = str(TEST_HOME)
-for name in ("config", "static", "prompt-templates"):
+for name in ("config", "static"):
     shutil.copytree(SRC / name, ROOT / name, dirs_exist_ok=True)
 shutil.copy(SRC / "chat-system-prompt.md", ROOT / "chat-system-prompt.md")
 

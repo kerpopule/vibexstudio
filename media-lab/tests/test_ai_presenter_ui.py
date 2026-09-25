@@ -7,7 +7,7 @@ def test_character_section_exposes_local_ai_presenter_workflow():
     html = UI.read_text()
 
     assert "AI Presenter / Talking Head" in html
-    assert "stay on this private DGX Spark" in html
+    assert "stay on this studio machine" in html
     assert "never interrupt an active render" in html
     assert 'id="p_cast"' in html
     assert 'id="p_go"' in html

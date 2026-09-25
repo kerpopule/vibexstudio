@@ -1,5 +1,6 @@
 """Shared fixtures for the Cut test-suite: tiny synthetic media made by ffmpeg."""
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -7,15 +8,18 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+# The suite exercises every engine integration, including the ones whose model
+# licence is personal / non-commercial and that a fresh install therefore keeps
+# OFF (media_lab_core/engine_licences.py). Opt the test process in, as a host
+# owner would in config/local.env; test_engine_licences.py covers the public
+# defaults with this switched off.
+os.environ.setdefault("MEDIA_LAB_PERSONAL_ENGINES", "all")
 # Tests that read the Spark host's private trees carry the `spark` marker or
 # import from those paths; on any other checkout they skip instead of failing on
 # a FileNotFoundError. Each skip reason names the capability that is *not* being
 # covered, so a green run cannot be mistaken for coverage (docs/
 # HOST-DEPENDENT-TESTS.md lists the same inventory for humans).
 _SPARK_ONLY_TESTS = {
-    "test_aas_native_h3_face_safety.py": "the Spark host's private AAS productions/ tree",
-    "test_coupled_av_trim.py": "the Spark host's private productions/ tree",
-    "test_true_lipsync_gate.py": "the Spark host's private productions/ tree",
     "test_pplx_ltx_co_residency.py": "the Spark host's private image-svc/ tree",
 }
 # Module → reason for individual `@pytest.mark.spark` cases outside that map.

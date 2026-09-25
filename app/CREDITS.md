@@ -16,8 +16,7 @@ because we like giving credit.
   the publish-and-share path.
 - **Space Grotesk** by Florian Karsten and **Barlow** by Jeremy Tribby
   (SIL Open Font License) shape the web build's type.
-- The NOIR visual language comes from our Co-Agent design system, itself
-  descended from the gsgelato design work.
+- The NOIR visual language comes from our own Co-Agent design system.
 
 
 If you see your work here uncredited, open an issue — we'll fix it.

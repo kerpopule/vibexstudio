@@ -118,6 +118,7 @@ def make_composite_job(request):
         H3_SIZES={"landscape": (1344, 768)},
         cast_lines=lambda value: [],
         engine_up=lambda value: False,
+        engine_licences=importlib.import_module("media_lab_core.engine_licences"),
         submit_job=lambda kind, request, extra: {"kind": kind, "request": request, **extra},
     )
     return make(request)

@@ -73,8 +73,7 @@ ALLOW=(
   '+ /chat-system-prompt.md'
   '+ /chat_operator.py' '+ /qwen_activity.py' '+ /residency.py' '+ /screenshot_song.py'
   '+ /image_template_context.py' '+ /local_studio.py' '+ /proxy7864.py'
-  '+ /coupled_av_trim.py' '+ /cinematography_continuity_gate.py' '+ /true_lipsync_gate.py'
-  '+ /vibex_prop_continuity_gate.py' '+ /README.md' '+ /LICENSE' '+ /AGENTS.md' '+ /CREDITS.md'
+  '+ /coupled_av_trim.py' '+ /README.md' '+ /LICENSE' '+ /AGENTS.md' '+ /CREDITS.md'
   '+ /pyproject.toml' '+ /uv.lock' '+ /requirements.txt' '+ /install.sh'
   '+ /media_lab_core/***'
   '+ /runner/***'
@@ -82,7 +81,6 @@ ALLOW=(
   '+ /tools/***'
   '+ /tests/***'
   '+ /docs/***'
-  '+ /prompt-templates/***'
   '+ /systemd/***'
   '+ /launchd/***'
   '+ /config/'
@@ -90,14 +88,14 @@ ALLOW=(
   '+ /config/*.service' '+ /config/*.timer'
   '+ /config/capacity-budget.json' '+ /config/capacity-policy.json'
   '+ /config/gpu-capacity-receipts.json'
-  '+ /config/companion-residency-policy.json' '+ /config/h3-known-characters.json'
+  '+ /config/companion-residency-policy.json'
   '+ /config/model-manifests.json'
   '- *'
 )
 # What the box owns: never written, never deleted (rsync --exclude, first wins).
 PROTECT=(
   '._*' '.DS_Store'
-  '/config/local.env' '/config/engine-installs.json' '/config/fal-catalog.json'
+  '/config/local.env' '/config/local' '/config/engine-installs.json' '/config/fal-catalog.json'
   '/config/model-residency-policy.json'
   '/productions' '/qa' '/research' '/reference' '/medialab-import' '/image-svc'
   '/.artifacts' '/media' '/jobs' '/pool' '/inbox' '/cut/projects' '/backups' '/.backups'
@@ -109,7 +107,7 @@ PROTECT=(
   '/.venv' '/.worktrees' '/app.py.*' '*.bak*' '/HANDOFF.md' '/V2-BUILD-REPORT.md'
   '/QWEN38-CUTOVER.md' '/backfill-*.py' '/screenshot-songs' '/voices' '/uploads*'
   '/runner/models' '/runner/wheels' '/static/templates' '/static/template-library/images'
-  '/prompt-templates/source-media' '/runner/maestro_refresh.sh'
+  '/prompt-templates' '/runner/maestro_refresh.sh'
 )
 # One rsync filter file on the Spark: protect lines first (first match wins, and
 # excluded receiver files are never deleted), then the allowlist, then "- *".

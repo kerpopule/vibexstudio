@@ -67,4 +67,6 @@ print(json.dumps({'legacy_imported':False,'controller_started':True}))
     assert json.loads(run.stdout)['controller_started']
     # 96 = 94 + the two pinned Qwen-Image-2.1 image-runtime requirement files, which joined the
     # bundle when Qwen-Image-2.1 became the studio's only image model (2026-09-20).
-    assert result['files']==96
+    # 98 = 96 + local_config and engine_licences: the image pack's research licence
+    # keeps it off until the host opts in (MEDIA_LAB_PERSONAL_ENGINES, 2026-09-25).
+    assert result['files']==98

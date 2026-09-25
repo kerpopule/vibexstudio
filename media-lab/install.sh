@@ -165,11 +165,11 @@ if [ "$ROOT" != "$APP_ROOT" ]; then
 else
   ok "$ROOT"
 fi
-# app.py resolves its code-shaped assets (static/, prompt-templates/, config/,
+# app.py resolves its code-shaped assets (static/, config/,
 # runner/, the chat prompt) under the DATA root — that is how a deployed tree
 # works. A clone links them to the repo so `git pull` updates them in place;
 # a real directory (a hand-deployed copy) is left alone.
-for item in static prompt-templates config runner chat-system-prompt.md; do
+for item in static config runner chat-system-prompt.md; do
   if [ -L "$ROOT/$item" ]; then
     ln -sfn "$REPO/$item" "$ROOT/$item"
   elif [ -e "$ROOT/$item" ]; then
@@ -178,7 +178,7 @@ for item in static prompt-templates config runner chat-system-prompt.md; do
     ln -s "$REPO/$item" "$ROOT/$item"
   fi
 done
-ok "static, prompt-templates, config, runner, chat-system-prompt.md -> $REPO"
+ok "static, config, runner, chat-system-prompt.md -> $REPO"
 
 mint() {  # $1 = alphabet, $2 = length
   LC_ALL=C tr -dc "$1" </dev/urandom | dd bs=1 count="$2" 2>/dev/null

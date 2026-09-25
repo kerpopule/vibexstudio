@@ -28,16 +28,16 @@ def ref(b64=_TINY_PNG_B64, role="Subject 1"):
 
 class NormalizeReferencesTest(unittest.TestCase):
     def test_keeps_valid_role_tagged_reference_verbatim(self):
-        r = ref(role="Steve")
+        r = ref(role="Ava")
         out = hr.normalize_references([r])
         self.assertEqual(out, [r])          # role preserved byte-for-byte
         self.assertTrue(hr.has_usable_reference([r]))
 
     def test_drops_blank_b64(self):
-        self.assertEqual(hr.normalize_references([ref(b64="", role="Steve")]), [])
+        self.assertEqual(hr.normalize_references([ref(b64="", role="Ava")]), [])
 
     def test_drops_non_decodable_base64(self):
-        garbage = ref(b64="!!not-base64!!", role="Steve")
+        garbage = ref(b64="!!not-base64!!", role="Ava")
         self.assertEqual(hr.normalize_references([garbage]), [])
 
     def test_drops_decodable_but_not_image_bytes(self):
@@ -70,8 +70,8 @@ class NormalizeReferencesTest(unittest.TestCase):
         self.assertEqual(hr.normalize_references([ref(), "junk", 42]), [ref()])
 
     def test_mixed_list_keeps_only_usable(self):
-        out = hr.normalize_references([ref(role="Steve"), ref(b64="bad", role="DGX")])
-        self.assertEqual([r["role"] for r in out], ["Steve"])
+        out = hr.normalize_references([ref(role="Ava"), ref(b64="bad", role="product")])
+        self.assertEqual([r["role"] for r in out], ["Ava"])
 
 
 class VariantSelectionTest(unittest.TestCase):
@@ -80,18 +80,18 @@ class VariantSelectionTest(unittest.TestCase):
 
     def test_ref2va_with_reference_passes(self):
         self.assertIsNone(hr.validate_h3_reference_request(
-            "h3", "ref2va", [ref(role="Steve")], "max"))
+            "h3", "ref2va", [ref(role="Ava")], "max"))
 
     def test_ref2va_resident_with_missing_refs_hard_fails(self):
         # THE orchestrator-flagged defect: actor-cloning resident but no actors.
-        for missing in (None, [], [ref(b64="", role="Steve")], [ref(b64="bad")]):
+        for missing in (None, [], [ref(b64="", role="Ava")], [ref(b64="bad")]):
             with self.subTest(missing=missing):
                 err = hr.validate_h3_reference_request("h3", "ref2va", missing)
                 self.assertIsNotNone(err)
                 self.assertIn("no usable reference", err)
 
     def test_references_but_fl2va_resident_hard_fails(self):
-        err = hr.validate_h3_reference_request("h3", "fl2va", [ref(role="Steve")])
+        err = hr.validate_h3_reference_request("h3", "fl2va", [ref(role="Ava")])
         self.assertIsNotNone(err)
         self.assertIn("fl2va", err)
         self.assertIn("ref2va", err)
@@ -115,7 +115,7 @@ class VariantSelectionTest(unittest.TestCase):
     def test_required_variant_preserves_fl2va_default_and_selects_ref2va(self):
         self.assertEqual(hr.required_variant(None), hr.H3_FL2VA_VARIANT)
         self.assertEqual(hr.required_variant([]), hr.H3_FL2VA_VARIANT)
-        self.assertEqual(hr.required_variant([ref(role="Heather")]), hr.H3_REF2VA_VARIANT)
+        self.assertEqual(hr.required_variant([ref(role="Mia")]), hr.H3_REF2VA_VARIANT)
 
 
 class AppIntegrationTest(unittest.TestCase):
@@ -500,16 +500,16 @@ class SerializationTest(unittest.TestCase):
 
     def test_manifest_roles_match_input_order(self):
         refs = hr.normalize_references([
-            ref(role="Steve"), ref(role="Heather"),
-            ref(role="DGX"), ref(role="style")])
+            ref(role="Ava"), ref(role="Mia"),
+            ref(role="product"), ref(role="style")])
         self.assertEqual([r["role"] for r in refs],
-                         ["Steve", "Heather", "DGX", "style"])
+                         ["Ava", "Mia", "product", "style"])
 
     def test_engine_manifest_keeps_roles(self):
         # Mirror the loop engine_server.py runs: b64 -> temp file + role tag.
         import tempfile
         from pathlib import Path as P
-        refs = hr.normalize_references([ref(b64=_TINY_PNG_B64, role="DGX")])
+        refs = hr.normalize_references([ref(b64=_TINY_PNG_B64, role="product")])
         manifest, files = [], []
         for i, r in enumerate(refs, 1):
             rp = P(tempfile.mkstemp(suffix=f"-ref{i}.png")[1])
@@ -518,7 +518,7 @@ class SerializationTest(unittest.TestCase):
             manifest.append({"type": "image", "path": str(rp),
                              "role": r.get("role") or f"Subject {i}"})
         try:
-            self.assertEqual([m["role"] for m in manifest], ["DGX"])
+            self.assertEqual([m["role"] for m in manifest], ["product"])
             self.assertTrue(all(len(m["path"]) for m in manifest))
         finally:
             for f in files:

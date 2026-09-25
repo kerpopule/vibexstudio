@@ -1,9 +1,12 @@
 # Music in Media Lab
 
-Two song engines live behind the Music tab. **YuE2 is the primary engine**: it
-is the default for every new song and the only one with the edit tools. MiniMax
-**Music 3** stays available as a secondary choice, and it still records the
-screenshot songs, whose Director QA contract was measured against it.
+Two song engines live behind the Music tab. **YuE2** is the only one with the
+edit tools, but its weights are non-commercial (CC BY-NC 4.0), so it is **off
+on a fresh install** and the Music tab defaults to MiniMax **Music 3**. A host
+whose use fits the licence opts in with `MEDIA_LAB_PERSONAL_ENGINES=yue2` in
+`config/local.env` (see [ENGINE-LICENCES.md](ENGINE-LICENCES.md)); YuE2 then
+becomes the default for every new song. Music 3 always records the screenshot
+songs, whose Director QA contract was measured against it.
 
 | | YuE2 (`engine: "yue2"`) | Music 3 (`engine: "music3"`) |
 |---|---|---|
@@ -36,7 +39,8 @@ Stems split from a YuE2 song inherit the engine and licence fields.
  "reference_song_id": "", "seed": null, "instrumental": false}
 ```
 
-* `engine` — `yue2` (default) or `music3`.
+* `engine` — `yue2` or `music3`; empty = the host's default (YuE2 where
+  enabled, else Music 3). A disabled YuE2 answers 403 with the licence reason.
 * `style` — one line of genre / mood / instruments / voice for YuE2. Empty means
   the studio derives it from the songwriter's caption (its *Global Metadata*
   paragraph).

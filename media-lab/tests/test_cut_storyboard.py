@@ -26,7 +26,7 @@ def _fixture_storyboard(tmp_path: Path) -> Path:
                 "project": "prototype",
                 "title": "Prototype film",
                 "private_internal_only": True,
-                "candidate_not_final_until_steve_approves": True,
+                "candidate_not_final_until_owner_approves": True,
                 "format": {
                     "aspect_ratio": "16:9",
                     "resolution": "1280x704",

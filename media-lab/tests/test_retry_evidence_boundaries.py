@@ -11,6 +11,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from media_lab_core import engine_licences
 from .test_storyboard_retry_recovery import controller_functions, recovery
 
 
@@ -77,7 +78,7 @@ def make_fixture_video(request):
         _h3ref=SimpleNamespace(required_turbo_preset=lambda r: None),
         engine_frames=lambda *a: 121, SIZES={"landscape": (1280, 720)},
         H3_SIZES={"landscape": (1280, 720)}, cast_lines=lambda *a: [],
-        engine_up=lambda *a: False,
+        engine_up=lambda *a: False, engine_licences=engine_licences,
         submit_job=lambda kind, request, extra: dict(kind=kind, request=request, **extra))
     return maker["make_video_job"](request)
 

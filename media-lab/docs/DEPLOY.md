@@ -27,11 +27,13 @@ SPARK=user@spark media-lab/tools/deploy-spark.sh v1.4.0             # ship it
    staging → live with two lists:
    * **ALLOWLIST** (code owns): `app.py`, the top-level modules,
      `media_lab_core/`, `runner/`, `static/`, `tools/`, `tests/`, `docs/`,
-     `prompt-templates/`, `systemd/`, `launchd/`, `chat-system-prompt.md`,
+     `systemd/`, `launchd/`, `chat-system-prompt.md`,
      `pyproject.toml`/`uv.lock`/`requirements.txt`/`install.sh`, and under
      `config/` only the `*.example` files, unit templates and the static
      catalogs.
    * **PROTECT** (the box owns, never written or deleted): `config/local.env`,
+     the studio's own overlay `config/local/` (docs/LOCAL-OVERLAY.md), the
+     retired `prompt-templates/` folder,
      `config/{engine-installs,fal-catalog,model-residency-policy}.json`,
      `tunnel-config.yml`, `.venv/`, every state file (`jobs.json`, `jobs.db`,
      `gallery.json`, `characters.json*`, `storyboards.json*`, `providers.json`,
