@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from media_lab_core import cli, pairing
+from media_lab_core import cli, family_code, pairing
 
 
 @pytest.fixture
@@ -30,10 +30,11 @@ def test_config_round_trip(root):
 def test_codes_mint_and_read(root):
     access, admin = cli.code_paths(root)
     a, b = cli.mint_access_code(), cli.mint_admin_code()
-    assert len(a) == 8 and set(a) <= set(cli.CODE_ALPHABET)
-    assert len(b) == 4 and b.isdigit()
-    cli.write_code(access, "abcd2345")
-    assert cli.read_code(access) == "ABCD2345"
+    assert len(a.split("-")) == 4 and all(w in family_code.WORDS for w in a.split("-"))
+    assert len(b.split("-")) == 6 and not b.isdigit()           # never a 4-digit PIN
+    cli.write_code(access, "maple-otter-lantern-comet")
+    assert cli.read_code(access) == "maple-otter-lantern-comet"
+    assert (access.stat().st_mode & 0o777) == 0o600
     assert cli.read_code(admin) is None
 
 
@@ -41,11 +42,36 @@ def test_code_command(root, capsys):
     assert cli.main(["code"]) == 1                   # nothing minted yet
     assert cli.main(["code", "--rotate"]) == 0
     new = capsys.readouterr().out.strip()
-    assert len(new) == 8
+    assert len(new.split("-")) == 4
     assert cli.main(["code"]) == 0
     assert capsys.readouterr().out.strip() == new
     assert cli.main(["code", "--rotate", "--admin"]) == 0
-    assert capsys.readouterr().out.strip().isdigit()
+    assert len(capsys.readouterr().out.strip().split("-")) == 6
+    for name in ("access-code.txt", "admin-pin.txt"):
+        assert ((root / name).stat().st_mode & 0o777) == 0o600
+
+
+def test_code_quiet_never_prints_a_code(root, capsys):
+    assert cli.main(["code", "--rotate", "--quiet"]) == 0
+    out = capsys.readouterr().out
+    code = (root / "access-code.txt").read_text().strip()
+    assert code not in out and "access-code.txt" in out
+    assert cli.main(["code", "--quiet"]) == 0
+    assert code not in capsys.readouterr().out
+
+
+def test_code_ensure_creates_missing_codes_and_keeps_existing(root, capsys):
+    cli.write_code(root / "access-code.txt", "ABCD2345")        # a legacy family code
+    (root / "access-code.txt").chmod(0o664)
+    assert cli.main(["code", "--ensure"]) == 0
+    assert (root / "access-code.txt").read_text().strip() == "ABCD2345"
+    admin = (root / "admin-pin.txt").read_text().strip()
+    assert len(admin.split("-")) == 6
+    for name in ("access-code.txt", "admin-pin.txt"):
+        assert ((root / name).stat().st_mode & 0o777) == 0o600
+    assert admin not in capsys.readouterr().out
+    assert cli.main(["code"]) == 0
+    assert "short and guessable" in capsys.readouterr().err
 
 
 def test_render_template_fills_everything_and_refuses_leftovers():

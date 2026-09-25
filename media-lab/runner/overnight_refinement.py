@@ -21,6 +21,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from media_lab_core import local_config   # config/local.env, stdlib only
+from media_lab_core import local_token    # local-token.txt: this box's own API pass
+
+# Runs on the studio machine: every urlopen() to its own API carries the local
+# token (the studio no longer trusts a localhost Host header). Nothing else does.
+local_token.install()
 
 HOME = Path.home()
 ROOT = local_config.home()

@@ -1,7 +1,7 @@
 /**
  * Pair a Media Lab server. The user pastes the URL the desktop app (or
  * Spark) shows — pairing succeeds when the server's gate-exempt
- * /manifest.json answers, or scoped access succeeds with an access code.
+ * /manifest.json answers, or scoped access succeeds with the family code.
  * Direct entries continue into Library; nested entries return to their task.
  */
 import { router, useLocalSearchParams } from 'expo-router';
@@ -88,7 +88,7 @@ export default function ConnectMediaLabScreen() {
     setBusy(true);setPairing(true);
     setError(null);
     try {
-      if (generation && !code.trim()) throw new Error('Enter the access code to allow generation on this device.');
+      if (generation && !code.trim()) throw new Error('Enter the family code to allow generation on this device.');
       if (generation) await connectRemoteGeneration(url,code.trim());
       else if (code.trim()) await connectRemoteLibrary(url, code.trim());
       else if (!(await probeMediaLab(url))) throw new Error('No Media Lab answered there. Check the address and server connection.');
@@ -184,7 +184,7 @@ export default function ConnectMediaLabScreen() {
       </ThemedText>
       {!method&&hostingServer ? <View style={{ gap: Spacing.two }}>
         <ThemedText type="smallBold">This app already has a server</ThemedText>
-        <ThemedText themeColor="textSecondary">Use the server hosting this page. Your server files stay there, so you can reach them from another paired device. You still need its access code.</ThemedText>
+        <ThemedText themeColor="textSecondary">Use the server hosting this page. Your server files stay there, so you can reach them from another paired device. You still need its family code.</ThemedText>
         <Pressable accessibilityRole="button" disabled={busy} onPress={() => { setInput(hostingServer); setCode(''); setMethod('address'); }} style={[styles.button, { borderWidth: 1, borderColor: theme.border }]}>
           <ThemedText type="smallBold">Use this server</ThemedText>
         </Pressable>
@@ -221,7 +221,7 @@ export default function ConnectMediaLabScreen() {
         <ThemedText type="smallBold">Find devices on my Tailscale network</ThemedText>
       </Pressable> : null}
       {method==='tailnet'&&devices&&showDevices ? <View style={{ gap: Spacing.two }}>
-        <ThemedText themeColor="textSecondary">Choose a device to check its usual Media Lab addresses. This does not install anything or send an access code. Custom ports may need the full link from your server.</ThemedText>
+        <ThemedText themeColor="textSecondary">Choose a device to check its usual Media Lab addresses. This does not install anything or send your family code. Custom ports may need the full link from your server.</ThemedText>
         {devices.length === 0 ? <ThemedText>No other devices found. You can enter an address below.</ThemedText> : devices.filter(device=>device.online||showOffline).map((device) => <Pressable key={device.address} accessibilityRole="button" disabled={busy||!device.online} accessibilityLabel={`Check Media Lab on ${device.name}`} onPress={()=>void findServices(device)} style={[styles.device,{borderColor:theme.border,backgroundColor:theme.backgroundElement,opacity:device.online?1:0.5}]}>
           <ThemedText type="smallBold">{device.name}</ThemedText>
           <ThemedText themeColor="textSecondary">{device.online ? 'Online — check Media Lab' : 'Offline — turn this device on to connect'}</ThemedText>
@@ -233,7 +233,7 @@ export default function ConnectMediaLabScreen() {
       {checkingDevice?<ThemedText accessibilityLiveRegion="polite">Checking Media Lab on {checkingDevice}…</ThemedText>:null}
       {method==='tailnet'&&services?<View style={{gap:Spacing.two}}>
         <ThemedText type="smallBold">{services.urls.length?`Media Lab found on ${services.device}`:`No usual Media Lab address answered on ${services.device}`}</ThemedText>
-        <ThemedText>{services.urls.length?(services.urls.length===1?'The server address is ready below. Add an access code if you want to use its Library or create media.':'Choose an address, then add your access code below. HTTPS keeps the connection encrypted.'):'Check that Media Lab is running. If it uses a custom port, paste its full link below.'}</ThemedText>
+        <ThemedText>{services.urls.length?(services.urls.length===1?'The server address is ready below. Add the family code if you want to use its Library or create media.':'Choose an address, then add your family code below. HTTPS keeps the connection encrypted.'):'Check that Media Lab is running. If it uses a custom port, paste its full link below.'}</ThemedText>
         {services.urls.length>1&&services.urls.map(url=><Button key={url} title={url} variant="secondary" disabled={busy} onPress={()=>{setInput(url);setCode('');}}/>) }
       </View>:null}
       <TextInput
@@ -253,11 +253,11 @@ export default function ConnectMediaLabScreen() {
       />
       <ThemedText themeColor="textSecondary">
         {generation
-          ? 'Enter the access code to create media and use saved creations in your projects.'
-          : 'Enter the access code to use saved creations in your projects. Leave blank to connect only the server view.'}
+          ? 'Enter the family code to create media and use saved creations in your projects. Each device only needs it once.'
+          : 'Enter the family code to use saved creations in your projects. Each device only needs it once. Leave blank to connect only the server view.'}
       </ThemedText>
-      <TextInput editable={!busy} accessibilityLabel="Media Lab access code" value={code} onChangeText={setCode} secureTextEntry autoCapitalize="none" autoCorrect={false}
-        placeholder={generation ? 'Access code (required)' : 'Access code (optional)'} placeholderTextColor={theme.textSecondary}
+      <TextInput editable={!busy} accessibilityLabel="Media Lab family code" value={code} onChangeText={setCode} secureTextEntry autoCapitalize="none" autoCorrect={false}
+        placeholder={generation ? 'Family code (required)' : 'Family code (optional)'} placeholderTextColor={theme.textSecondary}
         style={[styles.input, {backgroundColor:theme.backgroundElement,color:theme.text,borderColor:theme.border}]} />
       <View style={{gap:Spacing.two}}>
         <ThemedText>Allow this device to create media and manage its own jobs</ThemedText>

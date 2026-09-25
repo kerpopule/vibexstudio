@@ -154,7 +154,7 @@ export default function PairScreen() {
           {outcome?.mediaLab?.ok ? (
             <View style={{gap:Spacing.two}}>
               <ThemedText themeColor="textSecondary">
-                To use saved creations in your projects, enter this server’s access code next.
+                To use saved creations in your projects, enter your family code next.
               </ThemedText>
               <Pressable accessibilityRole="button"
                 onPress={() => router.replace({pathname:'/connect-media-lab', params:{url:outcome.mediaLab!.url}})}

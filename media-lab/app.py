@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Media Lab v2 — video / music / images / characters / storyboard.
 Single-flight worker queue, persisted jobs, ETA stats, PIN admin, remix."""
-import asyncio, base64, fcntl, hashlib, hmac, json, math, mimetypes, os, posixpath, random, re, shlex, shutil, subprocess, tempfile, threading, time, urllib.error, urllib.request, uuid
+import asyncio, base64, fcntl, hashlib, hmac, ipaddress, json, math, mimetypes, os, posixpath, random, re, secrets, shlex, shutil, subprocess, tempfile, threading, time, urllib.error, urllib.request, uuid
 from pathlib import Path
 from functools import lru_cache
 from contextlib import asynccontextmanager, contextmanager
@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from media_lab_core import studio_library, studio_jobs, studio_inputs, background_host, background_setup
 from media_lab_core import local_config
+from media_lab_core import family_code, local_token, secret_files
 from media_lab_core.job_store import JobStore
 from media_lab_core.director_context import project_context_message
 from media_lab_core import installer as engine_installer
@@ -697,8 +698,15 @@ def _load(p: Path, default):
         return json.loads(p.read_text())
     except Exception:
         return default
-def _save(p: Path, data):
+def _save(p: Path, data, private: bool = False):
     with _iolock:
+        # JSON files holding a key or other people's data (the fal key, push
+        # subscriptions, the gate's per-IP attempt log) are born 0600 — never
+        # readable by others, not even between write and chmod. (A literal, not
+        # a module global: tests lift this function out of the module.)
+        if private or p.name in ("providers.json", "push-subs.json", "auth-attempts.json"):
+            secret_files.write_private(p, json.dumps(data))
+            return
         tmp = p.with_name(p.name + ".tmp")
         tmp.write_text(json.dumps(data))
         tmp.replace(p)
@@ -719,11 +727,7 @@ def _providers_load() -> dict:
     return d if isinstance(d, dict) else {}
 
 def _providers_save(cfg: dict):
-    _save(PROVIDERS_FILE, cfg)
-    try:
-        os.chmod(PROVIDERS_FILE, 0o600)   # the API key lives in here
-    except Exception:
-        pass
+    _save(PROVIDERS_FILE, cfg, private=True)   # the API key lives in here
 
 def fal_config() -> dict:
     """The fal entry with defaults merged; never raises."""
@@ -970,38 +974,136 @@ def save_state():
     _save(JOBS_FILE, {"jobs": keep, "queue": list(queue),
                       "online_queue": list(online_queue)})
 
-# ---------- public access gate ----------
+# ---------- the front door: one family code, one admin code ----------
 # The app may be public via a tunnel / reverse proxy (MEDIA_LAB_PUBLIC_HOSTS).
-# FLEET RULE: behind the tunnel every request looks like localhost — NEVER trust
-# client IPs for auth. Trust is decided by (a) the Host header — the tunnel only
-# forwards the two public hostnames, so a tailnet/localhost Host can only arrive
-# over the tailnet — or (b) a signed long-lived cookie set by the access code.
-ACCESS_CODE_FILE = ROOT / "access-code.txt"
+# FLEET RULE: never trust where a request SAYS it came from. The Host header is
+# whatever the client typed ("Host: localhost" used to open the door for anyone
+# who could reach the socket), and the socket address is no better: cloudflared
+# and `tailscale serve` connect from this very machine, so every public visitor
+# would look local. Exactly three things let a request in:
+#   (a) a cookie or studio pass THIS server signed when someone entered the
+#       family code or the admin code at POST /api/gate;
+#   (b) the admin code in X-Lab-Pin (owner scripts; owner-only routes);
+#   (c) the local tool token (local-token.txt, 0600) in X-Media-Lab-Local — how
+#       the watchdog, the deploy script and the runners on this machine get in.
+#       Reading that file takes the same access as reading the codes.
+# Tailnet devices get no free pass: they enter the family code once, like
+# everyone else, and then stay signed in for a year.
+#
+# The two codes (media_lab_core/family_code.py):
+#   * FAMILY code (access-code.txt; the file name is kept so existing installs
+#     keep their code) — one shared code, one permission set: make, edit, use
+#     and tidy the Library. Role "user".
+#   * ADMIN code (admin-pin.txt) — the owner's own code. Everything the family
+#     can do, plus server settings: provider keys, engine installs, GPU
+#     profiles, rotating the family code. Role "admin".
+# Rotating a code (`media-lab code --rotate [--admin]`, or the admin-only
+# POST /api/admin/family-code) signs out every device that used it, at once:
+# the code is mixed into every cookie and pass signature. A running server
+# notices a rewritten code file within a second — no restart needed.
+ACCESS_CODE_FILE = ROOT / "access-code.txt"          # the FAMILY code
 ACCESS_SECRET_FILE = ROOT / "access-secret.txt"
-if not ACCESS_CODE_FILE.exists():
-    ACCESS_CODE_FILE.write_text("".join(
-        random.choice("ABCDEFGHJKMNPQRSTUVWXYZ23456789") for _ in range(8)) + "\n")
-ACCESS_CODE = ACCESS_CODE_FILE.read_text().strip().upper()
-# ONE front door, two codes. Which code you type decides your role — there is no
-# second PIN anywhere. admin-pin.txt now holds the ADMIN LOGIN code, not a pin
-# that gets typed into the queue drawer.
-if not PIN_FILE.exists():
-    PIN_FILE.write_text(f"{random.randrange(0, 10000):04d}\n")
-ADMIN_CODE = PIN_FILE.read_text().strip().upper()
-if not ACCESS_SECRET_FILE.exists():
-    ACCESS_SECRET_FILE.write_text(uuid.uuid4().hex + uuid.uuid4().hex)
+LOCAL_TOKEN_FILE = local_token.token_path(ROOT)
+# Every file here holds a secret (or, for push-subs/auth-attempts, private
+# data): created 0600 and re-tightened at every start, so a file an older build
+# left at 0664 stops being readable by other accounts on the box.
+PRIVATE_FILES = (ACCESS_CODE_FILE, PIN_FILE, ACCESS_SECRET_FILE, LOCAL_TOKEN_FILE,
+                 ROOT / "vapid_private.pem", PROVIDERS_FILE, ROOT / "push-subs.json",
+                 ROOT / "auth-attempts.json")
+# Existing installs keep whatever code they have (even a weak one) until the
+# owner rotates; a NEW install gets word codes, never a 4-digit default.
+secret_files.ensure(ACCESS_CODE_FILE, lambda: family_code.mint_family() + "\n")
+secret_files.ensure(PIN_FILE, lambda: family_code.mint_admin() + "\n")
+secret_files.ensure(ACCESS_SECRET_FILE, lambda: secrets.token_hex(32) + "\n")
+LOCAL_TOKEN = local_token.ensure(ROOT)
+_tightened = secret_files.tighten(PRIVATE_FILES)
+if _tightened:
+    print(f"[media-lab] made {len(_tightened)} secret file(s) private (0600): "
+          + ", ".join(p.name for p in _tightened), flush=True)
 ACCESS_SECRET = ACCESS_SECRET_FILE.read_text().strip()
-print(f"[media-lab] access code: {ACCESS_CODE} · admin code: {ADMIN_CODE}", flush=True)
-if ACCESS_CODE == ADMIN_CODE:
-    print("[media-lab] WARNING: access code == admin code, everyone is admin", flush=True)
+ACCESS_CODE = ""     # normalised (family_code.normalize); filled by _refresh_codes
+ADMIN_CODE = ""
+_codes_lock = threading.Lock()
+_codes_seen = {"at": 0.0, "stamp": None}
+
+
+def _code_stamp():
+    out = []
+    for p in (ACCESS_CODE_FILE, PIN_FILE):
+        try:
+            st = p.stat()
+            out.append((st.st_ino, st.st_mtime_ns, st.st_size))
+        except OSError:
+            out.append(None)
+    return tuple(out)
+
+
+def _read_code_file(p: Path) -> str:
+    try:
+        return family_code.normalize(p.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return ""
+
+
+def _refresh_codes(force: bool = False):
+    """Pick up a rotated code without a restart (checked at most once a second).
+
+    A code file that goes missing or empty keeps the PREVIOUS code: deleting the
+    file must never leave the door open. Codes are never logged — only which
+    file changed."""
+    global ACCESS_CODE, ADMIN_CODE
+    now = time.monotonic()
+    if not force and now - _codes_seen["at"] < 1.0:
+        return
+    with _codes_lock:
+        _codes_seen["at"] = now
+        stamp = _code_stamp()
+        if not force and stamp == _codes_seen["stamp"]:
+            return
+        _codes_seen["stamp"] = stamp
+        for name, path in (("family", ACCESS_CODE_FILE), ("admin", PIN_FILE)):
+            new = _read_code_file(path)
+            old = ACCESS_CODE if name == "family" else ADMIN_CODE
+            if not new:
+                print(f"[media-lab] WARNING: the {name} code file {path.name} is missing or "
+                      "empty — keeping the current code", flush=True)
+                continue
+            if new == old:
+                continue
+            if name == "family":
+                ACCESS_CODE = new
+            else:
+                ADMIN_CODE = new
+            if old:
+                print(f"[media-lab] the {name} code changed — every device signed in "
+                      f"with the old one is signed out", flush=True)
+            if family_code.is_weak(new):
+                hint = "media-lab code --rotate" + (" --admin" if name == "admin" else "")
+                print(f"[media-lab] WARNING: the {name} code is short and guessable — "
+                      f"rotate it with `{hint}`", flush=True)
+        if ACCESS_CODE and ACCESS_CODE == ADMIN_CODE:
+            print("[media-lab] WARNING: the family code and the admin code are the same — "
+                  "everyone who has it is admin", flush=True)
+
+
+_refresh_codes(force=True)
+# The codes themselves are never printed: the journal is readable by more than
+# the owner, and it ends up in backups and bug reports. Say where they live.
+print(f"[media-lab] door codes: family code in {ACCESS_CODE_FILE.name}, admin code in "
+      f"{PIN_FILE.name} (both under the data root, mode 0600) — `media-lab code` shows them",
+      flush=True)
 
 # ---------- signed session cookie (carries the ROLE) ----------
 # The role lives in the cookie, so the MAC has to cover it: flipping "user" to
 # "admin" in devtools produces a value this server will not verify. The role's
 # own code is mixed into the MAC too, so rewriting access-code.txt invalidates
-# every user cookie and rewriting admin-pin.txt invalidates every admin cookie.
+# every family cookie and rewriting admin-pin.txt invalidates every admin cookie.
 SESSION_COOKIE = "mlab_access"
-SESSION_MAX_AGE = 60 * 60 * 24 * 180
+# Family members enter the code once a year, not once a month: a signed-in
+# browser and every studio pass (library / create) a paired app holds last a
+# year. Rotating the code is how you take them all back early.
+SESSION_MAX_AGE = 60 * 60 * 24 * 365
+STUDIO_PASS_AGE = 60 * 60 * 24 * 365
 ROLES = ("user", "admin")
 
 def _role_code(role: str) -> str:
@@ -1039,12 +1141,16 @@ def session_role(raw: str) -> str:
         return "user"
     return ""
 
-# Loopback, the bind address and MEDIA_LAB_TAILNET_HOST (config/local.env).
-TRUSTED_HOSTS = local_config.trusted_hosts()
-# The only hostnames the Cloudflare tunnel ingress ever sends us. A request
-# carrying one of these came through the edge, which means Cloudflare set
-# CF-Connecting-IP itself (it overwrites whatever the client sent) — that is the
-# one client-identity signal we can trust here.
+# Loopback, the bind address and MEDIA_LAB_TAILNET_HOST (config/local.env): this
+# machine's OWN addresses. Never an authority — used only to recognise a
+# connection from one of our own proxies when picking a throttling identity.
+OWN_ADDRESSES = local_config.own_addresses()
+# The hostnames the tunnel ingress sends us. A request carrying one of these
+# that ALSO arrived through one of our own proxies came through the edge, which
+# means Cloudflare set CF-Connecting-IP itself (it overwrites whatever the
+# client sent) — the one client-identity signal we can trust here. List EVERY
+# public hostname that reaches this app (e.g. the served-Studio hostname too),
+# or its visitors all share one backoff key.
 # MEDIA_LAB_PUBLIC_HOSTS in config/local.env (comma separated); empty when the
 # studio is not published through a tunnel.
 PUBLIC_HOSTS = local_config.public_hosts()
@@ -1168,8 +1274,30 @@ def _att_flusher():
         _save(ATTEMPTS_FILE, snap)
 threading.Thread(target=_att_flusher, daemon=True).start()
 
+def _proxy_peer(peer: str) -> bool:
+    """Did this connection come from one of OUR proxies (cloudflared, tailscale
+    serve, a local reverse proxy)? Loopback or one of this machine's own
+    addresses. Anything that is not an IP at all (a unix socket, a test client)
+    carries no identity either, so it counts as a proxy too."""
+    try:
+        ip = ipaddress.ip_address((peer or "").strip("[]"))
+    except ValueError:
+        return True
+    return ip.is_loopback or peer in OWN_ADDRESSES
+
 def _client_ip(request: Request) -> str:
-    """Trustworthy only for tunnel traffic — see the note above."""
+    """WHO to throttle — never who to trust (auth never looks at this).
+
+    * A direct connection (the peer is not one of our proxies): the peer
+      address is the caller. A tailnet or LAN device therefore has its own
+      backoff key and cannot mint a fresh identity by forging CF-Connecting-IP
+      next to "Host: <public hostname>".
+    * Through one of our proxies on a public hostname: CF-Connecting-IP, which
+      the Cloudflare edge overwrites on every request.
+    * Anything else: "" (one shared anonymous key)."""
+    peer = request.client.host if request.client else ""
+    if peer and not _proxy_peer(peer):
+        return peer[:45]
     host = (request.headers.get("host") or "").split(":")[0].lower()
     if host in PUBLIC_HOSTS:
         return (request.headers.get("cf-connecting-ip") or "").strip()[:45]
@@ -1298,9 +1426,13 @@ body{min-height:100dvh;display:flex;align-items:center;justify-content:center;pa
 h1{font-family:'Space Grotesk',system-ui,sans-serif;font-weight:600;letter-spacing:-0.01em;
  font-size:2rem;margin:.4rem 0 .3rem}
 p{color:rgba(255,255,255,.6);font-size:.9rem;margin-bottom:22px}
-input{width:100%;text-align:center;letter-spacing:.5em;text-indent:.5em;font-size:1.6rem;
+input{width:100%;text-align:center;letter-spacing:.03em;font-size:1.15rem;
  background:rgba(10,7,5,.62);border:1px solid rgba(255,255,255,.14);border-radius:13px;
  color:#E8C193;font-family:'Space Grotesk',monospace;padding:16px 14px;outline:none}
+.show{display:inline-block;margin-top:10px;background:none;border:0;padding:4px 8px;width:auto;
+ color:rgba(255,255,255,.55);font-size:.8rem;letter-spacing:.04em;text-transform:none;font-weight:400;
+ cursor:pointer;font-family:'Barlow',sans-serif}
+.hint{margin:14px 0 0;font-size:.78rem;color:rgba(255,255,255,.42)}
 input:focus{border-color:#C99A6A}
 input:disabled{opacity:.45}
 button{width:100%;margin-top:14px;padding:15px;font-size:.9rem;font-weight:600;letter-spacing:.12em;
@@ -1310,15 +1442,19 @@ button:disabled{filter:grayscale(.7);opacity:.5;cursor:not-allowed}
 .err{display:none;margin-top:12px;color:#C8455A;font-size:.85rem}
 .wait{color:#C99A6A}</style></head><body>
 <div class="card"><div class="k">VibeX Studio</div><h1>Media Lab</h1>
-<p>A private studio. Enter your code.</p>
-<form id="f"><input id="c" type="password" autocomplete="off"
- autocorrect="off" autocapitalize="off" spellcheck="false" maxlength="12" placeholder="····">
+<p>Enter your family code. Each device only needs it once.</p>
+<form id="f"><input id="c" type="password" autocomplete="current-password" aria-label="Family code"
+ autocorrect="off" autocapitalize="off" spellcheck="false" maxlength="80" placeholder="family code">
+<button id="s" class="show" type="button" aria-pressed="false">Show code</button>
 <button id="b" type="submit">Enter the studio</button></form>
-<div class="err" id="e">That code doesn't open this door — check it and try again.</div></div>
+<div class="err" id="e"></div>
+<p class="hint">Spaces, dashes and capitals don't matter. Studio owner? Your admin code works here too.</p></div>
 <script>
 const F=document.getElementById('f'),C=document.getElementById('c'),
-      B=document.getElementById('b'),E=document.getElementById('e');
-const BAD="That code doesn't open this door — check it and try again.";
+      B=document.getElementById('b'),E=document.getElementById('e'),S=document.getElementById('s');
+const BAD="That's not the family code — check it and try again.";
+S.onclick=()=>{const on=C.type==='password';C.type=on?'text':'password';
+ S.textContent=on?'Hide code':'Show code';S.setAttribute('aria-pressed',String(on));C.focus();};
 let timer=null;
 function lock(sec,scope){clearInterval(timer);B.disabled=true;C.disabled=true;
  E.className='err wait';E.style.display='block';
@@ -1342,23 +1478,43 @@ C.focus();
 </script></body></html>"""
 
 def request_role(request: Request) -> str:
-    """"admin" | "user" | "" for this request. The cookie is the only thing that
-    can grant admin — the tailnet still skips the door, but it walks in as a
-    plain user until someone signs in with the admin code."""
+    """"admin" | "user" | "" for this request.
+
+    "admin" comes only from a cookie signed for the admin code. "user" (the
+    family permission set) comes from a cookie signed for the family code, or
+    from the local tool token that only processes on this machine can read.
+    Nothing about the network — Host header, tailnet, client address — grants
+    anything any more."""
     role = session_role(request.cookies.get(SESSION_COOKIE, ""))
     if role:
         return role
-    host = (request.headers.get("host") or "").split(":")[0].lower()
-    return "user" if host in TRUSTED_HOSTS else ""
+    if local_token.matches(request.headers.get(local_token.HEADER), LOCAL_TOKEN):
+        return "user"
+    return ""
 
 def _gate_ok(request: Request) -> bool:
-    return bool(request_role(request))
+    return bool(getattr(request.state, "role", "") or request_role(request))
+
+def _pin_role(request: Request) -> str:
+    """X-Lab-Pin carrying the ADMIN code lets an owner script in without a
+    cookie ("admin"). Same per-key backoff as the door itself, so the header is
+    no cheaper to guess than the gate. The family code is not accepted here."""
+    key = _req_key(request)
+    if device_block("admin", key)[0]:
+        return ""
+    if is_admin(request.headers.get("x-lab-pin")):
+        record_ok("admin", key)
+        return "admin"
+    record_fail("admin", key)
+    return ""
 
 @app.middleware("http")
 async def gate_middleware(request: Request, call_next):
     # Decide on the COLLAPSED path: StaticFiles resolves ".." after routing, so
     # testing the raw path let /static/icons/../index.html past the exemption.
     p = gate_path(request.url.path)
+    # A rotated code takes effect here, before anything checks a cookie or pass.
+    _refresh_codes()
     # A visitor is only tracked separately from their IP once they carry a cookie
     # this server signed. An unsigned or forged one counts as no cookie at all.
     did = device_valid(request.cookies.get(DEVICE_COOKIE, ""))
@@ -1378,6 +1534,10 @@ async def gate_middleware(request: Request, call_next):
     elif gate_exempt(p):
         resp = await call_next(request)
     elif request.state.role:
+        resp = await call_next(request)
+    elif request.headers.get("x-lab-pin") and (pin_role := _pin_role(request)):
+        # an owner script with the admin code in X-Lab-Pin and no cookie
+        request.state.role = pin_role
         resp = await call_next(request)
     elif request.method == "GET" and ("text/html" in request.headers.get("accept", "") or p == "/"):
         resp = HTMLResponse(GATE_HTML, status_code=401)
@@ -1422,20 +1582,39 @@ async def gate_middleware(request: Request, call_next):
 # front door. The X-Lab-Pin header survives only so existing scripts and fleet
 # agents keep working, and it must carry the ADMIN LOGIN code.
 def is_admin(pin: Optional[str]) -> bool:
-    return bool(pin) and hmac.compare_digest(pin.strip().upper().encode("utf-8", "replace"),
-                                             ADMIN_CODE.encode())
+    _refresh_codes()
+    return bool(pin) and bool(ADMIN_CODE) and hmac.compare_digest(
+        family_code.normalize(pin).encode("utf-8", "replace"), ADMIN_CODE.encode())
+
+OWNER_ONLY = ("Only the studio owner can change this. Sign in with the admin code "
+              "(not the family code) to do it.")
 
 def admin_guard(request: Request, pin: Optional[str]):
-    """None when the caller is admin, else the JSONResponse to return.
-    Steve's directive 2026-08-16: EVERYONE signed in is a studio manager —
-    any valid session (either door code) passes. The admin code still exists
-    as a second door, and scripted callers can still use X-Lab-Pin."""
+    """The STUDIO-MANAGER check: None when the caller may manage the studio's
+    work (queue order, cancel, retry, archive, delete, import), else the
+    JSONResponse to return.
+    Steve's directive 2026-08-16, kept by the one-family-login change: EVERYONE
+    signed in is a studio manager — the family code opens all of it. Server
+    SETTINGS are different; they go through owner_guard. Scripted callers can
+    still use X-Lab-Pin with the admin code."""
     if getattr(request.state, "role", "") in ("admin", "user") or request_role(request) in ("admin", "user"):
         return None
+    return _pin_guard(request, pin, "not admin")
+
+def owner_guard(request: Request, pin: Optional[str]):
+    """The OWNER check for server settings — provider keys, engine installs, GPU
+    residency changes, rotating the family code. Only the admin code opens it:
+    an admin session cookie, or the admin code in X-Lab-Pin. The family code and
+    the local tool token never do."""
+    if getattr(request.state, "role", "") == "admin" or request_role(request) == "admin":
+        return None
+    return _pin_guard(request, pin, OWNER_ONLY)
+
+def _pin_guard(request: Request, pin: Optional[str], refusal: str):
     p = (pin or "").strip()
     if not p:
-        return JSONResponse({"ok": False, "error": "not admin", "role": "user"},
-                            status_code=403)
+        return JSONResponse({"ok": False, "error": refusal, "owner_only": refusal == OWNER_ONLY,
+                             "role": request_role(request) or "user"}, status_code=403)
     key = _req_key(request)
     wait, scope = device_block("admin", key)
     if wait:
@@ -10862,7 +11041,7 @@ def providers_get():
 
 @app.post("/api/providers")
 def providers_set(r: ProviderReq, request: Request, x_lab_pin: Optional[str] = Header(None)):
-    bad = admin_guard(request, x_lab_pin)
+    bad = owner_guard(request, x_lab_pin)      # provider keys: the owner only
     if bad:
         return bad
     if r.provider != "fal":
@@ -11029,7 +11208,7 @@ class SetupInstallReq(BaseModel):
 @app.post("/api/setup/install")
 def setup_install(request: Request, r: SetupInstallReq,
                   x_lab_pin: Optional[str] = Header(default=None)):
-    guard = admin_guard(request, x_lab_pin)
+    guard = owner_guard(request, x_lab_pin)    # engine installs: the owner only
     if guard is not None:
         return guard
     cfg = _setup_install_cfg()
@@ -11533,7 +11712,7 @@ def residency_state(request: Request, x_lab_pin: Optional[str] = Header(None)):
 @app.post("/api/residency/plan")
 def residency_plan(r: ResidencyReq, request: Request,
                    x_lab_pin: Optional[str] = Header(None)):
-    bad = admin_guard(request, x_lab_pin)
+    bad = owner_guard(request, x_lab_pin)      # GPU profiles: the owner only
     if bad:
         return bad
     try:
@@ -11545,7 +11724,7 @@ def residency_plan(r: ResidencyReq, request: Request,
 @app.post("/api/residency/apply")
 def residency_apply(r: ResidencyReq, request: Request,
                     x_lab_pin: Optional[str] = Header(None)):
-    bad = admin_guard(request, x_lab_pin)
+    bad = owner_guard(request, x_lab_pin)      # GPU profiles: the owner only
     if bad:
         return bad
     try:
@@ -11775,9 +11954,9 @@ def chat_options():
 
 @app.post("/api/chat")
 def chat(r: ChatReq, request: Request):
-    # request_role() deliberately lets tailnet hosts through the site door. The
-    # operative producer is stricter: only a server-signed role cookie can read
-    # studio state or mutate the queue. Client IP and Host are never authority.
+    # request_role() also admits the local tool token. The operative producer is
+    # stricter: only a server-signed role cookie can read studio state or mutate
+    # the queue. Client IP and Host are never authority.
     raw_cookie = request.cookies.get(SESSION_COOKIE, "")
     if not signed_session_authorized(raw_cookie, session_role):
         return JSONResponse({"error": "signed session required"}, status_code=401,
@@ -11965,8 +12144,8 @@ def _cut_gallery_item(job_id: str):
     return info
 
 def _cut_session_required(request: Request):
-    """Everyone signed in is a studio manager (Steve, 2026-08-16); an unsigned caller
-    on the tailnet is a plain user and may cut too. Only NO role is refused."""
+    """Everyone signed in is a studio manager (Steve, 2026-08-16): the family code
+    (or a local tool) may cut. Only NO role is refused."""
     if getattr(request.state, "role", "") in ("admin", "user") or request_role(request) in ("admin", "user"):
         return None
     return JSONResponse({"error": "sign in to edit"}, status_code=403)
@@ -12203,7 +12382,7 @@ def cut_render_status(render_id: str, request: Request):
     return rec
 
 class GateReq(BaseModel):
-    code: str
+    code: str = Field(max_length=200)
     studio_library: bool = False
     studio_render: bool = False
     studio_device: Optional[str] = Field(default=None, pattern=r'^[a-f0-9]{32}$')
@@ -12218,13 +12397,15 @@ async def gate(r: GateReq, request: Request):
     wait, scope = device_block("gate", key)
     if wait:
         return locked_response(wait, scope)
-    # compare as bytes — compare_digest raises on non-ASCII str, and a stray
-    # accented character in the box must read as "wrong code", not a 500
-    code = r.code.strip().upper().encode("utf-8", "replace")
+    # Forgiving typing: case, spaces, dashes, dots and underscores do not
+    # matter ("Maple otter-LANTERN comet" == "maple-otter-lantern-comet").
+    # Compare as bytes — compare_digest raises on non-ASCII str, and a stray
+    # accented character in the box must read as "wrong code", not a 500.
+    code = family_code.normalize(r.code).encode("utf-8", "replace")
     role = ""
-    if hmac.compare_digest(code, ADMIN_CODE.encode()):
+    if code and ADMIN_CODE and hmac.compare_digest(code, ADMIN_CODE.encode()):
         role = "admin"
-    elif hmac.compare_digest(code, ACCESS_CODE.encode()):
+    elif code and ACCESS_CODE and hmac.compare_digest(code, ACCESS_CODE.encode()):
         role = "user"
     if not role:
         delay, nxt = record_fail("gate", key)
@@ -12242,13 +12423,13 @@ async def gate(r: GateReq, request: Request):
         if r.studio_library:
             response.update(scope='library:read',
                             token=studio_library.ticket(ACCESS_SECRET, role, _role_code(role)),
-                            expiresIn=studio_library.TOKEN_AGE)
+                            expiresIn=STUDIO_PASS_AGE)
         if r.studio_render:
             render_token = studio_jobs.ticket(ACCESS_SECRET, role, _role_code(role), r.studio_device)
             if r.studio_library:
-                response.update(renderScope='jobs:own', renderToken=render_token, renderExpiresIn=studio_jobs.TOKEN_AGE)
+                response.update(renderScope='jobs:own', renderToken=render_token, renderExpiresIn=STUDIO_PASS_AGE)
             else:
-                response.update(scope='jobs:own', token=render_token, expiresIn=studio_jobs.TOKEN_AGE)
+                response.update(scope='jobs:own', token=render_token, expiresIn=STUDIO_PASS_AGE)
         return JSONResponse(response)
     resp = JSONResponse({"ok": True, "role": role})
     resp.set_cookie(SESSION_COOKIE, session_token(role), max_age=SESSION_MAX_AGE,
@@ -12258,7 +12439,7 @@ async def gate(r: GateReq, request: Request):
 
 app.include_router(studio_library.router(
     lambda: _load(ROOT / 'gallery.json', []), MEDIA,
-    lambda raw: studio_library.valid_ticket(raw, ACCESS_SECRET, _role_code)))
+    lambda raw: studio_library.valid_ticket(raw, ACCESS_SECRET, _role_code, max_age=STUDIO_PASS_AGE)))
 
 
 @lru_cache(maxsize=1)
@@ -12304,7 +12485,7 @@ app.include_router(background_setup.router(
 
 app.include_router(studio_jobs.router(
     _studio_job_store,
-    lambda raw: studio_jobs.identity(raw, ACCESS_SECRET, _role_code),
+    lambda raw: studio_jobs.identity(raw, ACCESS_SECRET, _role_code, max_age=STUDIO_PASS_AGE),
     lambda: _studio_background_host().engines(), _studio_admit, ROOT / 'studio-artifacts'))
 
 
@@ -12322,21 +12503,41 @@ def _studio_read_library_input(asset_id):
 
 app.include_router(studio_inputs.router(
     _studio_job_store,
-    lambda raw: studio_jobs.identity(raw, ACCESS_SECRET, _role_code),
-    lambda raw: studio_library.valid_ticket(raw, ACCESS_SECRET, _role_code),
+    lambda raw: studio_jobs.identity(raw, ACCESS_SECRET, _role_code, max_age=STUDIO_PASS_AGE),
+    lambda raw: studio_library.valid_ticket(raw, ACCESS_SECRET, _role_code, max_age=STUDIO_PASS_AGE),
     _studio_read_library_input))
 
 @app.get("/api/me")
 def me(request: Request):
     """What the UI asks before it decides whether to draw the queue controls.
     Everyone signed in is a studio manager (Steve, 2026-08-16), so any valid
-    session reports admin and gets the controls."""
-    return {"role": "admin" if request_role(request) else "user"}
+    session reports "admin" and gets the controls. ``owner`` is the real
+    distinction: true only for the admin code, the one that may change server
+    settings."""
+    role = getattr(request.state, "role", "") or request_role(request)
+    return {"role": "admin" if role else "user", "owner": role == "admin"}
+
+@app.post("/api/admin/family-code")
+def rotate_family_code(request: Request, x_lab_pin: Optional[str] = Header(None)):
+    """Owner only: replace the family code. Every device that signed in with the
+    old one — browsers and paired apps alike — is signed out at once, because
+    the code is part of every family cookie and pass signature. The new code is
+    returned to the owner, once, so they can hand it to the family; it is never
+    logged. The same thing from a terminal: `media-lab code --rotate`."""
+    bad = owner_guard(request, x_lab_pin)
+    if bad:
+        return bad
+    new = family_code.mint_family()
+    secret_files.write_private(ACCESS_CODE_FILE, new + "\n")
+    _refresh_codes(force=True)
+    return {"ok": True, "family_code": new,
+            "note": "Every family device is now signed out. Share the new code; "
+                    "each device enters it once."}
 
 @app.get("/gate")
 def gate_screen():
-    """The door, on demand — so an already-signed-in visitor (or anyone on the
-    tailnet, who never sees it) can come back and enter the other code."""
+    """The door, on demand — so an already-signed-in visitor can come back and
+    enter the other code (the owner switching from the family code to admin)."""
     return HTMLResponse(GATE_HTML)
 
 @app.post("/api/signout")
@@ -12358,6 +12559,7 @@ try:
         _v = Vapid()
         _v.generate_keys()
         _v.save_key(str(VAPID_KEY_FILE))
+        secret_files.tighten([VAPID_KEY_FILE])     # save_key uses the umask
     _vapid = Vapid.from_file(str(VAPID_KEY_FILE))
     VAPID_PUBLIC_B64 = b64urlencode(_vapid.public_key.public_bytes(
         serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint))

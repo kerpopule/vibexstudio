@@ -49,12 +49,12 @@ export function LibraryUpload({origin,onUploaded}:{origin:string;onUploaded:()=>
   {open?<>
    <ThemedText>Your selected file will be copied to {origin}. The original stays on this device. Images, videos and audio up to 64 MB are supported here.</ThemedText>
    {permission===null?<ThemedText>Checking server access…</ThemedText>:permission===false?<>
-    <ThemedText>Enter your server’s access code once to read its Library, add files, and edit drafts from this device.</ThemedText>
-    <TextField label="Server access code" accessibilityLabel="Server access code" secureTextEntry value={code} onChangeText={setCode} autoCapitalize="none" autoCorrect={false} editable={!busy}/>
+    <ThemedText>Enter your family code once to read its Library, add files, and edit drafts from this device.</ThemedText>
+    <TextField label="Family code" accessibilityLabel="Family code" secureTextEntry value={code} onChangeText={setCode} autoCapitalize="none" autoCorrect={false} editable={!busy}/>
     <Button title="Connect for uploads and editing" loading={busy} disabled={busy||!code.trim()} onPress={()=>void connect()}/>
    </>:<>
     <Button title="Choose file and upload" loading={busy} disabled={busy} onPress={()=>void upload()}/>
-    <Button title="Change access code" variant="secondary" disabled={busy} onPress={()=>{setPermission(false);setMessage('');}}/>
+    <Button title="Change family code" variant="secondary" disabled={busy} onPress={()=>{setPermission(false);setMessage('');}}/>
    </>}
    {message?<ThemedText accessibilityRole="alert">{message}</ThemedText>:null}
   </>:null}
