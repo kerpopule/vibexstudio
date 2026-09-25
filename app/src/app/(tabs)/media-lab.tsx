@@ -70,14 +70,16 @@ export default function MediaLabScreen() {
   const reportHostUi=useCallback((available:boolean)=>{
     if(mediaLab)setHostUi(previous=>({origin:mediaLab.url,available,editingDrafts:previous?.origin===mediaLab.url?previous.editingDrafts:undefined}));
   },[mediaLab]);
+  // Re-probe only when the paired address changes, not on every settings update.
+  const mediaLabUrl = mediaLab?.url;
   useFocusEffect(useCallback(() => {
     let active = true;
     setHostUi(null);
-    if (mediaLab) void probeMediaHost(mediaLab.url).then(host => {
-      if (active && host) setHostUi({origin: mediaLab.url, available: host.webInterface, editingDrafts:host.editingDrafts});
+    if (mediaLabUrl) void probeMediaHost(mediaLabUrl).then(host => {
+      if (active && host) setHostUi({origin: mediaLabUrl, available: host.webInterface, editingDrafts:host.editingDrafts});
     });
     return () => { active = false; };
-  }, [mediaLab?.url]));
+  }, [mediaLabUrl]));
   const serverActive = mediaLab != null && view === 'server';
   const inCut = serverActive && /\/cut(\?|$)/.test(serverPage ?? '');
   const openServerPage = (url: string) => {
@@ -305,7 +307,14 @@ function StudioView({ topInset, onOpenServerPage, serverWebsite, editingDrafts }
   const [restoringDraft, setRestoringDraft] = useState(true);
 
   const {task, drafts, storageError, setTask, setPrompt: updatePrompt, setProvider} = useCreationDraft();
-  useEffect(()=>{setTool(previous=>task==='audio'?(previous==='image'||previous==='video'||previous==='game'?'song':previous):task);},[task]);
+  // Follow the draft's task when it changes (a restored draft, a template) and
+  // keep the audio tool the user picked. Adjusted during render, not in an
+  // effect, so the old tool never paints for a frame.
+  const [toolTask,setToolTask]=useState(task);
+  if(toolTask!==task){
+    setToolTask(task);
+    setTool(previous=>task==='audio'?(previous==='image'||previous==='video'||previous==='game'?'song':previous):task);
+  }
   const mode = task === 'video' ? 'video' : 'image';
   const {prompt, providerId: selectedId} = drafts[mode];
   const setPrompt = (value: string) => updatePrompt(mode, value);

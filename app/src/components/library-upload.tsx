@@ -13,9 +13,15 @@ export function LibraryUpload({origin,onUploaded}:{origin:string;onUploaded:()=>
  const [permission,setPermission]=useState<boolean|null>(null),[code,setCode]=useState('');
  const alive=useRef(true),locked=useRef(false);
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
+ // Opening the panel, or a different server, asks the server again.
+ const [checking,setChecking]=useState({open,origin});
+ if(checking.open!==open||checking.origin!==origin){
+  setChecking({open,origin});
+  if(open)setPermission(null);
+ }
  useEffect(()=>{
   if(!open)return;
-  let active=true;setPermission(null);
+  let active=true;
   void hasLibraryUploadPermission(origin).then(value=>{if(active)setPermission(value);}).catch(()=>{if(active)setPermission(false);});
   return()=>{active=false;};
  },[open,origin]);

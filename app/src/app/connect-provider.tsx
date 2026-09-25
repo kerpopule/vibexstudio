@@ -43,7 +43,8 @@ export default function ConnectProviderScreen() {
     try {
       await addProvider({ kind, auth: 'apiKey', secret: apiKey.trim(), model, baseUrl });
       setApiKey('');
-      router.canGoBack() ? router.back() : router.replace('/(tabs)/settings');
+      if (router.canGoBack()) router.back();
+      else router.replace('/(tabs)/settings');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save the connection.');
     } finally {
@@ -61,7 +62,8 @@ export default function ConnectProviderScreen() {
       const key = await connectOpenRouter();
       await addProvider({ kind: 'openrouter', auth: 'oauth', secret: key, model });
       setApiKey('');
-      router.canGoBack() ? router.back() : router.replace('/(tabs)/settings');
+      if (router.canGoBack()) router.back();
+      else router.replace('/(tabs)/settings');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'OpenRouter sign-in failed.');
     } finally {
