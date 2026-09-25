@@ -17,8 +17,11 @@
 # model weights and engines are installed later from the web UI's first-run
 # shelf (GPU) or replaced by a fal.ai key (no GPU), by you, under your terms.
 #
-# What it prints at the end, every run: the URLs, the access code and a QR
+# What it prints at the end, every run: the URLs, the family code and a QR
 # the VibeXStudio phone app scans to pair. `media-lab pair` prints it again.
+# Two codes, both minted as everyday words and stored 0600 under the data root:
+# the FAMILY code (one shared code; make, edit, Library) and the ADMIN code
+# (the owner's: provider keys, engine installs, rotating the family code).
 #
 set -eu
 
@@ -180,16 +183,12 @@ for item in static config runner chat-system-prompt.md; do
 done
 ok "static, config, runner, chat-system-prompt.md -> $REPO"
 
-mint() {  # $1 = alphabet, $2 = length
-  LC_ALL=C tr -dc "$1" </dev/urandom | dd bs=1 count="$2" 2>/dev/null
-}
+# Family code + admin code: word codes, created 0600, never overwritten (an
+# existing install keeps its codes until you run `media-lab code --rotate`).
 ACCESS_FILE="$ROOT/access-code.txt"; ADMIN_FILE="$ROOT/admin-pin.txt"
-if [ -s "$ACCESS_FILE" ]; then ok "access code kept ($ACCESS_FILE)"; else
-  (umask 077; printf '%s\n' "$(mint ABCDEFGHJKMNPQRSTUVWXYZ23456789 8)" >"$ACCESS_FILE"); ok "access code minted"
-fi
-if [ -s "$ADMIN_FILE" ]; then ok "admin code kept ($ADMIN_FILE)"; else
-  (umask 077; printf '%s\n' "$(mint 0123456789 4)" >"$ADMIN_FILE"); ok "admin code minted"
-fi
+( cd "$REPO" && MEDIA_LAB_HOME="$ROOT" "$PY" -m media_lab_core.cli code --ensure >/dev/null ) \
+  || die "could not create the door codes under $ROOT"
+ok "family code ($ACCESS_FILE) and admin code ($ADMIN_FILE) ready — \`media-lab code\` shows them"
 
 # ---------------------------------------------------------------------------
 # 4. GPU

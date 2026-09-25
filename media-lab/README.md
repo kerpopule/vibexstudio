@@ -41,7 +41,7 @@ One command, then scan the QR it prints with the VibeXStudio phone app:
 ./install.sh
 ```
 
-It creates `.venv`, mints your access code, starts the server (a `systemd
+It creates `.venv`, mints your family code and admin code, starts the server (a `systemd
 --user` service on Linux; foreground on a Mac, `--service` for a launchd
 agent), waits until it answers, and prints the URLs, the code and a pairing
 QR. Re-run it after `git pull` to update. `media-lab status|pair|code|logs`

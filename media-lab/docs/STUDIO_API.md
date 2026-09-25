@@ -7,7 +7,7 @@ with HTTP 503. A production worker and client integration are still required.
 
 ## Permission and reconnection
 
-POST `/api/gate` with the existing access code, `studio_render: true` and
+POST `/api/gate` with the family code (or the admin code), `studio_render: true` and
 `studio_device`, a client-generated 32-character lowercase hexadecimal identity.
 Keep that identity stable in the device's secret storage for this server. A new
 identity cannot recover the old identity's jobs. The response contains
@@ -17,7 +17,9 @@ When `studio_library: true` is also requested, the existing library response
 remains unchanged; generation permission is returned separately as `renderToken`,
 `renderScope` and `renderExpiresIn`. Library tickets cannot generate or inspect
 jobs. Render tickets cannot read the shared library or authenticate legacy/admin
-routes. Changing the server signing secret or access code revokes tickets.
+routes. Changing the server signing secret or rotating the code that issued a
+ticket (`media-lab code --rotate`) revokes it. Tickets from the family studio
+(app.py) last a year; the independent host keeps 30 days.
 Renewing a ticket for the same device retains its job ownership.
 
 Use `Authorization: Bearer <token>` on all bridge routes. Cookies and trusted

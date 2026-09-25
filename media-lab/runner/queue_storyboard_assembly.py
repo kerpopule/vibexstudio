@@ -27,6 +27,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from media_lab_core import local_config   # config/local.env, stdlib only
+from media_lab_core import local_token    # local-token.txt / MEDIA_LAB_CODE sign-in
 
 # The studio host's ssh target (MEDIA_LAB_SSH) and API; pass --remote/--api to
 # override. The inbox path is relative to the remote user's home.
@@ -50,8 +51,13 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+# Set in main(): the local token on the studio box, else a session from the
+# family code in MEDIA_LAB_CODE (the studio trusts no Host header or network).
+OPENER = urllib.request.build_opener(local_token.StudioAuthHandler())
+
+
 def get_json(url: str) -> Any:
-    with urllib.request.urlopen(url, timeout=20) as response:
+    with OPENER.open(url, timeout=20) as response:
         return json.load(response)
 
 
@@ -68,6 +74,8 @@ def main() -> None:
     parser.add_argument("--api", default=DEFAULT_API)
     parser.add_argument("--timeout", type=int, default=240)
     args = parser.parse_args()
+    global OPENER
+    OPENER = local_token.studio_opener(args.api, os.environ.get("MEDIA_LAB_CODE") or None)
 
     source = args.source.expanduser().resolve()
     if not source.is_file() or source.suffix.lower() not in {".mp4", ".mov", ".m4v", ".webm"}:

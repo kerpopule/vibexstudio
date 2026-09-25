@@ -38,8 +38,9 @@ DEFAULTS: dict[str, str] = {
     "MEDIA_LAB_MODELS_ROOT": "~/.local/share/media-lab-p2-models",
     # Where engine runtimes are checked out (LatentSync.stage, comfy-*, ...).
     "MEDIA_LAB_RUNTIME_ROOT": "~/runtime",
-    # This machine's tailnet address or MagicDNS name, if it has one. Trusted
-    # like localhost; the bind-readiness drop-in waits for it after boot.
+    # This machine's tailnet address or MagicDNS name, if it has one. Not a
+    # trust grant: tailnet devices enter the family code like everyone else.
+    # The bind-readiness drop-in waits for it after boot.
     "MEDIA_LAB_TAILNET_HOST": "",
     # The OpenAI-compatible text runtime (PPLX/Flash) behind the studio.
     "MEDIA_LAB_TEXT_UPSTREAM": "http://127.0.0.1:8004",
@@ -225,9 +226,16 @@ def gpu_lock() -> str:
     return get("MEDIA_LAB_GPU_LOCK") or f"{runtime_dir()}/spark-gpu.lock"
 
 
-def trusted_hosts() -> set[str]:
-    """Hosts whose requests are treated as local: loopback, the bind address,
-    and the tailnet address when one is configured."""
+def own_addresses() -> set[str]:
+    """This machine's own studio addresses: loopback, the bind address and the
+    tailnet address when one is configured.
+
+    NEVER an authority. A Host header naming one of these proves nothing (any
+    client can send it), and a connection FROM one of these is usually a local
+    proxy (cloudflared, ``tailscale serve``) carrying someone else's request.
+    The studio uses this set only to recognise its own proxies when it picks a
+    throttling identity, and to decide where the local tool token may be sent.
+    """
     hosts = {"127.0.0.1", "localhost", bind_host()}
     if tailnet_host():
         hosts.add(tailnet_host())

@@ -45,6 +45,17 @@ REMOTE_ABS_HOME="$(rssh 'printf %s "$HOME"')"
 # Media Lab binds MEDIA_LAB_BIND_HOST (often the tailnet IP), not loopback: read it from the Spark's local.env.
 REMOTE_BIND="$(rssh "sed -n 's/^MEDIA_LAB_BIND_HOST=//p' ~/${REMOTE_HOME:-media-lab-simple}/config/local.env 2>/dev/null | tr -d '\"' | head -1" || true)"
 REMOTE_BIND="${REMOTE_BIND:-127.0.0.1}"
+# The studio's queue, asked ON the Spark. The studio trusts no Host header, so
+# the probe proves it runs on the box with the local tool token (local-token.txt,
+# mode 0600, written by app.py at start). The token is piped to curl on stdin
+# (-H @-), so it never appears in argv / `ps`. Before the first deploy of this
+# build the file does not exist yet and the old app still honours the legacy
+# "Host: localhost" probe, which is sent only in that case.
+remote_queue() {  # $1 = extra curl flags
+  rssh "tok=\$(cat ~/$REMOTE_HOME/local-token.txt 2>/dev/null); \
+    if [ -n \"\$tok\" ]; then printf 'X-Media-Lab-Local: %s\\n' \"\$tok\" | curl -s $1 -m 5 -H @- http://$REMOTE_BIND:$REMOTE_PORT/api/queue?hist=0; \
+    else curl -s $1 -m 5 -H 'Host: localhost' http://$REMOTE_BIND:$REMOTE_PORT/api/queue?hist=0; fi"
+}
 
 # ---------------------------------------------------------------- 0. identity
 git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || die "no such tag: $TAG"
@@ -102,7 +113,7 @@ PROTECT=(
   '/gallery.json' '/jobs.json' '/jobs.db' '/characters.json*' '/storyboards.json*'
   '/providers.json' '/pilot-status.json' '/supervisor-state.json' '/watchdog-state.json'
   '/eta-stats.json' '/auth-attempts.json' '/lu-*.json' '/geo-*.json' '/voices.json'
-  '/admin-pin.txt' '/access-code.txt' '/access-secret.txt' '/vapid_private.pem'
+  '/admin-pin.txt' '/access-code.txt' '/access-secret.txt' '/vapid_private.pem' '/local-token.txt'
   '/push-subs.json' '/tunnel-config.yml' '/proxy7864.env' '/deployed-source.json'
   '/.venv' '/.worktrees' '/app.py.*' '*.bak*' '/HANDOFF.md' '/V2-BUILD-REPORT.md'
   '/QWEN38-CUTOVER.md' '/backfill-*.py' '/screenshot-songs' '/voices' '/uploads*'
@@ -128,13 +139,22 @@ rssh "test -f '$STAGE/app.py'" || die "staging failed"
 say "waiting for the queue to go idle (up to ${QUEUE_WAIT_S}s)"
 deadline=$(( $(date +%s) + QUEUE_WAIT_S ))
 while :; do
-  active="$(rssh "curl -s -m 5 -H 'Host: localhost' http://$REMOTE_BIND:$REMOTE_PORT/api/queue?hist=0 || true" \
+  # -1: nothing answered (the app is down, so nothing can be rendering);
+  # -2: the app answered but refused the probe ({"error":"locked"}) — its queue
+  #     is UNKNOWN, so never read that as idle and deploy mid-render.
+  active="$( { remote_queue '' || true; } \
             | python3 -c 'import json,sys
 try:
-    d=json.load(sys.stdin); print(d.get("active_total", len(d.get("active",[]))))
-except Exception: print(-1)')"
+    d=json.load(sys.stdin)
+except Exception:
+    print(-1); raise SystemExit
+if isinstance(d, dict) and ("active" in d or "active_total" in d):
+    print(d.get("active_total", len(d.get("active", []))))
+else:
+    print(-2)')"
   if [[ "$active" == "0" ]]; then break; fi
   if [[ "$active" == "-1" ]]; then echo "  /api/queue not answering; treating as idle after a grace period"; sleep 15; break; fi
+  if [[ "$active" == "-2" ]]; then die "the studio refused the queue probe (local-token.txt missing or rejected); not deploying blind. staging left at ~/$STAGE"; fi
   (( $(date +%s) < deadline )) || die "queue still busy ($active active) after ${QUEUE_WAIT_S}s; staging left at ~/$STAGE"
   printf '  %s active job(s)… ' "$active"; sleep 30
 done
@@ -171,7 +191,7 @@ say "restarting $SERVICE"
 rssh "systemctl --user restart '$SERVICE'"
 ok=0
 for _ in $(seq 1 60); do
-  if rssh "curl -sf -m 5 -H 'Host: localhost' http://$REMOTE_BIND:$REMOTE_PORT/api/queue?hist=0 >/dev/null"; then ok=1; break; fi
+  if remote_queue '-f' >/dev/null; then ok=1; break; fi
   sleep 3
 done
 if (( ! ok )); then

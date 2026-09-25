@@ -15,6 +15,11 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from media_lab_core import local_config   # config/local.env, stdlib only
+from media_lab_core import local_token    # local-token.txt: this box's own API pass
+
+# Runs on the studio machine: every urlopen() to its own API carries the local
+# token (the studio no longer trusts a localhost Host header). Nothing else does.
+local_token.install()
 
 ROOT = local_config.home()
 REPORT = ROOT / "reports/pplx-ltx-co-residency-20260826"

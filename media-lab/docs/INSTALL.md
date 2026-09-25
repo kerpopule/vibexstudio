@@ -10,7 +10,7 @@ cd media-lab-studio
 ./install.sh
 ```
 
-When it finishes it prints the URLs, the access code, and a QR code. Point
+When it finishes it prints the URLs, the family code, and a QR code. Point
 your phone's camera at the QR and the **VibeXStudio** app pairs to this
 studio. Run `media-lab pair` any time to print it again.
 
@@ -107,15 +107,39 @@ load it with `EnvironmentFile=`, so there is exactly one place to edit.
    link is `vibex://pair?medialab=<your studio URL>`; the app probes
    `/manifest.json` and adds a Media Lab tab.
 4. No camera? In the app: **Media Lab → More options**, type the URL
-   (`http://<ip>:7863`) and the access code.
+   (`http://<ip>:7863`) and the family code.
 
 The QR prefers the tailnet address when Tailscale is up, else the LAN address.
 It is drawn for a dark terminal; on a light theme use `media-lab pair --no-invert`.
 
-Two codes open the same door: the **access code** (`access-code.txt`) and the
-**admin code** (`admin-pin.txt`), both under the data root. `media-lab code`
-prints the access code, `media-lab code --rotate --restart` replaces it (and
-signs every phone out).
+### The family code and the admin code
+
+Two codes open the same door, and the code you type decides what you can do:
+
+| Code | File (data root, mode 0600) | Who | What it opens |
+| --- | --- | --- | --- |
+| **Family code** | `access-code.txt` | everyone in the house, shared | make, edit, use and tidy the Library, manage the queue |
+| **Admin code** | `admin-pin.txt` | the owner only | all of that, plus server settings: provider keys, engine installs, GPU profiles, a new family code |
+
+Both are a few everyday words (e.g. `maple-otter-lantern-comet`); spaces,
+dashes and capitals don't matter when typing. Every browser and paired app
+enters the code **once** and stays signed in for a year. Nothing about the
+network grants access — not being on the same Wi-Fi, not the tailnet, not
+`localhost`: every device enters the family code.
+
+- `media-lab code` prints the family code (`--admin`: the admin code;
+  `--quiet`: names the file instead of printing it).
+- `media-lab code --rotate` makes a new family code. The running server picks
+  it up within a second — no restart — and **every device signed in with the
+  old code is signed out at once**; each one enters the new code once. The
+  owner can do the same from the studio with `POST /api/admin/family-code`
+  (admin code only). `media-lab code --rotate --admin` replaces the admin code.
+- Installs from before word codes keep their old codes (an 8-letter access
+  code, a 4-digit admin code) until you rotate. The server log warns when a
+  code is short; rotate both: `media-lab code --rotate && media-lab code --rotate --admin`.
+- The codes are never written to the server log. Tools on the studio machine
+  (the queue watchdog, the deploy script, the runners, `cut_cli`) use
+  `local-token.txt` (also 0600) instead of a code.
 
 ## The desktop app
 
@@ -130,8 +154,8 @@ exists; otherwise call it by path.
 
 ```
 media-lab status [--json]      health, GPU, engines, service state
-media-lab pair   [--json]      pairing QR, URLs, access code
-media-lab code   [--rotate]    show / rotate the access code (--admin for the other)
+media-lab pair   [--json]      pairing QR, URLs, family code
+media-lab code   [--rotate]    show / rotate the family code (--admin for the other)
 media-lab start|stop|restart   service-aware; foreground fallback (start --foreground)
 media-lab logs   [-f]          journal / launchd log / pid-mode log
 media-lab setup  [--list]      the catalog planner + where the web wizard lives

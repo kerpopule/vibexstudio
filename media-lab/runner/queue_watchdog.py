@@ -21,6 +21,7 @@ import json, os, subprocess, sys, time, urllib.error, urllib.request
 from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from media_lab_core import local_config   # config/local.env, stdlib only
+from media_lab_core import local_token    # local-token.txt, stdlib only
 
 HOME = os.path.expanduser("~")
 ROOT = str(local_config.home())
@@ -124,8 +125,19 @@ def an_engine_is_working():
 
 
 def queue_request():
-    """Build the authenticated local queue probe without DNS or proxy routing."""
-    return urllib.request.Request(QUEUE_URL, headers={"Host": "localhost"})
+    """Build the authenticated local queue probe without DNS or proxy routing.
+
+    The studio no longer trusts a "Host: localhost" header (any client could send
+    one). The watchdog proves it runs on this machine the only unfakeable way: it
+    reads local-token.txt (0600, written by the app at start) and sends it."""
+    return local_token.authorize(urllib.request.Request(QUEUE_URL))
+
+
+def api_refused(exc):
+    """The API answered but refused the probe (401/403): the app is ALIVE. That
+    is a credentials problem — a missing or rotated local token — never a reason
+    to restart the studio and kill a render."""
+    return isinstance(exc, urllib.error.HTTPError) and exc.code in (401, 403)
 
 
 def public_tunnel_code():
@@ -208,6 +220,12 @@ def main():
         with LOCAL_OPENER.open(queue_request(), timeout=15) as resp:
             d = json.load(resp)
     except Exception as e:
+        if api_refused(e):
+            st["idle_strikes"] = 0
+            log(f"/api/queue answered {e.code}: the studio is up but refused the watchdog's "
+                f"local token ({local_token.token_path()}) — standing clear, no restart")
+            save_state(st)
+            return
         if gpu_recovery_held():
             st["idle_strikes"] = 0
             st.pop("run_seen", None)

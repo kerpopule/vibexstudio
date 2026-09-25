@@ -2839,10 +2839,11 @@ $('#showpresets').addEventListener('click',e=>{
    controls simply exist for an admin and do not exist for anyone else. */
 let ROLE='user',isAdmin=false;
 async function loadMe(){
-  try{const d=await(await fetch('/api/me')).json();ROLE=d.role||'user';}catch(e){ROLE='user';}
+  let owner=false;
+  try{const d=await(await fetch('/api/me')).json();ROLE=d.role||'user';owner=!!d.owner;}catch(e){ROLE='user';}
   isAdmin=ROLE==='admin';
   const lbl=$('#whoLabel');
-  if(lbl)lbl.textContent=isAdmin?'Signed in as studio manager':'Signed in';
+  if(lbl)lbl.textContent=owner?'Signed in as the studio owner':(isAdmin?'Signed in with the family code':'Signed in');
   renderQueue();
   try{renderGal();loadImageLib();loadMusicLib();}catch(e){}   // repaint 🗑 once the role is known
 }
