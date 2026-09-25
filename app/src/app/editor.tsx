@@ -44,7 +44,7 @@ export default function EditorScreen(){
    {!connected?<Glass style={{padding:20,gap:16}}>
     <ThemedText type="heading">Connect media and editor</ThemedText>
     <ThemedText>This lets this device browse your server’s Library and work with its own editing drafts. It does not grant generation or publishing permission.</ThemedText>
-    <TextField label="Media Lab access code" accessibilityLabel="Media Lab access code" secureTextEntry autoCapitalize="none" autoCorrect={false} value={code} onChangeText={setCode} editable={!busy}/>
+    <TextField label="Media Lab family code" accessibilityLabel="Media Lab family code" secureTextEntry autoCapitalize="none" autoCorrect={false} value={code} onChangeText={setCode} editable={!busy}/>
     <Button title="Connect media and editor" disabled={!code.trim()} loading={busy} onPress={()=>void run('connect')}/>
    </Glass>:<>
     <View style={{flexDirection:'row',flexWrap:'wrap',gap:12}}><Button title={musicVideo?"New music video":"New draft from Library"} disabled={busy} onPress={()=>router.push({pathname:'/editor-new',params:musicVideo?{intent:'music-video'}:{}})}/><Button title="Refresh drafts" loading={busy} onPress={()=>void run('refresh')}/><Button title="Disconnect editor" disabled={busy} variant="secondary" onPress={()=>void run('disconnect')}/></View>

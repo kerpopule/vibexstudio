@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -14,9 +15,32 @@ QUEUE_URL = local_config.studio_url() + "/api/queue"   # config/local.env, never
 class WatchdogMaestroSafetyTests(unittest.TestCase):
     def test_queue_probe_uses_configured_studio_url_and_no_proxy(self):
         self.assertEqual(QUEUE_URL, queue_watchdog.QUEUE_URL)
-        self.assertEqual("localhost", queue_watchdog.queue_request().get_header("Host"))
         source = (ROOT / "runner/queue_watchdog.py").read_text(encoding="utf-8")
         self.assertIn("build_opener(urllib.request.ProxyHandler({}))", source)
+
+    def test_queue_probe_proves_it_is_local_with_the_token_not_a_host_header(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "local-token.txt").write_text("f" * 64 + "\n")
+            with mock.patch.object(local_config, "home", return_value=Path(tmp)):
+                request = queue_watchdog.queue_request()
+        self.assertIsNone(request.get_header("Host"))
+        self.assertEqual("f" * 64, request.unredirected_hdrs.get("X-media-lab-local"))
+        source = (ROOT / "runner/queue_watchdog.py").read_text(encoding="utf-8")
+        self.assertNotIn('"Host": "localhost"', source)
+
+    def test_a_refused_probe_never_restarts_the_studio(self):
+        refused = urllib.error.HTTPError(QUEUE_URL, 401, "locked", {}, None)
+        with mock.patch.object(queue_watchdog, "load_state", return_value={}), \
+             mock.patch.object(queue_watchdog.LOCAL_OPENER, "open", side_effect=refused), \
+             mock.patch.object(queue_watchdog, "gpu_recovery_held", return_value=False), \
+             mock.patch.object(queue_watchdog.subprocess, "run") as run, \
+             mock.patch.object(queue_watchdog, "restart_app") as restart, \
+             mock.patch.object(queue_watchdog, "save_state"), \
+             mock.patch.object(queue_watchdog, "log") as log:
+            queue_watchdog.main()
+        restart.assert_not_called()
+        self.assertFalse(any("restart" in str(call.args[0]) for call in run.call_args_list))
+        self.assertIn("standing clear", log.call_args.args[0])
 
     def test_supervisor_media_lab_probe_uses_configured_studio_url_and_no_proxy(self):
         self.assertIn(

@@ -19,13 +19,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 from media_lab_core import local_config   # MEDIA_LAB_SSH from config/local.env
-# Default: straight to the Spark over the tailnet — no Cloudflare 100s timeout,
-# no edge bot checks, and the tailnet Host is trusted so there is no gate.
+# Default: straight to the studio — no Cloudflare 100s timeout, no edge bot
+# checks. The studio still asks for the family code (it trusts no Host header).
 UPSTREAM = os.environ.get("UPSTREAM", "http://127.0.0.1:7863").rstrip("/")
 PORT = int(os.environ.get("PORT", "7899"))
-# 0.0.0.0 so tailnet devices (phone, Air) can open the Studio at this Mac's
-# tailscale IP. The tailnet is the trust boundary, same as the Spark itself.
-HOST = os.environ.get("HOST", "0.0.0.0")
+# Loopback by default: this proxy is a developer tool for THIS machine. Set
+# HOST=0.0.0.0 (or a tailnet IP) to open it to other devices — they then sign in
+# with the family code at the proxied /gate like anywhere else; the proxy's own
+# session is never lent to them (see _lend_session).
+HOST = os.environ.get("HOST", "127.0.0.1")
 
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
        "te", "trailers", "transfer-encoding", "upgrade", "content-encoding",
@@ -34,13 +36,19 @@ HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
 CTX = ssl.create_default_context()
 
 # ---- transparent session ----------------------------------------------------
-# Browsing is gate-free on the tailnet, but /api/chat requires the signed
-# session cookie — which a phone that never visited /gate doesn't have. This is
-# Steve's own private proxy, so it signs in once with the studio code (read
-# over SSH from the Spark, never stored here) and quietly attaches the session
-# to any request that lacks one.
+# For the developer on THIS machine only: the proxy signs in once with the
+# family code (read over SSH from the studio host, never stored here) and
+# attaches that session to requests that lack one, so a local UI build works
+# without visiting /gate. It does this ONLY while bound to loopback. Bound to
+# a network address it would hand the family's session to anyone on the LAN
+# who can reach the port — so there it lends nothing, and visitors sign in.
 SESSION_COOKIE = "mlab_access"
 _session = {"value": None}
+
+
+def _lend_session() -> bool:
+    """Only a loopback-bound proxy may attach its own signed session."""
+    return HOST in ("127.0.0.1", "localhost", "::1")
 
 
 def _studio_session():
@@ -116,8 +124,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if k.lower() not in HOP:
                 req.add_header(k, v)
         req.add_header("Accept-Encoding", "identity")
-        # attach the proxy's own signed session when the device has none
-        if SESSION_COOKIE not in (self.headers.get("Cookie") or ""):
+        # attach the proxy's own signed session when the device has none —
+        # loopback-bound only; on a network bind every visitor signs in
+        if _lend_session() and SESSION_COOKIE not in (self.headers.get("Cookie") or ""):
             tok = _studio_session()
             if tok:
                 prior = self.headers.get("Cookie") or ""

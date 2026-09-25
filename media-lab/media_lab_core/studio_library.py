@@ -38,14 +38,17 @@ def ticket(secret, role, code, now=None):
     return f'{prefix}.{sig}'
 
 
-def valid_ticket(raw, secret, role_code, now=None):
+def valid_ticket(raw, secret, role_code, now=None, max_age=None):
+    """``max_age`` lets a host keep passes longer than TOKEN_AGE (the family
+    studio uses a year); rotating the role's code still revokes them at once."""
     match = re.fullmatch(r'(mlab-library-v1\.(user|admin)\.(\d{10,12})\.[a-f0-9]{24})\.([a-f0-9]{64})', raw or '')
     if not match:
         return False
     prefix, role, issued, signature = match.groups()
     age = (time.time() if now is None else now) - int(issued)
     expected = hmac.new(secret.encode(), f'{prefix}:{role_code(role)}'.encode(), hashlib.sha256).hexdigest()
-    return -300 <= age <= TOKEN_AGE and hmac.compare_digest(signature, expected)
+    limit = TOKEN_AGE if max_age is None else max_age
+    return -300 <= age <= limit and hmac.compare_digest(signature, expected)
 
 
 def is_library_path(path):
