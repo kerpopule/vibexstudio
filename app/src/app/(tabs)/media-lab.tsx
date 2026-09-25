@@ -106,7 +106,10 @@ export default function MediaLabScreen() {
   }, [mediaLabUrl]));
   const view = choice ?? (mediaLab && webInterface !== false ? 'server' : 'device');
   const serverActive = mediaLab != null && view === 'server';
-  const embedded = serverActive && webInterface === true && embedCapable === true;
+  // The in-app studio stays mounted (hidden) while "Your AI" is showing, so a
+  // half-typed idea or an open sheet in the studio survives the switch.
+  const embedAvailable = mediaLab != null && webInterface === true && embedCapable === true;
+  const embedded = serverActive && embedAvailable;
   // Which studio page is showing (Cut needs the whole window), per studio.
   const [pageFor, setPageFor] = useState<{ url: string; page: EmbedPage } | null>(null);
   const embedPage: EmbedPage = pageFor && pageFor.url === mediaLab?.url ? pageFor.page : 'lab';
@@ -132,7 +135,7 @@ export default function MediaLabScreen() {
   );
 
   const headerHeight = insets.top + 52;
-  const tone = embedded ? stateTone(embedState) : hostUi ? 'good' : 'busy';
+  const tone = embedAvailable ? stateTone(embedState) : hostUi ? 'good' : 'busy';
   const toneColor = tone === 'good' ? theme.success : tone === 'busy' ? theme.warning : theme.danger;
   const host = mediaLab ? hostLabel(mediaLab.url) : '';
   return (
@@ -140,8 +143,8 @@ export default function MediaLabScreen() {
       {/* Both views clear the floating top row: the studio pads its scroll
           content, the server views sit below it so the studio's own top row
           (queue, theme, area switcher) stays tappable. */}
-      {serverActive && embedded ? (
-        <View style={[styles.container, { paddingTop: headerHeight }]}>
+      {embedAvailable ? (
+        <View style={[styles.container, { paddingTop: headerHeight }, embedded ? null : styles.hidden]}>
           <EmbeddedMediaLab
             key={mediaLab.url}
             serverUrl={mediaLab.url}
@@ -151,7 +154,8 @@ export default function MediaLabScreen() {
             onState={setEmbedState}
           />
         </View>
-      ) : serverActive && probedFor !== mediaLab.url ? (
+      ) : null}
+      {embedded ? null : serverActive && probedFor !== mediaLab.url ? (
         <ThemedView style={[styles.empty, { paddingTop: headerHeight }]}>
           <ActivityIndicator color={theme.tint} />
           <ThemedText type="small" themeColor="textSecondary" style={styles.center}>Reaching your Media Lab…</ThemedText>
@@ -768,6 +772,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  hidden: { display: 'none' },
   web: {
     flex: 1,
     backgroundColor: 'transparent',
