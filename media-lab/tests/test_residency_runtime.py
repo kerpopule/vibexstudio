@@ -12,6 +12,8 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
+from contextlib import contextmanager
 import unittest
 from types import SimpleNamespace
 from pathlib import Path
@@ -384,7 +386,9 @@ class IdleReaperSafetyTests(unittest.TestCase):
         self.assertNotIn(mock.call("h3"), stop.call_args_list)
 
     def test_stale_idle_h3_is_stopped(self):
-        with mock.patch.object(studio, "engine_idle_s",
+        ltx_idle = {"name": "qwen-ltx-default", "slots": {}, "models": ["qwen", "ltx"]}
+        with mock.patch.object(studio.RESIDENCY, "desired", return_value=ltx_idle), \
+             mock.patch.object(studio, "engine_idle_s",
                                side_effect=lambda name: studio.IDLE_REAP_S + 1
                                if name == "h3" else None), \
              mock.patch.object(studio, "engine_up", return_value=True), \
@@ -393,6 +397,394 @@ class IdleReaperSafetyTests(unittest.TestCase):
             studio.reap_idle_engines()
 
         stop.assert_called_once_with("h3")
+
+
+def _pressure(available_gib=110.0, psi_full=0.0, psi_some=0.0, swap_used_gib=1.0):
+    """A PressureSample as the guard reads it from /proc."""
+    from media_lab_core.solh3_control_guard import PressureSample
+    gib = 1024 * 1024
+    return PressureSample(available_kib=int(available_gib * gib),
+                          swap_total_kib=16 * gib,
+                          swap_free_kib=int((16 - swap_used_gib) * gib),
+                          psi_some_avg10=psi_some, psi_full_avg10=psi_full)
+
+
+class _Clock:
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+class AlwaysWarmH3Tests(unittest.TestCase):
+    """Idle profile qwen-h3 must keep H3 warm instead of reloading it hourly."""
+
+    QWEN_H3 = {"name": "qwen-h3", "slots": {}, "models": ["qwen", "h3"]}
+    LTX_IDLE = {"name": "qwen-ltx-default", "slots": {}, "models": ["qwen", "ltx"]}
+
+    def _reap(self, desired):
+        patch_desired = (mock.patch.object(studio.RESIDENCY, "desired", side_effect=desired)
+                         if isinstance(desired, Exception)
+                         else mock.patch.object(studio.RESIDENCY, "desired", return_value=desired))
+        with patch_desired, \
+             mock.patch.object(studio, "engine_idle_s", return_value=studio.IDLE_REAP_S + 1), \
+             mock.patch.object(studio, "engine_up", return_value=True), \
+             mock.patch.object(studio, "engine_busy", return_value=False), \
+             mock.patch.object(studio, "stop_engine") as stop:
+            studio.reap_idle_engines()
+        return [c.args[0] for c in stop.call_args_list]
+
+    def test_reaper_never_unloads_h3_the_idle_profile_keeps_warm(self):
+        stopped = self._reap(self.QWEN_H3)
+        self.assertNotIn("h3", stopped)
+        # Engines the profile does not keep are still reaped after an idle hour.
+        self.assertEqual(["music", "yue2", "image"], stopped)
+
+    def test_reaper_still_unloads_stale_h3_under_the_ltx_idle_profile(self):
+        self.assertIn("h3", self._reap(self.LTX_IDLE))
+
+    def test_unreadable_idle_profile_keeps_the_old_reaping(self):
+        self.assertIn("h3", self._reap(studio.ResidencyError("desired residency state unreadable")))
+
+    def test_idle_task_setting_accepts_only_preloadable_tasks(self):
+        self.assertEqual("t2va", studio.H3_IDLE_TASK)
+        self.assertEqual("fl2va", studio._h3_idle_task(" FL2VA "))
+        self.assertEqual("t2va", studio._h3_idle_task("ref2va"))
+        self.assertEqual("t2va", studio._h3_idle_task(""))
+        self.assertEqual("t2va", studio._h3_idle_task(None))
+
+    def test_idle_h3_preload_boots_the_text_only_task(self):
+        runtime = studio._ResidencyRuntime(activity_probe=mock.Mock())
+        seen = {}
+        previous = getattr(studio._gpu_thread, "lease", None)
+
+        @contextmanager
+        def fake_operation(engine, task, j=None, **kwargs):
+            seen["operation"] = (engine, task, j["id"], j["_gpu_task"])
+            studio._gpu_thread.lease = SimpleNamespace(phase="load", engine=engine, task=task)
+            try:
+                yield
+            finally:
+                studio._gpu_thread.lease = None
+
+        studio._gpu_thread.lease = None
+        try:
+            with mock.patch.object(studio, "gpu_operation", fake_operation), \
+                 mock.patch.object(studio, "gpu_render_ready") as ready, \
+                 mock.patch.object(studio, "_boot_engine", return_value=True) as boot:
+                self.assertTrue(runtime.start_model("h3", {}))
+        finally:
+            studio._gpu_thread.lease = previous
+        self.assertEqual(("h3", "t2va", "idle-restore-h3", "t2va"), seen["operation"])
+        self.assertEqual("t2va", boot.call_args.kwargs["task"])
+        ready.assert_called_once_with("h3", "t2va")
+
+    def test_plain_text_h3_job_reuses_the_warm_idle_engine_without_reload(self):
+        warm = {**studio._h3ref.required_runtime_config({}), "task": studio.H3_IDLE_TASK}
+        job = {"id": "t2va-job", "kind": "video",
+               "request": {"prompt": "a lighthouse at dusk", "model": "h3", "h3_turbo": False}}
+        with mock.patch.object(studio, "gpu_recovery_pending", return_value=False), \
+             mock.patch.object(studio, "h3_resident_config", return_value=warm), \
+             mock.patch.object(studio, "stop_engine") as stop, \
+             mock.patch.object(studio, "_boot_engine") as boot:
+            self.assertEqual("up", studio.ensure_h3_variant(job))
+        stop.assert_not_called()
+        boot.assert_not_called()
+
+    def _restore(self, desired, job_list, h3_up=False):
+        previous = studio.jobs
+        studio.jobs = {j["id"]: j for j in job_list}
+        try:
+            with mock.patch.object(studio.RESIDENCY, "desired", return_value=desired), \
+                 mock.patch.object(studio.RESIDENCY, "apply", return_value={"id": "r1"}) as apply, \
+                 mock.patch.object(studio, "gpu_recovery_pending", return_value=False), \
+                 mock.patch.object(studio, "engine_up", side_effect=lambda name: h3_up and name == "h3"), \
+                 mock.patch.object(studio, "engine_busy", return_value=False), \
+                 mock.patch.object(studio, "release_voice_weights", return_value=True), \
+                 mock.patch.object(studio, "release_image_weights", return_value=0.0), \
+                 mock.patch.object(studio, "stop_engine"):
+                result = studio.restore_warm_ltx_idle()
+        finally:
+            studio.jobs = previous
+        return result, apply
+
+    @staticmethod
+    def _image_job(finished_ago_s, **extra):
+        return {"id": "img", "kind": "image", "status": "done", "request": {},
+                "finished": time.time() - finished_ago_s, **extra}
+
+    def test_h3_reload_waits_for_a_quiet_studio_after_other_gpu_work(self):
+        result, apply = self._restore(self.QWEN_H3, [self._image_job(60)])
+        self.assertFalse(result)
+        apply.assert_not_called()
+
+    def test_h3_reloads_once_the_quiet_period_has_passed(self):
+        result, apply = self._restore(
+            self.QWEN_H3, [self._image_job(studio.H3_RESTORE_QUIET_S + 5)])
+        self.assertTrue(result)
+        apply.assert_called_once_with("qwen-h3", None, commit_desired=False)
+
+    def test_first_h3_restore_with_no_recent_jobs_is_not_delayed(self):
+        result, apply = self._restore(self.QWEN_H3, [])
+        self.assertTrue(result)
+        apply.assert_called_once_with("qwen-h3", None, commit_desired=False)
+
+    def test_quiet_period_does_not_delay_the_ltx_idle_profile(self):
+        result, apply = self._restore(self.LTX_IDLE, [self._image_job(60)])
+        self.assertTrue(result)
+        apply.assert_called_once_with("qwen-ltx-default", None, commit_desired=False)
+
+    def test_quiet_period_does_not_apply_while_h3_is_already_warm(self):
+        result, apply = self._restore(self.QWEN_H3, [self._image_job(60)], h3_up=True)
+        self.assertTrue(result)
+        apply.assert_called_once_with("qwen-h3", None, commit_desired=False)
+
+    def test_cloud_jobs_do_not_count_as_local_gpu_work(self):
+        cloud = {"id": "fal", "kind": "video", "status": "done", "engine": "fal-kling",
+                 "request": {"engine": "fal-kling"}, "finished": time.time() - 30}
+        result, apply = self._restore(self.QWEN_H3, [cloud])
+        self.assertTrue(result)
+        apply.assert_called_once_with("qwen-h3", None, commit_desired=False)
+
+    def test_queued_local_work_blocks_the_h3_restore(self):
+        queued = {"id": "img2", "kind": "image", "status": "queued", "request": {}}
+        result, apply = self._restore(self.QWEN_H3, [queued])
+        self.assertFalse(result)
+        apply.assert_not_called()
+
+
+class H3QueueBatchingTests(unittest.TestCase):
+    """Run the real pick_next_job source: other test modules stub the attribute."""
+
+    @staticmethod
+    def _source_function(name, **namespace):
+        import ast
+        tree = ast.parse((SRC / "app.py").read_text())
+        node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
+        exec(compile(ast.Module(body=[node], type_ignores=[]), str(SRC / "app.py"), "exec"),
+             namespace)
+        return namespace[name]
+
+    @staticmethod
+    def _jobs(now):
+        return {
+            "img": {"id": "img", "kind": "image", "status": "queued", "request": {}, "ts": now - 30},
+            "h3a": {"id": "h3a", "kind": "video", "status": "queued",
+                    "request": {"model": "h3"}, "ts": now - 20},
+            "ltx": {"id": "ltx", "kind": "video", "status": "queued",
+                    "request": {"model": "ltx"}, "ts": now - 15},
+            "h3b": {"id": "h3b", "kind": "video", "status": "queued",
+                    "request": {"model": "h3"}, "ts": now - 10},
+        }
+
+    def _drain(self, resident, keep_h3_warm, jobs, order):
+        queue = list(order)
+        job_engine = self._source_function("job_engine")
+        pick = self._source_function(
+            "pick_next_job", queue=queue, jobs=jobs, VIDEO_ENGINE_NAMES=("ltx", "h3"),
+            engine_up=lambda name: name == resident, job_engine=job_engine,
+            h3_kept_warm=lambda: keep_h3_warm, time=time,
+            H3_BATCH_MAX_WAIT_S=studio.H3_BATCH_MAX_WAIT_S)
+        picked = []
+        for _ in range(len(order) + 1):
+            if not queue:
+                break
+            picked.append(pick())
+        self.assertEqual([], queue, "picker did not drain the queue")
+        return picked
+
+    def test_warm_h3_runs_every_queued_h3_take_before_anything_that_evicts_it(self):
+        picked = self._drain("h3", True, self._jobs(time.time()),
+                             ["img", "h3a", "ltx", "h3b"])
+        self.assertEqual(["h3a", "h3b"], picked[:2])
+
+    def test_pushed_out_h3_finishes_other_work_before_reloading(self):
+        picked = self._drain(None, True, self._jobs(time.time()),
+                             ["h3a", "img", "h3b", "ltx"])
+        self.assertEqual(["img", "ltx", "h3a", "h3b"], picked)
+
+    def test_an_h3_take_that_waited_too_long_goes_next(self):
+        now = time.time()
+        jobs = self._jobs(now)
+        jobs["h3a"]["ts"] = now - studio.H3_BATCH_MAX_WAIT_S - 1
+        picked = self._drain(None, True, jobs, ["img", "h3a", "ltx"])
+        self.assertEqual("h3a", picked[0])
+
+    def test_ltx_idle_profile_keeps_plain_queue_order_when_nothing_is_resident(self):
+        picked = self._drain(None, False, self._jobs(time.time()),
+                             ["h3a", "img", "h3b", "ltx"])
+        self.assertEqual(["h3a", "img", "h3b", "ltx"], picked)
+
+    def test_resident_ltx_still_groups_ltx_takes_first(self):
+        picked = self._drain("ltx", True, self._jobs(time.time()),
+                             ["h3a", "img", "ltx", "h3b"])
+        self.assertEqual(["img", "ltx"], picked[:2])
+
+    def test_h3_kept_warm_follows_the_idle_profile(self):
+        qwen_h3 = {"name": "qwen-h3", "slots": {}, "models": ["qwen", "h3"]}
+        ltx = {"name": "qwen-ltx-default", "slots": {}, "models": ["qwen", "ltx"]}
+        with mock.patch.object(studio.RESIDENCY, "desired", return_value=qwen_h3):
+            self.assertTrue(studio.h3_kept_warm())
+        with mock.patch.object(studio.RESIDENCY, "desired", return_value=ltx):
+            self.assertFalse(studio.h3_kept_warm())
+        with mock.patch.object(studio.RESIDENCY, "desired",
+                               side_effect=studio.ResidencyError("unreadable")):
+            self.assertFalse(studio.h3_kept_warm())
+
+
+class H3LoadHeadroomTests(unittest.TestCase):
+    def _wait(self, samples, max_wait=120.0, j=None):
+        clock = _Clock()
+        feed = iter(samples)
+        last = {}
+
+        def read():
+            try:
+                last["s"] = next(feed)
+            except StopIteration:
+                pass
+            return last["s"]
+
+        with mock.patch.object(studio, "H3_LOAD_SETTLE_MAX_WAIT_S", max_wait):
+            return studio.wait_for_h3_load_headroom(j, read=read, sleep=clock.sleep,
+                                                    clock=clock), clock
+
+    def test_calm_steady_memory_admits_after_a_few_samples(self):
+        result, clock = self._wait([_pressure()] * 10)
+        self.assertTrue(result["settled"])
+        self.assertLessEqual(clock.now - 1000.0, 5)
+
+    def test_memory_still_being_returned_is_waited_out(self):
+        rising = [_pressure(available_gib=60 + 10 * i) for i in range(6)]
+        result, clock = self._wait(rising + [_pressure(available_gib=115)] * 5)
+        self.assertTrue(result["settled"])
+        self.assertGreaterEqual(clock.now - 1000.0, 6)
+
+    def test_high_pressure_is_waited_out(self):
+        busy = [_pressure(psi_full=30.0)] * 8
+        result, clock = self._wait(busy + [_pressure(psi_full=1.0)] * 5)
+        self.assertTrue(result["settled"])
+        self.assertGreaterEqual(clock.now - 1000.0, 8)
+
+    def test_wait_is_bounded_and_says_it_did_not_settle(self):
+        result, clock = self._wait([_pressure(psi_full=40.0)], max_wait=30.0)
+        self.assertFalse(result["settled"])
+        self.assertLessEqual(clock.now - 1000.0, 31)
+
+    def test_missing_pressure_data_does_not_block(self):
+        def broken():
+            raise FileNotFoundError("/proc/pressure/memory")
+        result = studio.wait_for_h3_load_headroom(read=broken, sleep=lambda _s: None)
+        self.assertIsNone(result["settled"])
+
+    def test_cancelled_job_stops_waiting(self):
+        result, _clock = self._wait([_pressure(psi_full=40.0)], j={"cancel": True})
+        self.assertIsNone(result["settled"])
+
+
+class H3LoadPressureRecordTests(unittest.TestCase):
+    def test_record_tracks_peaks_floor_swap_and_runs_at_the_guard_limit(self):
+        recorder = studio.H3LoadPressureRecorder(task="t2va", job_id="idle-restore-h3",
+                                                 read=lambda: _pressure())
+        recorder.row["guard_psi_limit"] = 50.0
+        for full, avail, swap in ((0, 110, 1.0), (55, 40, 2.0), (60, 25, 3.5),
+                                  (20, 30, 3.0), (51, 26, 2.5), (52, 27, 2.5)):
+            recorder.observe(_pressure(available_gib=avail, psi_full=full,
+                                       psi_some=full + 1, swap_used_gib=swap))
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "h3-load-pressure.jsonl"
+            row = recorder.finish("ready", settle={"settled": True}, path=log)
+            written = [line for line in log.read_text().splitlines() if line]
+        self.assertEqual(1, len(written))
+        self.assertEqual(60.0, row["peak_psi_full_avg10"])
+        self.assertEqual(25.0, row["min_available_gib"])
+        self.assertEqual(2.5, row["max_swap_growth_gib"])
+        self.assertEqual(2, row["longest_run_at_guard_psi"])
+        self.assertEqual("ready", row["outcome"])
+        self.assertEqual({"settled": True}, row["settle"])
+
+    def _boot_h3(self, guard_answers, engine_answers):
+        recorded = []
+
+        class FakeRecorder:
+            def __init__(self, task=None, job_id=None, **kwargs):
+                self.task = task
+
+            def start(self):
+                return self
+
+            def finish(self, outcome, settle=None, path=None):
+                recorded.append((self.task, outcome, settle))
+
+        previous = getattr(studio._gpu_thread, "lease", None)
+        studio._gpu_thread.lease = SimpleNamespace(phase="load", engine="h3", task="t2va")
+        guard = iter(guard_answers)
+        up = iter(engine_answers)
+        live = {"variant": "fl2va", "task": "t2va", "turbo_preset": None}
+        sol = {"SOL_PKG": "/opt/sol", "SOL_ROOT": "/opt/sol-root",
+               "SOL_H3_SPARK_QWEN_IMAGE": "qwen-image", "SOL_H3_SPARK_QWEN_WEIGHTS_ROOT": "/w"}
+        try:
+            with mock.patch.object(studio, "H3LoadPressureRecorder", FakeRecorder), \
+                 mock.patch.object(studio, "gpu_recovery_pending", return_value=False), \
+                 mock.patch.object(studio, "sol_h3_control_guard_ready",
+                                   side_effect=lambda: next(guard)), \
+                 mock.patch.object(studio, "engine_up", side_effect=lambda _n: next(up)), \
+                 mock.patch.object(studio, "wait_for_h3_load_headroom",
+                                   return_value={"settled": True}), \
+                 mock.patch.object(studio, "delegation_env", return_value={}), \
+                 mock.patch.object(studio.local_config, "sol", return_value=sol), \
+                 mock.patch.object(studio, "write_runtime_environment"), \
+                 mock.patch.object(studio.subprocess, "run",
+                                   return_value=subprocess.CompletedProcess([], 0)), \
+                 mock.patch.object(studio, "http_json", return_value={"loaded": True, **live}), \
+                 mock.patch.object(studio, "h3_resident_config", return_value=live), \
+                 mock.patch.object(studio, "touch_engine"), \
+                 mock.patch.object(studio, "stop_engine") as stop, \
+                 mock.patch.object(studio, "maybe_release_pool"), \
+                 mock.patch.object(studio.time, "sleep"):
+                result = studio._boot_engine("h3", None, variant="fl2va", task="t2va")
+        finally:
+            studio._gpu_thread.lease = previous
+        return result, recorded, stop
+
+    def test_h3_cold_load_is_recorded_when_it_becomes_ready(self):
+        # guard: admission, post-settle recheck, first loop pass; engine: cold, then up
+        result, recorded, stop = self._boot_h3([True, True, True], [False, True])
+        self.assertTrue(result)
+        self.assertEqual([("t2va", "ready", {"settled": True})], recorded)
+        stop.assert_not_called()
+
+    def test_h3_cold_load_is_recorded_when_the_guard_stops_it(self):
+        result, recorded, stop = self._boot_h3([True, True, False], [False])
+        self.assertFalse(result)
+        self.assertEqual([("t2va", "guard-lost", {"settled": True})], recorded)
+        stop.assert_called_once_with("h3")
+
+    def test_settle_runs_before_the_h3_unit_starts_and_rechecks_the_guard(self):
+        previous = getattr(studio._gpu_thread, "lease", None)
+        studio._gpu_thread.lease = SimpleNamespace(phase="load", engine="h3", task="t2va")
+        order = []
+        guard = iter([True, False])
+        try:
+            with mock.patch.object(studio, "gpu_recovery_pending", return_value=False), \
+                 mock.patch.object(studio, "engine_up", return_value=False), \
+                 mock.patch.object(studio, "sol_h3_control_guard_ready",
+                                   side_effect=lambda: order.append("guard") or next(guard)), \
+                 mock.patch.object(studio, "wait_for_h3_load_headroom",
+                                   side_effect=lambda j=None: order.append("settle") or
+                                   {"settled": True}), \
+                 mock.patch.object(studio, "H3LoadPressureRecorder") as recorder, \
+                 mock.patch.object(studio.subprocess, "run") as run:
+                self.assertFalse(studio._boot_engine("h3", None, task="t2va"))
+        finally:
+            studio._gpu_thread.lease = previous
+        self.assertEqual(["guard", "settle", "guard"], order)
+        run.assert_not_called()
+        recorder.assert_not_called()
 
 
 class RestoreRenderSerializationTests(unittest.TestCase):
