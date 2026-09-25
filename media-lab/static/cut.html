@@ -132,6 +132,16 @@
 
   <div id="toast" class="toast"></div>
 </div>
+<script>
+/* Inside the VibeX Studio app, tell the app Cut is on screen: the editor needs
+   the whole window, so the app tucks its tab bar away while Cut is open. */
+(function(){try{
+  if(sessionStorage.getItem('mlab-embed')!=='1')return;
+  var msg={type:'vibex-lab:ready',page:'cut'};
+  if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify(msg));return;}
+  if(window.self!==window.top)window.parent.postMessage(msg,sessionStorage.getItem('mlab-embed-parent')||'*');
+}catch(e){}})();
+</script>
 <script src="/static/cut.js?v=1"></script>
 </body>
 </html>

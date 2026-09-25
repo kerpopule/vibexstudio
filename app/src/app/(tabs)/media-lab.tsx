@@ -26,6 +26,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
+import { EmbeddedMediaLab } from '@/components/media-lab/embedded-media-lab';
+import { stateTone, type EmbedState } from '@/components/media-lab/embed-overlays';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Button } from '@/components/ui/button';
@@ -38,6 +40,7 @@ import { falModelName, recommendedFalModel } from '@/lib/ai/fal-catalog';
 import { canGenerateImages, canGenerateVideo } from '@/lib/ai/media';
 import { providerGlyph } from '@/lib/ai/models';
 import { probeMediaHost } from '@/lib/media-host-probe';
+import { hostLabel, type EmbedPage } from '@/lib/media-lab-embed';
 import { useCreationDraft, restoreCreationDraft, selectedCreationProvider } from '@/lib/creation-draft';
 import { cutUrl, sendToCut } from '@/lib/medialab-cut';
 import type { MediaLabLink } from '@/lib/storage/settings';
@@ -47,118 +50,169 @@ import { useUiChrome } from '@/lib/ui-chrome';
 import type { GalleryItem, ProviderConnection } from '@/lib/types';
 
 // ---------------------------------------------------------------------------
-// Tab shell: integrated creation and paired server tools
+// Tab shell: the paired Media Lab first, integrated creation one tap away
 // ---------------------------------------------------------------------------
+
+const jobPage = (url: string, job: string) => `${url.replace(/\/+$/, '')}/?job=${encodeURIComponent(job)}`;
 
 export default function MediaLabScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const narrow = width < 600;
   const mediaLab = useApp((s) => s.mediaLab);
   const setTabPillHidden = useUiChrome((s) => s.setTabPillHidden);
-  const focusJob = useApp((s) => s.mediaLabFocusJob);
-  const [view, setView] = useState<'server' | 'device'>(() => focusJob ? 'server' : 'device');
-  // A page the on-device studio wants the server view to open (Cut, after an upload).
-  const [serverPage, setServerPage] = useState<string | null>(null);
-  useEffect(() => useApp.subscribe((state, previous) => {
-    if (state.mediaLabFocusJob && state.mediaLabFocusJob !== previous.mediaLabFocusJob) {
-      setServerPage(null);
-      setView('server');
-    }
-  }), []);
-  const [hostUi,setHostUi]=useState<{origin:string;available:boolean;editingDrafts?:boolean}|null>(null);
+  // null = no explicit choice yet: a paired studio with its own page opens first.
+  const [choice, setChoice] = useState<'server' | 'device' | null>(() => useApp.getState().mediaLabFocusJob ? 'server' : null);
+  // A studio page to open instead of its home: Cut after an upload, or the
+  // item a tapped "finished" notification points at (?job=<id>).
+  const [serverPage, setServerPage] = useState<string | null>(() => {
+    const { mediaLab: link, mediaLabFocusJob: job } = useApp.getState();
+    return link && job ? jobPage(link.url, job) : null;
+  });
+  useEffect(() => {
+    // The focus is consumed once: a later tap on the same notification lands again.
+    if (useApp.getState().mediaLabFocusJob) useApp.getState().setMediaLabFocusJob(null);
+    return useApp.subscribe((state, previous) => {
+      if (state.mediaLabFocusJob && state.mediaLabFocusJob !== previous.mediaLabFocusJob) {
+        setServerPage(state.mediaLab ? jobPage(state.mediaLab.url, state.mediaLabFocusJob) : null);
+        setChoice('server');
+        state.setMediaLabFocusJob(null);
+      }
+    });
+  }, []);
+  const [hostUi,setHostUi]=useState<{origin:string;available:boolean;embed:boolean;editingDrafts?:boolean}|null>(null);
   const webInterface=hostUi?.origin===mediaLab?.url?hostUi?.available:undefined;
+  const embedCapable=hostUi?.origin===mediaLab?.url?hostUi?.embed:undefined;
   const reportHostUi=useCallback((available:boolean)=>{
-    if(mediaLab)setHostUi(previous=>({origin:mediaLab.url,available,editingDrafts:previous?.origin===mediaLab.url?previous.editingDrafts:undefined}));
+    if(mediaLab)setHostUi(previous=>({origin:mediaLab.url,available,embed:previous?.origin===mediaLab.url?previous.embed:false,editingDrafts:previous?.origin===mediaLab.url?previous.editingDrafts:undefined}));
   },[mediaLab]);
+  // Which studio the probe has answered for (reachable or not): until then the
+  // server view waits, so an older page never flashes before the in-app one.
+  const [probedFor, setProbedFor] = useState<string | null>(null);
   useFocusEffect(useCallback(() => {
     let active = true;
-    setHostUi(null);
+    // Re-checked on every focus, but a known answer for the same studio stays
+    // until the new one lands: switching tabs must not reload the studio.
+    setHostUi(previous => previous?.origin === mediaLab?.url ? previous : null);
     if (mediaLab) void probeMediaHost(mediaLab.url).then(host => {
-      if (active && host) setHostUi({origin: mediaLab.url, available: host.webInterface, editingDrafts:host.editingDrafts});
+      if (!active) return;
+      if (host) setHostUi({origin: mediaLab.url, available: host.webInterface, embed: host.embed === true, editingDrafts:host.editingDrafts});
+      setProbedFor(mediaLab.url);
     });
     return () => { active = false; };
-  }, [mediaLab?.url]));
+  }, [mediaLab]));
+  const view = choice ?? (mediaLab && webInterface !== false ? 'server' : 'device');
   const serverActive = mediaLab != null && view === 'server';
-  const inCut = serverActive && /\/cut(\?|$)/.test(serverPage ?? '');
+  const embedded = serverActive && webInterface === true && embedCapable === true;
+  // Which studio page is showing (Cut needs the whole window), per studio.
+  const [pageFor, setPageFor] = useState<{ url: string; page: EmbedPage } | null>(null);
+  const embedPage: EmbedPage = pageFor && pageFor.url === mediaLab?.url ? pageFor.page : 'lab';
+  const onEmbedPage = useCallback((page: EmbedPage) => {
+    if (mediaLab) setPageFor({ url: mediaLab.url, page });
+  }, [mediaLab]);
+  const [embedState, setEmbedState] = useState<EmbedState>('opening');
+  const [reloadKey, setReloadKey] = useState(0);
   const openServerPage = (url: string) => {
     setServerPage(url);
-    setView('server');
+    setChoice('server');
   };
 
-  // The paired studio brings its own bottom nav: while it is on screen the
-  // VibeX tab pill steps aside, and "‹ Studio" up top is the way out.
+  // The in-app studio keeps the VibeX tab pill (its own area switcher moves to
+  // the top), except while Cut needs the whole window. An older studio page
+  // brings its own bottom nav, so there the pill steps aside on phones.
   useFocusEffect(
     useCallback(() => {
-      setTabPillHidden(serverActive && webInterface!==false);
+      setTabPillHidden(serverActive && webInterface !== false &&
+        (embedded ? embedPage === 'cut' : embedCapable === false && Platform.OS !== 'web'));
       return () => setTabPillHidden(false);
-    }, [serverActive, webInterface, setTabPillHidden])
+    }, [serverActive, webInterface, embedded, embedPage, embedCapable, setTabPillHidden])
   );
 
-  const topRow = insets.top + Spacing.one;
+  const headerHeight = insets.top + 52;
+  const tone = embedded ? stateTone(embedState) : hostUi ? 'good' : 'busy';
+  const toneColor = tone === 'good' ? theme.success : tone === 'busy' ? theme.warning : theme.danger;
+  const host = mediaLab ? hostLabel(mediaLab.url) : '';
   return (
     <ThemedView style={styles.container}>
       {/* Both views clear the floating top row: the studio pads its scroll
-          content, the server view pushes the WebView down so the site's own
-          header stays tappable. */}
-      {serverActive ? (
-        <ServerView key={mediaLab.url} onWebInterface={reportHostUi} link={mediaLab} topInset={insets.top + 52} page={serverPage} />
+          content, the server views sit below it so the studio's own top row
+          (queue, theme, area switcher) stays tappable. */}
+      {serverActive && embedded ? (
+        <View style={[styles.container, { paddingTop: headerHeight }]}>
+          <EmbeddedMediaLab
+            key={mediaLab.url}
+            serverUrl={mediaLab.url}
+            page={serverPage}
+            reloadKey={reloadKey}
+            onPage={onEmbedPage}
+            onState={setEmbedState}
+          />
+        </View>
+      ) : serverActive && probedFor !== mediaLab.url ? (
+        <ThemedView style={[styles.empty, { paddingTop: headerHeight }]}>
+          <ActivityIndicator color={theme.tint} />
+          <ThemedText type="small" themeColor="textSecondary" style={styles.center}>Reaching your Media Lab…</ThemedText>
+        </ThemedView>
+      ) : serverActive ? (
+        <ServerView key={`${mediaLab.url}#${reloadKey}`} onWebInterface={reportHostUi} link={mediaLab} topInset={headerHeight} page={serverPage} />
       ) : (
         <StudioView editingDrafts={hostUi?.origin===mediaLab?.url&&hostUi?.editingDrafts===true} serverWebsite={webInterface} topInset={mediaLab ? 52 : 0} onOpenServerPage={mediaLab ? openServerPage : undefined} />
       )}
       {mediaLab ? (
-        <View pointerEvents="box-none" style={[styles.topRow, { top: topRow }]}>
-          {serverActive ? (
-            <Glass radius={Radii.pill} style={styles.topChip}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Back to VibeX Studio"
-                onPress={() => router.navigate('/(tabs)')}
-                hitSlop={8}
-                style={styles.topChipInner}>
-                <Ionicons name="chevron-back" size={16} color={theme.tint} />
-                <ThemedText type="smallBold" style={{ color: theme.tint }}>Studio</ThemedText>
-              </Pressable>
-            </Glass>
-          ) : (
-            <View style={styles.topSpacer} />
-          )}
-          <Glass radius={Radii.xl} style={styles.switchPill}>
-            {(['device', 'server'] as const).map((v) => {
-              const active = view === v;
-              return (
-                <Pressable
-                  key={v}
-                  accessibilityRole="button"
-                  accessibilityLabel={v === 'device' ? 'Create media' : 'More Media Lab tools'}
-                  accessibilityState={{selected: active}}
-                  onPress={() => setView(v)}
-                  style={[styles.switchSeg, active && { backgroundColor: theme.tintSoft }]}>
-                  <Ionicons
-                    name={v === 'device' ? 'sparkles' : 'desktop-outline'}
-                    size={13}
-                    color={active ? theme.tint : theme.textSecondary}
-                  />
-                  <ThemedText type="smallBold" style={{ color: active ? theme.tint : theme.textSecondary }}>
-                    {v === 'device' ? 'Create' : 'More tools'}
-                  </ThemedText>
-                </Pressable>
-              );
-            })}
+        <View pointerEvents="box-none" style={[styles.topRow, { top: insets.top + Spacing.one }]}>
+          <Glass radius={Radii.pill} style={[styles.hostChip, { maxWidth: narrow ? Math.max(120, width - 250) : 420 }]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Connected to ${host}. Change Media Lab server`}
+              onPress={() => router.push('/connect-media-lab')}
+              hitSlop={8}
+              style={styles.topChipInner}>
+              <View style={[styles.statusDot, { backgroundColor: toneColor }]} />
+              <ThemedText type="small" numberOfLines={1} style={styles.hostText}>
+                {narrow ? host : <><ThemedText type="small" themeColor="textSecondary">Connected to </ThemedText>{host}</>}
+              </ThemedText>
+            </Pressable>
           </Glass>
-          {serverActive && webInterface===true ? (
-            <Glass radius={Radii.pill} style={styles.topChip}>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setServerPage(inCut ? null : cutUrl(mediaLab))}
-                hitSlop={8}
-                style={styles.topChipInner}>
-                <Ionicons name={inCut ? 'film-outline' : 'cut-outline'} size={15} color={theme.tint} />
-                <ThemedText type="smallBold" style={{ color: theme.tint }}>{inCut ? 'Lab' : 'Cut'}</ThemedText>
-              </Pressable>
+          <View style={styles.topRight}>
+            <Glass radius={Radii.xl} style={styles.switchPill}>
+              {(['server', 'device'] as const).map((v) => {
+                const active = view === v;
+                return (
+                  <Pressable
+                    key={v}
+                    accessibilityRole="button"
+                    accessibilityLabel={v === 'server' ? 'Media Lab studio' : 'Create with your own AI'}
+                    accessibilityState={{selected: active}}
+                    onPress={() => setChoice(v)}
+                    style={[styles.switchSeg, active && { backgroundColor: theme.tintSoft }]}>
+                    {narrow ? null : (
+                      <Ionicons
+                        name={v === 'server' ? 'film-outline' : 'sparkles'}
+                        size={13}
+                        color={active ? theme.tint : theme.textSecondary}
+                      />
+                    )}
+                    <ThemedText type="smallBold" style={{ color: active ? theme.tint : theme.textSecondary }}>
+                      {v === 'server' ? 'Media Lab' : 'Your AI'}
+                    </ThemedText>
+                  </Pressable>
+                );
+              })}
             </Glass>
-          ) : (
-            <View style={styles.topSpacer} />
-          )}
+            {serverActive ? (
+              <Glass radius={Radii.pill} style={styles.roundBtn}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Reload Media Lab"
+                  onPress={() => setReloadKey((n) => n + 1)}
+                  hitSlop={8}
+                  style={styles.roundInner}>
+                  <Ionicons name="refresh" size={16} color={theme.tint} />
+                </Pressable>
+              </Glass>
+            ) : null}
+          </View>
         </View>
       ) : null}
     </ThemedView>
@@ -184,20 +238,9 @@ function ServerView({
   page: string | null;
 }) {
   const theme = useTheme();
-  const focusJob = useApp((s) => s.mediaLabFocusJob);
-  const clearFocusJob = useApp((s) => s.setMediaLabFocusJob);
-  // A tapped "finished" notification lands on that item: the server opens
-  // ?job=<id> straight to the screening. Consume the focus once.
-  const [focusUri] = useState(() =>
-    focusJob ? `${link.url.replace(/\/+$/, '')}/?job=${encodeURIComponent(focusJob)}` : null
-  );
-  useEffect(() => {
-    if (focusJob) clearFocusJob(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  // Page precedence: an explicit page (Cut after an upload, or the chip)
-  // beats the notification focus, which beats the studio home.
-  const sourceUri = page ?? focusUri ?? link.url;
+  // An explicit page (Cut after an upload, a tapped notification's ?job=<id>)
+  // beats the studio home.
+  const sourceUri = page ?? link.url;
   const [reach, setReach] = useState<Reach>('checking');
   const [webInterface,setWebInterface]=useState(true);
   const checkedFor = useRef<string | null>(null);
@@ -253,11 +296,15 @@ function ServerView({
     <Button title="Open Library" onPress={()=>router.navigate('/(tabs)/creations')} />
   </ThemedView>;
 
-  // react-native-webview has no web renderer — on web, hand off to the browser.
+  // An older studio has no /embed handshake to open inside the app (the
+  // screen shows EmbeddedMediaLab when it does), so on web hand off to a tab.
   if (Platform.OS === 'web') {
     return (
       <ThemedView style={styles.empty}>
         <ThemedText type="heading" style={styles.center}>Media Lab is up</ThemedText>
+        <ThemedText themeColor="textSecondary" type="small" style={[styles.center, styles.body]}>
+          This Media Lab needs an update before it can open inside the app.
+        </ThemedText>
         <Pressable onPress={() => Linking.openURL(sourceUri)} hitSlop={8}>
           <ThemedText type="smallBold" themeColor="tint">Open in a new tab</ThemedText>
         </Pressable>
@@ -275,9 +322,6 @@ function ServerView({
         sharedCookiesEnabled
         mediaPlaybackRequiresUserAction={false}
       />
-      <Pressable onPress={check} style={styles.reload} hitSlop={10}>
-        <Ionicons name="refresh" size={16} color="#FFFFFF" />
-      </Pressable>
     </View>
   );
 }
@@ -719,17 +763,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'transparent',
   },
-  reload: {
-    position: 'absolute',
-    top: Spacing.five + Spacing.three + 44,
-    right: Spacing.three,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.32)',
-  },
   topRow: {
     position: 'absolute',
     left: Spacing.two,
@@ -738,8 +771,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  topSpacer: { width: 88 },
-  topChip: { minWidth: 88 },
+  topRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one },
+  hostChip: { flexShrink: 1 },
+  hostText: { flexShrink: 1 },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  roundBtn: { width: 36, height: 36 },
+  roundInner: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   topChipInner: {
     flexDirection: 'row',
     alignItems: 'center',
