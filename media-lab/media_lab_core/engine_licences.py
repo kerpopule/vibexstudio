@@ -128,7 +128,7 @@ def enabled(engine: str, opted_in: set[str] | None = None) -> bool:
     if lic is None or not lic.personal:
         return True
     opted_in = local_config.personal_engines() if opted_in is None else opted_in
-    return "all" in opted_in or lic.id in opted_in
+    return "all" in opted_in or lic.id in {canonical(e) for e in opted_in}
 
 
 def refusal(engine: str) -> str:
@@ -136,8 +136,9 @@ def refusal(engine: str) -> str:
     lic = licence(engine)
     if lic is None:
         return f"{engine} is not available on this studio."
+    notice = lic.notice if lic.notice.endswith((".", "!", "?")) else lic.notice + "."
     return (f"{lic.name} is off on this studio: its licence is {PERSONAL_BADGE} "
-            f"({lic.licence}). {lic.notice} The studio's owner can switch it on in "
+            f"({lic.licence}). {notice} The studio's owner can switch it on in "
             f"config/local.env with MEDIA_LAB_PERSONAL_ENGINES={lic.id}.")
 
 

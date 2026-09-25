@@ -43,6 +43,9 @@ def test_opt_in_is_per_engine_or_all():
     assert engine_licences.enabled("h3-ltx25", {"h3"})
     assert all(engine_licences.enabled(e, {"all"}) for e in PERSONAL)
     assert engine_licences.enabled("ltx25", set()) and engine_licences.enabled("music3", set())
+    # a host may name an engine by any of its request/host names
+    assert engine_licences.enabled("h3", {"h3-ltx25"})
+    assert engine_licences.enabled("qwen-image-21", {"qwen-image-21-gpu"})
 
 
 def test_switch_reads_local_config(monkeypatch):
@@ -62,6 +65,7 @@ def test_refusal_names_the_badge_the_licence_and_the_switch():
     msg = engine_licences.refusal("yue2")
     assert "personal / non-commercial" in msg and "CC BY-NC 4.0" in msg
     assert "MEDIA_LAB_PERSONAL_ENGINES=yue2" in msg
+    assert "4.0). The studio's owner" in msg      # one sentence ends before the next
 
 
 def test_yue2_notice_matches_the_studio_wording():
