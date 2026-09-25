@@ -151,7 +151,7 @@ mod tests {
         for address in [
             "127.0.0.1",
             "100.200.0.1",
-            "100.66.238.98",
+            "100.99.9.9",
             "100.64.0.10:80",
         ] {
             assert!(candidates(&status(), address).is_err());
