@@ -35,9 +35,14 @@ export default function ConnectMediaLabScreen() {
   // arrive as ?method=; without it a saved server always reopened on 'address'.
   const [method,setMethod]=useState<'local'|'tailnet'|'address'|null>(()=>requestedSetupMethod(params.method,canUseLocalController())??(params.url||mediaLab?.url?'address':null));
   const [showRequirements,setShowRequirements]=useState(false);
-  useEffect(()=>{
+  // A new address (a deep link, or a server saved meanwhile) opens the address
+  // step unless a method is already chosen. Only a change counts: "Change
+  // setup method" must still be able to return to the chooser.
+  const [addressSources,setAddressSources]=useState([params.url,mediaLab?.url]);
+  if(addressSources[0]!==params.url||addressSources[1]!==mediaLab?.url){
+    setAddressSources([params.url,mediaLab?.url]);
     if(params.url||mediaLab?.url)setMethod(current=>current??'address');
-  },[params.url,mediaLab?.url]);
+  }
   const [editedInput, setInput] = useState<string | null>(null);
   const input = editedInput ?? params.url ?? mediaLab?.url ?? '';
   const [installState, setInstallState] = useState<'checking' | 'unavailable' | 'existing' | 'running' | 'idle' | 'failed' | 'installed'>(canUseLocalController() ? 'checking' : 'idle');

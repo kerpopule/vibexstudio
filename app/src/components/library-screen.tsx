@@ -74,8 +74,13 @@ export default function LibraryScreen({ inTab = false }: { inTab?: boolean }) {
   const [items, setItems] = useState<LibraryEntry[]>([]);
   const [query, setQuery] = useState('');
   const [folder, setFolder] = useState('');
+  // Folder paths belong to one server: switching servers starts at the top level.
+  const [folderServer, setFolderServer] = useState(serverUrl);
+  if (folderServer !== serverUrl) {
+    setFolderServer(serverUrl);
+    setFolder('');
+  }
   const [foldersOpen, setFoldersOpen] = useState(false);
-  useEffect(() => {setFolder('');}, [serverUrl]);
   const folderItems = items.filter(item => !item.remote || loadedServerUrl === serverUrl);
   const childFolders = childLibraryFolders(folderItems, folder);
   const [kind, setKind] = useState<'all' | LibraryEntry['kind']>(() =>
@@ -193,26 +198,35 @@ export default function LibraryScreen({ inTab = false }: { inTab?: boolean }) {
     finally {setBusy(null);}
   };
 
-  const refresh = () => {
-    setRefreshVersion(version => version + 1);
-  };
-  useFocusEffect(useCallback(() => {
-    let active = true;
+  // Loads this device's creations and the paired server's Library. Focus and
+  // refresh both call it; each call supersedes the one before.
+  const loadEpoch = useRef(0);
+  const loadLibrary = useCallback(() => {
+    const current = ++loadEpoch.current;
     setLoading(true);
     setError(null);
     setDeviceError(null);
     setRemoteError(null);
     setSpriteFrames([]);
     loadEntries(serverUrl).then((result) => {
-      if (!active) return;
+      if (current !== loadEpoch.current) return;
       setItems(result.items);
       setLoadedServerUrl(serverUrl);
       setRemoteError(result.remoteError);
       setDeviceError(result.deviceError);
-    }).catch(() => { if (active) setError('Your library could not be loaded. Try again.'); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [serverUrl,refreshVersion]));
+    }).catch(() => { if (current === loadEpoch.current) setError('Your library could not be loaded. Try again.'); })
+      .finally(() => { if (current === loadEpoch.current) setLoading(false); });
+    // setSpriteFrames never changes; it is listed because the React Compiler
+    // cannot prove that here and would otherwise skip this whole screen.
+  }, [serverUrl, setSpriteFrames]);
+  useFocusEffect(useCallback(() => {
+    loadLibrary();
+    return () => { loadEpoch.current++; };
+  }, [loadLibrary]));
+  const refresh = () => {
+    setRefreshVersion(version => version + 1);
+    loadLibrary();
+  };
 
   const exportAsset=async(item:LibraryEntry)=>{
     if(busy||exporting.current)return;

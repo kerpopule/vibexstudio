@@ -1,0 +1,75 @@
+name: app and desktop checks
+
+# The Studio app (app/) and the desktop shell's Node code (desktop/) had no CI:
+# media-lab-suite.yml covers media-lab/ and identity-guard.yml covers private
+# strings, so a lint error, a type error or a failing unit test in app/, or a
+# broken Workbench contract, reached main unrun.
+#
+# Not run here: the opt-in sshd tunnel case (VIBEX_TEST_SSHD=1), the desktop
+# pytest cases and `cargo test`. desktop/README.md lists those local checks.
+
+on:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'desktop/**'
+      - '.github/workflows/app-desktop-checks.yml'
+  push:
+    branches: [main]        # not on tag pushes: v* tags are release builds
+    paths:
+      - 'app/**'
+      - 'desktop/**'
+      - '.github/workflows/app-desktop-checks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: App (lint, typecheck, unit tests, web export)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint (zero warnings)
+        run: npm run lint -- --max-warnings 0
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      # The desktop app ships this export. With static output it also renders
+      # the app's routes once outside a browser, which catches code that reads
+      # window or navigator during render.
+      - name: Web export builds
+        run: npx expo export --platform web --output-dir "$RUNNER_TEMP/web-export"
+
+  desktop:
+    name: Desktop (Node tests, Workbench contract)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      # These tests use only Node built-ins and desktop/workbench, so there is
+      # nothing to install or cache.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Node tests
+        run: node --test desktop/tests/*.mjs
+      - name: Workbench contract (live server on loopback)
+        run: sh desktop/workbench/test.sh
