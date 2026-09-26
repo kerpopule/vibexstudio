@@ -329,6 +329,38 @@ def test_throttle_identity_cannot_be_forged_from_the_tailnet(fresh, monkeypatch)
     assert app._client_ip(request(None, "studio.example.com", "203.0.113.5")) == "203.0.113.5"
 
 
+def test_an_ipv6_visitor_cannot_rotate_through_its_own_64(fresh, monkeypatch):
+    """Home broadband and phones get a whole IPv6 /64 and may use any address
+    in it. Keyed per address, every guess could come from a new one and start
+    with two free tries; keyed per /64 they all share one backoff."""
+    app, _ = fresh
+    monkeypatch.setattr(app, "PUBLIC_HOSTS", {"studio.example.com"})
+
+    def request(peer, cf):
+        return SimpleNamespace(client=SimpleNamespace(host=peer),
+                               headers={"host": "studio.example.com", "cf-connecting-ip": cf})
+
+    one = app._client_ip(request("127.0.0.1", "2a01:4f8:c0c:1a2b::1"))
+    assert one == "2a01:4f8:c0c:1a2b::/64"
+    assert app._client_ip(request("127.0.0.1", "2a01:4f8:c0c:1a2b:dead:beef:1:2")) == one
+    assert app._client_ip(request("127.0.0.1", "2A01:4F8:C0C:1A2B::9")) == one
+    assert app._client_ip(request("127.0.0.1", "2a01:4f8:c0c:1a2c::1")) != one     # a neighbour
+    assert app._client_ip(request("127.0.0.1", "::ffff:203.0.113.9")) == "203.0.113.9"
+    assert app._client_ip(request("127.0.0.1", "203.0.113.9")) == "203.0.113.9"
+    # tailnet and other private IPv6 peers keep a key of their own
+    assert app._client_ip(request("fd7a:115c:a1e0::1", "")) == "fd7a:115c:a1e0::1"
+    assert app._client_ip(request("fd7a:115c:a1e0::2", "")) == "fd7a:115c:a1e0::2"
+    assert app._client_ip(request("127.0.0.1", "not-an-address")) == "not-an-address"
+
+    # end to end: a new address in the same /64 for every wrong guess backs off
+    codes = []
+    for i in range(5):
+        client = TestClient(app.app, base_url="https://studio.example.com")   # no device cookie
+        codes.append(client.post("/api/gate", json={"code": f"wrong-guess-v6-{i}"},
+                                 headers={"cf-connecting-ip": f"2a01:4f8:c0c:7777::{i + 1:x}"}).status_code)
+    assert codes.count(403) <= 2 and codes[-1] == 429, codes
+
+
 def test_backoff_still_guards_the_family_code(fresh):
     app, _ = fresh
     client = _client(app)                                 # holds a device cookie
@@ -386,6 +418,30 @@ def test_local_token_file_is_private_and_only_sent_to_this_machine(tmp_path, mon
     assert local_token.matches(token, token) and not local_token.matches(token, "")
     assert not local_token.matches("", "") and not local_token.matches("x", token)
     assert local_token.read(tmp_path / "nowhere") == ""
+
+
+def test_local_token_goes_to_the_studio_port_only(tmp_path, monkeypatch):
+    """Another service on this box is not the studio. The text-model port on a
+    Spark is a bridge that forwards every request header to a second machine,
+    and runners that install the token handler also call it."""
+    import urllib.request
+    from media_lab_core import local_config
+    monkeypatch.setattr(local_config, "own_addresses", lambda: {"127.0.0.1", "localhost", "10.9.8.7"})
+    monkeypatch.delenv("MEDIA_LAB_PORT", raising=False)
+    token = local_token.ensure(tmp_path)
+    for url in ("http://127.0.0.1:8004/v1/chat/completions", "http://10.9.8.7:8290/health",
+                "http://localhost/api/queue", "https://127.0.0.1/api/queue",
+                "http://evil.example\\@127.0.0.1:7863/", "http://user@127.0.0.1:7863/",
+                "ftp://127.0.0.1:7863/", "http://127.0.0.1:notaport/"):
+        assert local_token.headers_for(url, tmp_path) == {}, url
+    req = local_token.authorize(urllib.request.Request("http://127.0.0.1:8004/v1/models"), tmp_path)
+    assert local_token.HEADER.capitalize() not in req.unredirected_hdrs
+    # a studio that install.sh put on another port still gets it
+    (tmp_path / "install.json").write_text(json.dumps({"port": 7870}))
+    assert local_token.headers_for("http://127.0.0.1:7870/api/queue", tmp_path) == {local_token.HEADER: token}
+    monkeypatch.setenv("MEDIA_LAB_PORT", "7999")
+    assert local_token.headers_for("http://localhost:7999/api/queue", tmp_path) == {local_token.HEADER: token}
+    assert local_token.headers_for("http://127.0.0.1:8004/v1/models", tmp_path) == {}
 
 
 def test_runners_that_call_the_studio_carry_the_token_not_a_host_header():

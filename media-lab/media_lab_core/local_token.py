@@ -14,9 +14,12 @@ start) and sending it in the ``X-Media-Lab-Local`` header. Reading that file
 needs the same access as reading the door codes themselves, so it grants
 nothing new. It carries the FAMILY permission set, never admin.
 
-The token is only ever attached to requests for this machine's own studio
-addresses (loopback, the bind address, the tailnet address): it never leaves
-the box. Standard library only.
+The token is only ever attached to requests for this machine's own studio:
+one of its own addresses (loopback, the bind address, the tailnet address)
+AND the studio's port. Other services on the same box are not the studio --
+the text-model port, for one, is a bridge that forwards every request header
+to another machine -- so a runner that also talks to them must not hand them
+the token. Standard library only.
 """
 from __future__ import annotations
 
@@ -24,6 +27,7 @@ import hmac
 import http.cookiejar
 import ipaddress
 import json
+import os
 import secrets
 import urllib.parse
 import urllib.request
@@ -33,6 +37,8 @@ from . import local_config, secret_files
 
 HEADER = "X-Media-Lab-Local"
 FILE_NAME = "local-token.txt"
+DEFAULT_PORT = 7863                 # the studio's port unless install.sh chose another
+INSTALL_CONFIG = "install.json"     # where install.sh / `media-lab config` record it
 
 
 def token_path(root: Path | None = None) -> Path:
@@ -78,10 +84,37 @@ def own_host(host: str) -> bool:
     return host in local_config.own_addresses()
 
 
+def studio_ports(root: Path | None = None) -> set[int]:
+    """The port(s) this machine's studio answers on: 7863, the port install.sh
+    recorded in install.json, and ``MEDIA_LAB_PORT`` when it is set."""
+    ports = {DEFAULT_PORT}
+    try:
+        cfg = json.loads((token_path(root).parent / INSTALL_CONFIG).read_text(encoding="utf-8"))
+        port = str(cfg.get("port", "")) if isinstance(cfg, dict) else ""
+        if port.isdigit():
+            ports.add(int(port))
+    except (OSError, ValueError):
+        pass
+    env = os.environ.get("MEDIA_LAB_PORT", "").strip()
+    if env.isdigit():
+        ports.add(int(env))
+    return ports
+
+
 def headers_for(url: str, root: Path | None = None) -> dict[str, str]:
-    """``{HEADER: token}`` when ``url`` is this machine's studio, else ``{}``."""
-    host = urllib.parse.urlsplit(url).hostname or ""
-    if not own_host(host):
+    """``{HEADER: token}`` when ``url`` is this machine's studio, else ``{}``.
+
+    This machine's studio means: plain http(s), one of this machine's own
+    addresses, the studio's port, and no user-info in the address (URL parsers
+    disagree about ``a\\@b``; this one refuses to guess)."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        port = parts.port or {"http": 80, "https": 443}.get(parts.scheme)
+    except ValueError:
+        return {}
+    if parts.scheme not in ("http", "https") or "@" in parts.netloc or "\\" in parts.netloc:
+        return {}
+    if not own_host(parts.hostname or "") or port not in studio_ports(root):
         return {}
     token = read(root)
     return {HEADER: token} if token else {}
