@@ -182,3 +182,19 @@ def test_timer_and_service_are_shipped():
     timer = (root / "media-lab-hold-autorecover.timer").read_text()
     assert "runner/hold_autorecover.py" in service and "Type=oneshot" in service
     assert "OnUnitActiveSec=5min" in timer
+
+
+def test_removing_the_give_up_flag_resets_the_failure_count(tmp_path, monkeypatch):
+    _enable(monkeypatch)
+    paths = FakePaths(tmp_path)
+    fail = lambda p, j: (False, {"rc": 1})
+    har.main([], paths=paths, reconcile=fail, facts=facts())
+    har.main([], paths=paths, reconcile=fail, facts=facts(hold_created=NOW - 800, now=NOW + 5000))
+    assert json.loads(paths.state.read_text())["consecutive_failures"] == 2
+    assert paths.gaveup.exists()
+    paths.gaveup.unlink()                      # a person looked and cleared it
+    calls = []
+    ok = lambda p, j: calls.append(j) or (True, {"rc": 0})
+    out = har.main([], paths=paths, reconcile=ok, facts=facts(hold_created=NOW - 700, now=NOW + 20000))
+    assert out["action"] == "reconcile" and calls == ["idle-restore-h3"]
+    assert json.loads(paths.state.read_text())["consecutive_failures"] == 0

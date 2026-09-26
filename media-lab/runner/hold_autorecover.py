@@ -316,6 +316,11 @@ def main(argv: list[str] | None = None, *, paths: Paths | None = None,
     paths = paths or Paths()
     facts = facts if facts is not None else gather(paths)
     state = _read_json(paths.state) or {}
+    if state.get("gaveup_at") and not paths.gaveup.exists() and not args.dry_run:
+        # A person looked and removed the give-up flag: start counting afresh.
+        state["consecutive_failures"] = 0
+        state.pop("gaveup_at", None)
+        _save(paths.state, state)
     enabled = local_config.int_value(FLAG, 0) == 1
     action, why = decide(facts, state, enabled=enabled, gaveup=paths.gaveup.exists())
     lease = facts.get("lease") or {}
@@ -332,6 +337,8 @@ def main(argv: list[str] | None = None, *, paths: Paths | None = None,
         _save(paths.state, state)
         return out
     if action == "giveup":
+        state["gaveup_at"] = facts["now"]
+        _save(paths.state, state)
         _save(paths.gaveup, {"ts": facts["now"], "why": why, "lease_job": lease.get("job_id"),
                              "lease_reason": lease.get("reason"),
                              "next_step": "Look at the hold, clear it with "
@@ -354,6 +361,8 @@ def main(argv: list[str] | None = None, *, paths: Paths | None = None,
     _audit(paths, out)
     log(("cleared the hold" if ok else "reconcile did NOT clear the hold") + f": {receipt}")
     if not ok and state["consecutive_failures"] >= GIVE_UP_AFTER:
+        state["gaveup_at"] = facts["now"]
+        _save(paths.state, state)
         _save(paths.gaveup, {"ts": facts["now"], "why": f"{GIVE_UP_AFTER} failed attempts",
                              "lease_job": lease.get("job_id"), "receipt": receipt})
     return out
