@@ -61,8 +61,9 @@ links to each licence, is [docs/ENGINE-LICENCES.md](docs/ENGINE-LICENCES.md).
 (MIT for the project's code and data). The examples are other people's work:
 as that project itself says, its MIT licence does not grant commercial rights
 to each third-party prompt or image. Treat them as learning references and ask
-the original author before commercial use. See
-`static/template-library/NOTICE.md`.
+the original author before commercial use. Cases showing franchise characters or
+branding, or marked private or non-redistributable, have been removed; the
+provenance rules for what may ship are in `static/template-library/NOTICE.md`.
 
 ## Design & type
 

@@ -1,7 +1,7 @@
 {
  "collection": "Media Lab Image Template Collection",
  "schemaVersion": 1,
- "totalCases": 524,
+ "totalCases": 494,
  "source": {
   "repository": "https://github.com/freestylefly/awesome-gpt-image-2",
   "commit": "3a9c63baa03e6bbe2f28c89a2654cf9845466646",
@@ -60,40 +60,6 @@
   "Travel"
  ],
  "cases": [
-  {
-   "id": 527,
-   "title": "Fake Speed-Paint Timelapse",
-   "image": "/static/template-library/images/case527.gif",
-   "imageAlt": "Animated fake digital speed-paint timelapse progressing from blank canvas to finished illustration",
-   "sourceLabel": "@arthan1011 via r/StableDiffusion; amplified by @SD_Tutorial",
-   "sourceUrl": "https://www.reddit.com/r/StableDiffusion/comments/1vzykd7/generating_fake_speedpaint_timelapse_with_minimax/",
-   "relatedUrl": "https://x.com/sd_tutorial/status/2093376633533325689?s=46",
-   "prompt": "MINIMAX H3 REF2VA — FAKE SPEED-PAINT TIMELAPSE TEMPLATE\n\nRequired inputs (upload separately, never as a contact sheet):\n- <Picture 1>: the exact finished target artwork for the end of the sequence.\n- <Picture 2>: the exact first-frame canvas for this clip. For clip 1 use a blank canvas; for later clips use the final frame from the preceding clip.\n\nChoose one CURRENT STAGE for this 12-second clip:\n[construction sketch / clean line art / flat color blocking / shading, texture, and final polish]\n\nsubject_definitions:\n<Picture 1> is the reference finished digital artwork and the visual destination.\n<Picture 2> is the exact first frame and current state of the canvas.\n\nsummary:\n[reference generation] The target video is a convincing fixed-camera digital speed-paint timelapse that advances naturally from <Picture 2> toward <Picture 1> during the selected CURRENT STAGE. The artist, hand, stylus, cursor, interface, menus, toolbars, text overlays, and screen reflections are completely absent. Only the artwork canvas is visible.\n\nretention_analysis:\n<Picture 2>: strongly_preserved at the opening, including canvas crop, aspect ratio, background color, composition, and every existing mark.\n<Picture 1>: progressively approached throughout the clip and strongly_preserved as the final visual target. Preserve the exact subject design, pose, silhouette, proportions, palette, lighting direction, facial features, clothing, objects, and background composition.\n\ndetailed_description:\n[Shot 1] From 00:00.000 through 00:10.800, show an accelerated but believable drawing process for the selected CURRENT STAGE. New strokes and filled regions appear in coherent artist-like order: largest structural decisions first, then medium forms, then small details. Lines grow along plausible stroke paths rather than popping on all at once. Color and shading build in localized passes. Motion remains entirely inside the canvas. The camera is locked with no zoom, pan, shake, crop change, parallax, or perspective drift. Do not erase completed work, reverse progress, morph the character, redraw the anatomy, invent alternate objects, or jump abruptly between unrelated completion states.\n[Shot 2] At 00:11.000, settle on the completed target state for this stage. For the final-polish clip, the frame matches <Picture 1> as closely as possible and remains still through the end so it can be held, looped, or used as the next continuity frame.\n\noverall_soundscape:\nSilence. No drawing sounds, speech, room tone, music, or interface sounds.\n\nnon_diegetic_music:\nN/A\n\nFOUR-CLIP RECIPE:\nRender four separate 12-second Ref2VA clips in order: (1) blank canvas to construction sketch, (2) construction sketch to clean line art, (3) clean line art to flat color, (4) flat color to shading, texture, and final polish. Use each prior clip's verified final frame as <Picture 2> for the next clip. Keep <Picture 1>, dimensions, seed policy, crop, and camera lock constant. Trim duplicate hold frames at joins, concatenate without re-timing the visual process, and export both MP4 and a silent looping GIF.",
-   "promptPreview": "MiniMax H3 Ref2VA fake speed-paint timelapse. Upload the finished artwork as Picture 1 and the current canvas as Picture 2, then render one controlled 12-second stage with no visible hand, cursor, or interface.",
-   "category": "Illustration & Art",
-   "styles": [
-    "Illustration",
-    "Scenes"
-   ],
-   "scenes": [
-    "Creative",
-    "Social"
-   ],
-   "featured": true,
-   "githubUrl": "",
-   "provenance": "media-lab-local",
-   "rightsNote": "Private research/learning derivative. Preserve attribution. No publication, redistribution, or commercial-rights grant is implied.",
-   "workflow": {
-    "engine": "MiniMax H3",
-    "mode": "Ref2VA",
-    "clipSeconds": 12,
-    "recommendedClips": 4,
-    "outputFormats": [
-     "mp4",
-     "gif"
-    ]
-   }
-  },
   {
    "id": 526,
    "title": "Volumetric Laser Black Poster",
@@ -5129,29 +5095,6 @@
    "orig_prompt": "[中文]\n创建一个 [SNACK] 的品牌技术信息图，结合产品的真实照片或照片级真实渲染，并将技术注释覆盖层直接置于其上。在纯白摄影棚背景上使用带有策略性 [BRAND COLOR] 点缀的黑色墨水风格线条画（建筑草图外观），包括：\n• 关键组件标签\n• 显示结构、分层或内部设计的内部截面图\n• 测量数据、尺寸和规格\n• 带有成分和数量的材料标注\n• 指示主要功能和结构完整性的箭头\n• 显示关键机械或设计元素的简单示意图或剖面图\n• 可持续性标注\n标题位置：位于手绘技术注释框内，带有强调色边框，粗体字显示产品名称，置于上角。\n风格与布局规则：\n• 真实产品保持清晰可见\n• 注释具有素描感、技术感和建筑感\n• 强调色用于高光（占线条工作的 20-30%），黑色用于主要技术线条（70-80%）\n• 构图整洁，负空间平衡\n• 具有教育意义、食品工程氛围和高端品牌感\n• 在角落包含微妙的品牌标志\n视觉风格：极简技术插画美学，黑色线条在真实图像上带有点缀，精确但略带手绘感。\n调色板：白色背景，黑色注释线/文本，[BRAND COLOR] 仅用于点缀和关键标注。\n输出：1080×1080，超清晰，社交媒体动态优化，无水印。\n\n[English]\nCreate a branded technical infographic of a [SNACK], combining a realistic photograph or photoreal render of the product with technical annotation overlays placed directly on top. Use black ink–style line drawings with strategic [BRAND COLOR] accents (architectural sketch look) on a pure white studio background, including:\n• Key component labels\n• Internal cross-section showing structure, layering, or internal design\n• Measurements, dimensions, and specifications\n• Material callouts with composition and quantities\n• Arrows indicating function for primary features and structural integrity\n• Simple schematic or sectional diagram showing key mechanical or design elements\n• Sustainability callouts\nTitle placement: Inside a hand-drawn technical annotation box with accent border reading the product name in bold font, positioned in upper corner.\nStyle & layout rules:\n• The realistic product remains clearly visible\n• Annotations feel sketched, technical, and architectural\n• Accents used for highlight (20-30% of linework), black for primary technical lines (70-80%)\n• Clean composition with balanced negative space\n• Educational, food-engineering vibe with premium branding\n• Include subtle brand logo mark in corner\nVisual style: Minimal technical illustration aesthetic, black linework with accents over realistic imagery, precise but slightly hand-drawn feel.\nColor palette: White background, black annotation lines/text, [BRAND COLOR] for accents and key callouts only.\nOutput: 1080×1080, ultra-crisp, social-feed optimized, no watermark.​​​​​​​​​​​​​​​​"
   },
   {
-   "id": 309,
-   "title": "Creative Leaf Collage Character Portrait",
-   "image": "/static/template-library/images/case309.jpg",
-   "imageAlt": "Creative Leaf Collage Character Portrait",
-   "sourceLabel": "@meng_dagg695",
-   "sourceUrl": "https://x.com/meng_dagg695/status/2032019839070716170",
-   "prompt": "{ CHARACTER NAME } made entirely from natural leaves, creative leaf collage art, layered green and dry leaves forming the body, face, and clothes, visible leaf veins and textures, handcrafted botanical art style, clean white background, top-down flat lay composition, highly detailed, soft natural lighting, realistic leaf textures, 8k",
-   "promptPreview": "{ CHARACTER NAME } made entirely from natural leaves, creative leaf collage art, layered green and dry leaves forming the body, face, and clothes, visible leaf veins and textures, handcrafted botanica",
-   "category": "Other Use Cases",
-   "styles": [
-    "Realistic",
-    "Character"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-309",
-   "orig_title": "创意树叶拼贴构成的角色画像",
-   "orig_prompt": "[中文]\n{ 角色名称 } 完全由天然树叶制成，创意树叶拼贴艺术，分层绿叶和干叶构成身体、面部和衣服，可见叶脉和纹理，手工植物艺术风格，干净的白色背景，俯视平铺构图，高度细节，柔和自然光，逼真树叶纹理，8k\n\n[English]\n{\n  CHARACTER NAME\n} made entirely from natural leaves,\ncreative leaf collage art,\nlayered green and dry leaves forming body,\nface and clothes,\nvisible leaf veins and textures,\nhandcrafted botanical art style,\nclean white background,\ntop-down flat lay composition,\nhighly detailed,\nsoft natural lighting,\nrealistic leaf textures,\n8k"
-  },
-  {
    "id": 308,
    "title": "Douyin Live Stream Screenshot",
    "image": "/static/template-library/images/case308.jpg",
@@ -5315,29 +5258,6 @@
    "orig_prompt": "[中文]\n一个九宫格图片，展现九位当代知名设计师设计的同一组物体：机械键盘，包括设计师头像，设计师对于设计的中文文字解读和作品呈现。排版统一规则\n\n[English]\nA nine-grid image showing the same group of objects designed by nine contemporary famous designers: mechanical keyboards, including designer avatars, designers' Chinese text interpretations of the designs, and artwork presentations. Unified layout rules"
   },
   {
-   "id": 301,
-   "title": "Terminator Robot Taobao Product Page",
-   "image": "/static/template-library/images/case301.jpg",
-   "imageAlt": "Terminator Robot Taobao Product Page",
-   "sourceLabel": "@rionaifantasy",
-   "sourceUrl": "https://x.com/rionaifantasy/status/2045356799751303194",
-   "prompt": "Generate image:\nTaobao product detail page for a T-800 robot, displaying:\nfront, side, and back three-view drawings of the robot,\nproduct price,\nproduct details,\nfunctions and usage scenarios",
-   "promptPreview": "Generate image:\nTaobao product detail page for a T-800 robot, displaying:\nfront, side, and back three-view drawings of the robot,\nproduct price,\nproduct details,\nfunctions and usage scenarios",
-   "category": "Products & E-commerce",
-   "styles": [
-    "Product"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Story"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-301",
-   "orig_title": "终结者机器人淘宝详情页",
-   "orig_prompt": "[中文]\n生成图片:\nT-800机器人的淘宝商品详情页，展示:\n机器人的正面侧面背面三视图，\n产品价格，\n产品细节，\n功能和使用场景等\n\n[English]\nGenerate image:\nTaobao product detail page of a T-800 robot, showing:\nfront, side, and back three-view drawings of the robot,\nproduct price,\nproduct details,\nfunctions and usage scenarios"
-  },
-  {
    "id": 300,
    "title": "Full Text of Chu Shi Biao on Blackboard",
    "image": "/static/template-library/images/case300.jpg",
@@ -5357,31 +5277,6 @@
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-300",
    "orig_title": "黑板上的出师表全文",
    "orig_prompt": "[中文]\n生成图片:\n手写在教室黑板上的出师表全文，真实感的粉笔字迹，晴朗白天用iPhone手机实拍\n\n[English]\nGenerate image: The full text of Chu Shi Biao handwritten on a classroom blackboard, realistic chalk handwriting, taken with an iPhone in real life on a sunny day"
-  },
-  {
-   "id": 299,
-   "title": "Minimalist White Space Hand-drawn Sketch",
-   "image": "/static/template-library/images/case299.jpg",
-   "imageAlt": "Minimalist White Space Hand-drawn Sketch",
-   "sourceLabel": "@VoxcatAI",
-   "sourceUrl": "https://x.com/VoxcatAI/status/2045131503001342302",
-   "prompt": "Render [Subject/Theme] in a graffiti sketch style, characterized by rapid outlining, free deformation, impromptu hand-drawing, and a draft-like aesthetic. Lines should be casual, exaggerated, and variable in thickness—slightly messy yet rhythmic and expressive—emphasizing generalization, exaggeration, playfulness, and spontaneity over rigorous realism or detailed rendering. Use rough color blocks with a distinct dry-brush texture, retaining uneven smearing, visible brush strokes, dry-brush effects (feibai), and a sense of layering. Colors should automatically adapt to [Subject/Theme] while maintaining a graffiti, sketch, and generalized visual language. Avoid transparent watercolor blooming, delicate watercolor transitions, paper textures, soft atomization, or dreamy aesthetics. Keep the background predominantly white to maintain simplicity, a relaxed vibe, a sense of incompleteness, and design sensibility. Incorporate a few auxiliary elements such as symbols, arrows, marks, circles, repeated lines, handwritten text, or other graffiti motifs to enhance the sketchbook or jotting aesthetic, ensuring they do not overcrowd the composition or disrupt the subject and negative space. Do not pre-define the image content; instead, automatically derive the most suitable subject imagery, actions, related elements, symbols, or simplified scenes from [Subject/Theme], maintaining a unified graffiti sketch style with exaggerated, generalized expression, and avoiding complex realistic backgrounds or excessive elaboration. Naturally integrate the exclusive signature \"voxcat\" as part of the composition. Position it low-key but clearly—such as in the bottom-left corner, bottom-right corner, or near the title—ensuring the style aligns with the overall layout, resembling an artwork signature or design sign-off. The signature font should be refined, restrained, and high-end; it must not be oversized, disrupt the subject's composition, or appear abrupt or cheap.",
-   "promptPreview": "Render [Subject/Theme] in a graffiti sketch style, characterized by rapid outlining, free deformation, impromptu hand-drawing, and a draft-like aesthetic. Lines should be casual, exaggerated, and vari",
-   "category": "Illustration & Art",
-   "styles": [
-    "UI",
-    "Poster",
-    "Realistic"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Social"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-299",
-   "orig_title": "极简留白涂鸦手绘草图",
-   "orig_prompt": "[中文]\n以涂鸦速写风表现【主题/主体】，整体呈现快速勾勒、自由变形、即兴手绘与草稿式的视觉效果。线条随手、夸张、可粗细不一，略显凌乱但具有节奏和表现力，强调概括、夸张、趣味和随性，而不是严谨写实或精细刻画。\n\n颜色采用粗糙、干刷感明显的块面表现，可保留不均匀的涂抹痕迹、刷痕、飞白与覆盖感，色彩根据【主题/主体】自动适配，但整体保持涂鸦式、速写式、概括式的表达。不要透明水彩晕染效果，不要细腻水彩过渡，不要纸纹理，不要柔和雾化，不要梦幻质感。\n\n背景以留白为主，保持简洁、轻松、未完成感和设计感，可加入少量辅助性符号、箭头、记号、圈画、重复线、随手写的文字或其他涂鸦元素，以增强速写本或随笔式视觉语言，但不可过于拥挤，不可破坏主体和留白气质。\n\n画面内容不需要预先写清楚，由【主题/主体】自动推演并生成最适合的主体形象、动作、相关元素、符号或简化场景，整体保持统一的涂鸦速写风和夸张概括的表现方式，避免复杂写实背景和过度铺陈。\n画面中需自然加入专属签名“voxcat”，作为画面的一部分，位置低调但清晰，可放在左下角、右下角或标题附近，风格需与整体版式统一，像作品署名或设计落款；签名字体精致、克制、高级，不可过大，不可破坏主体构图，不可显得突兀或廉价。\n\n[English]\nExpress [Subject/Theme] in a graffiti sketch style, presenting an overall visual effect of quick outlining, free deformation, impromptu hand-drawing, and draft-like appearance. The lines are casual, exaggerated, and can vary in thickness, slightly messy but rhythmic and expressive, emphasizing generalization, exaggeration, playfulness, and spontaneity, rather than rigorous realism or detailed rendering. Colors are expressed in rough blocks with a distinct dry-brush feel, retaining uneven smearing traces, brush strokes, dry-brush effects, and a sense of coverage. Colors automatically adapt to [Subject/Theme], but the overall expression remains graffiti-style, sketch-style, and generalized. Do not use transparent watercolor blooming effects, do not use delicate watercolor transitions, do not use paper textures, do not use soft atomization, and do not use dreamy textures. The background is mainly left blank, maintaining a sense of simplicity, relaxation, incompleteness, and design. A small number of auxiliary symbols, arrows, marks, circled areas, repeated lines, casually written text, or other graffiti elements can be added to enhance the visual language of a sketchbook or jotting style, but it must not be too crowded, and must not destroy the subject and the blank space temperament. The image content does not need to be written out in advance; the most suitable subject image, actions, related elements, symbols, or simplified scenes are automatically deduced and generated by [Subject/Theme], keeping the overall unified graffiti sketch style and exaggerated generalized expression, avoiding complex realistic backgrounds and over-elaboration. The exclusive signature \"voxcat\" needs to be naturally added to the image as a part of the picture. The position should be low-key but clear, and can be placed in the bottom left corner, bottom right corner, or near the title. The style must be consistent with the overall layout, like an artwork signature or a design sign-off; the signature font should be exquisite, restrained, and high-end, must not be too large, must not destroy the subject composition, and must not appear abrupt or cheap."
   },
   {
    "id": 298,
@@ -5629,27 +5524,6 @@
    "orig_prompt": "[中文]\n生成抖音直播间界面，内容是一个美女在直播\n\n[English]\nGenerate a TikTok live stream interface, the content is a beautiful woman live streaming"
   },
   {
-   "id": 287,
-   "title": "Mai Shiranui Xiaohongshu Profile",
-   "image": "/static/template-library/images/case287.jpg",
-   "imageAlt": "Mai Shiranui Xiaohongshu Profile",
-   "sourceLabel": "@rionaifantasy",
-   "sourceUrl": "https://x.com/rionaifantasy/status/2045356799751303194",
-   "prompt": "Generate a screenshot of Mai Shiranui's Xiaohongshu homepage",
-   "promptPreview": "Generate a screenshot of Mai Shiranui's Xiaohongshu homepage",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI"
-   ],
-   "scenes": [
-    "Tech"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-287",
-   "orig_title": "不知火舞的小红书主页",
-   "orig_prompt": "[中文]\n生成不知火舞的小红书主页截图\n\n[English]\nGenerate a screenshot of Mai Shiranui's Xiaohongshu homepage"
-  },
-  {
    "id": 286,
    "title": "Pearl River New Town Paper-cut Night",
    "image": "/static/template-library/images/case286.jpg",
@@ -5735,31 +5609,6 @@
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-283",
    "orig_title": "小恶魔莉莉香超任游戏海报",
    "orig_prompt": "[中文]\nが「小悪魔リリムリリィちゃんが　スーパーファミコンのゲームだったときのポスターを考えて」に　画像数枚だけで\nこのクオリティ　細かい説明呪文なし　すごいぜ！\n\n[English]\nthat \"Think of a poster when the little devil Lilim Lily-chan was a Super Famicom game\" with just a few images\nthis quality without any detailed explanation spells is amazing!"
-  },
-  {
-   "id": 282,
-   "title": "Gentle Healing Anime Phone Screenshot",
-   "image": "/static/template-library/images/case282.jpg",
-   "imageAlt": "Gentle Healing Anime Phone Screenshot",
-   "sourceLabel": "@Zoulinshen",
-   "sourceUrl": "https://x.com/Zoulinshen/status/2045082518089810073",
-   "prompt": "Generate a portrait-oriented mobile phone screenshot-style image with an aspect ratio close to 9:16. In the upper center of the frame is a real-life coser portraying the 2D anime character (Character Name). The character is rendered in a realistic style, but with facial features that subtly evoke an anime aesthetic, delicate skin, slightly larger eyes, and a gentle expression looking directly at the camera. The coser is seated in an indoor casual setting, such as a cafe or bar counter, with background props appropriate to the scene. At the very top of the image, include a mobile phone system status bar UI featuring icons for time, battery, signal, and network, making the entire image resemble a phone screenshot. At the bottom, overlay a wide, semi-transparent galgame-style dialog box. On the left side of the dialog box, place an anime or chibi-style avatar corresponding to the character in the image. On the right side of the dialog box, typeset the text: the first line displays the character name in a larger font, matching the name mentioned earlier; the following one to two lines display a piece of Simplified Chinese dialogue that fits the character’s persona, written in a gentle and healing style, automatically generated by you. Below the dialog box, add an operation bar mimicking galgame UI. The overall style should be high-definition, rich in detail, with soft lighting, and a natural fusion of 2D anime and real-life photography.",
-   "promptPreview": "Generate a portrait-oriented mobile phone screenshot-style image with an aspect ratio close to 9:16. In the upper center of the frame is a real-life coser portraying the 2D anime character (Character ",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI",
-    "Realistic",
-    "Character"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Fashion"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-282",
-   "orig_title": "温柔治愈系二次元手机截图",
-   "orig_prompt": "[中文]\n生成一张竖版手机截图风格的图片，整体比例接近 9:16。画面中心偏上是一位真人 coser，扮演（角色名称）的二次元角色。人物为写实风格，但五官略带动漫感，皮肤细腻，眼睛稍大，表情温柔地看向镜头，坐在室内的休闲场景中，例如咖啡厅或酒吧吧台前，背景有符合场景的道具。画面最上方加入手机系统状态栏 UI，包括时间、电量、信号、网络等图标，让整张图看起来像手机截图。画面底部叠加一块宽大的半透明 galgame 风格对话框，对话框左侧放一个与画面人物对应的动漫或 Q 版头像；对话框右侧排版文字：第一行用较大字体显示与前面相同的角色名字，下面一到两行显示一段适合这个角色人设的、温柔治愈风格的简体中文台词，由你自动创作。再在对话框下方加一条操作栏，仿照 galgame UI。整体风格高清、细节丰富、光线柔和、二次元与真人写真自然融合。\n\n[English]\nGenerate a portrait mobile phone screenshot style image, with an overall aspect ratio close to 9:16. In the upper center of the frame is a real-life coser, playing a 2D anime character named (Character Name). The character is in a realistic style, but with facial features slightly showing an anime feel, delicate skin, slightly larger eyes, a gentle expression looking at the camera, sitting in an indoor casual scene, such as in front of a cafe or bar counter, with background props fitting the scene. At the very top of the image, add a mobile phone system status bar UI, including icons for time, battery, signal, and network, to make the whole image look like a mobile phone screenshot. At the bottom of the image, overlay a wide semi-transparent galgame style dialog box, place an anime or Q-version avatar corresponding to the character in the image on the left side of the dialog box; on the right side of the dialog box, typeset text: the first line displays the same character name as before in a larger font, the following one to two lines display a piece of Simplified Chinese dialogue suitable for this character's personality, in a gentle and healing style, automatically created by you. Then add an operation bar below the dialog box, imitating the galgame UI. The overall style is high-definition, rich in details, with soft lighting, and a natural fusion of 2D anime and real-life photography."
   },
   {
    "id": 281,
@@ -6435,48 +6284,6 @@
    "orig_prompt": "[中文]\n生成一系列五一劳动节的手举牌设计\n\n[English]\nGenerate a series of hand-held sign designs for May Day Labor Day"
   },
   {
-   "id": 251,
-   "title": "The Garden of Words Spring Rain Calendar",
-   "image": "/static/template-library/images/case251.jpg",
-   "imageAlt": "The Garden of Words Spring Rain Calendar",
-   "sourceLabel": "@akokoi1",
-   "sourceUrl": "https://x.com/akokoi1/status/2045693939584516441",
-   "prompt": "Generate a single-day calendar for The Garden of Words on April 19, 2026",
-   "promptPreview": "Generate a single-day calendar for The Garden of Words on April 19, 2026",
-   "category": "Other Use Cases",
-   "styles": [
-    "Other Use Cases"
-   ],
-   "scenes": [
-    "Creative"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-251",
-   "orig_title": "言叶之庭春雨绿意单日历",
-   "orig_prompt": "[中文]\n生成一张言叶之庭2026年4月19日单日日历\n\n[English]\nGenerate a single-day calendar for The Garden of Words on April 19, 2026"
-  },
-  {
-   "id": 250,
-   "title": "Little Prince and Starship Romantic Collab",
-   "image": "/static/template-library/images/case250.jpg",
-   "imageAlt": "Little Prince and Starship Romantic Collab",
-   "sourceLabel": "@akokoi1",
-   "sourceUrl": "https://x.com/akokoi1/status/2045693939584516441",
-   "prompt": "Design a postcard co-branded by The Little Prince and SpaceX",
-   "promptPreview": "Design a postcard co-branded by The Little Prince and SpaceX",
-   "category": "Other Use Cases",
-   "styles": [
-    "Brand"
-   ],
-   "scenes": [
-    "Commerce"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-250",
-   "orig_title": "小王子与星舰的浪漫联名",
-   "orig_prompt": "[中文]\n设计一张小王子和SpaceX联名的明信片\n\n[English]\nDesign a postcard co-branded by The Little Prince and SpaceX"
-  },
-  {
    "id": 249,
    "title": "Beauty Holding Sign Thanking Big Rocket",
    "image": "/static/template-library/images/case249.jpg",
@@ -6646,28 +6453,6 @@
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-242",
    "orig_title": "绝美国风工笔画书签设计",
    "orig_prompt": "[中文]\n生成一系列工笔画书签的设计稿\n\n[English]\nGenerate a series of design drafts for Gongbi painting bookmarks."
-  },
-  {
-   "id": 241,
-   "title": "Key Character Relationship Map",
-   "image": "/static/template-library/images/case241.jpg",
-   "imageAlt": "Key Character Relationship Map",
-   "sourceLabel": "@yihui_indie",
-   "sourceUrl": "https://x.com/yihui_indie/status/2045179926270361890",
-   "prompt": "Please generate a key character relationship diagram for \"XXX\".",
-   "promptPreview": "Please generate a key character relationship diagram for \"XXX\".",
-   "category": "Other Use Cases",
-   "styles": [
-    "Infographic",
-    "Character"
-   ],
-   "scenes": [
-    "Creative"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-241",
-   "orig_title": "关键人物关系图谱",
-   "orig_prompt": "[中文]\n请你生成 《XXX》 的关键人物关系图。\n\n[English]\nPlease generate a key character relationship diagram for \"XXX\"."
   },
   {
    "id": 240,
@@ -7436,28 +7221,6 @@
    "orig_prompt": "[中文]\n生成一张高质量二次元美少女图片。\n\n 角色设定：\n\n- 年龄：17岁\n- 发型：双马尾，颜色：樱花粉，发梢带点渐变紫色\n - 眼睛：大而明亮，紫色瞳孔，有星星高光\n - 服装：JK制服，白色衬衫，深蓝色格子裙，红色领结\n - 配饰：白色过膝袜，棕色小皮鞋，头上戴一个粉色蝴蝶结\n\n风格要求：\n - 日系动画风格，线条清晰 - 色彩鲜艳，对比度高 - 光影柔和，有层次感\n- 背景：樱花树下，花瓣飘落，远处是学校教学楼  表情：微笑，有点害羞 姿势：站姿，双手放在身后，身体微微前倾\n\n比例：16:9（手机壁纸） 质量：8K，超精细，细节丰富\n\n[English]\nGenerate a high-quality anime beautiful girl image.\n\n Character setting:\n\n- Age: 17 years old\n- Hairstyle: twin tails, color: cherry blossom pink, hair tips with a bit of gradient purple\n - Eyes: large and bright, purple pupils, with star highlights\n - Clothing: JK uniform, white shirt, dark blue plaid skirt, red bow tie\n - Accessories: white over-the-knee socks, brown leather shoes, wearing a pink bow on the head\n\n Style requirements:\n - Japanese animation style, clear lines - bright colors, high contrast - soft light and shadow, with a sense of layering\n- Background: under the cherry blossom tree, petals falling, school teaching building in the distance  Expression: smiling, a bit shy Pose: standing posture, hands placed behind the back, body slightly leaning forward\n\nProportion: 16:9 (mobile wallpaper) Quality: 8K, ultra-fine, rich in details"
   },
   {
-   "id": 207,
-   "title": "Stunning Black Myth Pan Jinlian Game Cover",
-   "image": "/static/template-library/images/case207.jpg",
-   "imageAlt": "Stunning Black Myth Pan Jinlian Game Cover",
-   "sourceLabel": "@liyue_ai",
-   "sourceUrl": "https://x.com/liyue_ai/status/2046576160952443082",
-   "prompt": "Generate a game introduction screen for Black Myth: Pan Jinlian, featuring a highly captivating character.",
-   "promptPreview": "Generate a game introduction screen for Black Myth: Pan Jinlian, featuring a highly captivating character.",
-   "category": "UI & Interfaces",
-   "styles": [
-    "Poster",
-    "Character"
-   ],
-   "scenes": [
-    "Creative"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-207",
-   "orig_title": "黑神话潘金莲绝美游戏封面",
-   "orig_prompt": "[中文]\n生成一张黑神话·潘金莲的游戏介绍画面，人物十分的迷人\n\n[English]\nGenerate a game introduction screen for Black Myth: Pan Jinlian, the character is extremely charming."
-  },
-  {
    "id": 206,
    "title": "Chinese Gongbi Eight Immortals Scroll",
    "image": "/static/template-library/images/case206.jpg",
@@ -7656,27 +7419,6 @@
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-198",
    "orig_title": "苍白陶瓷娃娃沙滩仰视",
    "orig_prompt": "[中文]\n{\n  \"相机参数\": {\n    \"设备类型\": \"iPhone 15 Pro 前置自拍\",\n    \"镜头\": \"24mm\",\n    \"构图\": \"高角度 POV（第一人称视角）\",\n    \"后期处理\": \"计算摄影风格，清晰的数字读出，深景深\"\n  },\n  \"主体描述\": {\n    \"特征\": \"陶瓷娃娃审美，无瑕的苍白皮肤，巨大的冰蓝色眼睛，小巧的鼻子，翘起的自然色嘴唇\",\n    \"表情\": \"面无表情，空洞，瞪大眼睛注视\",\n    \"造型\": \"白金色的双紧辫发型，鲜艳的蓝色美甲\",\n    \"服装\": \"浅蓝色紧身弹力棉上衣，极深超宽 V 领，深邃锁骨与领口线\",\n    \"动作\": \"抬头仰视镜头，用一只手遮挡刺眼的阳光\"\n  },\n  \"环境与灯光\": {\n    \"场景\": \"广阔的沙滩，背景中模糊的海平线\",\n    \"灯光\": \"高调明亮的沿海日光，5500K 色温，强烈的白沙反光填充，均匀照明\",\n    \"质感\": \"微带露水的无孔皮肤，细腻的反光白沙颗粒\"\n  },\n  \"技术约束\": {\n    \"色彩科学\": \"柔和的粉彩色调，线性中性色，高曝光\",\n    \"负面提示词\": [\n      \"重阴影\",\n      \"雪\",\n      \"冬装\",\n      \"红指甲\",\n      \"黑色上衣\",\n      \"保守的领口\",\n      \"胶片颗粒感\"\n    ]\n  }\n}\n\n[English]\n{\n  \"cameraParameters\": {\n    \"deviceType\": \"iPhone 15 Pro front selfie\",\n    \"lens\": \"24mm\",\n    \"composition\": \"High angle POV (first-person perspective)\",\n    \"postProcessing\": \"Computational photography style, clear digital readout, deep depth of field\"\n  },\n  \"subjectDescription\": {\n    \"features\": \"Porcelain doll aesthetic, flawless pale skin, huge ice-blue eyes, small nose, slightly upturned natural-colored lips\",\n    \"expression\": \"Expressionless, hollow, wide-eyed staring\",\n    \"styling\": \"Platinum blonde tight double braids hairstyle, vibrant blue nail polish\",\n    \"clothing\": \"Light blue tight stretch cotton top, extremely deep ultra-wide V-neck, deep collarbone and neckline\",\n    \"action\": \"Looking up at the camera, blocking the glaring sunlight with one hand\"\n  },\n  \"environmentAndLighting\": {\n    \"scene\": \"Vast sandy beach, blurry horizon in the background\",\n    \"lighting\": \"High-key bright coastal daylight, 5500K color temperature, strong white sand reflection fill, even lighting\",\n    \"texture\": \"Slightly dewy poreless skin, fine reflective white sand particles\"\n  },\n  \"technicalConstraints\": {\n    \"colorScience\": \"Soft pastel tones, linear neutral colors, high exposure\",\n    \"negativePrompts\": [\n      \"Heavy shadows\",\n      \"Snow\",\n      \"Winter clothing\",\n      \"Red nails\",\n      \"Black top\",\n      \"Conservative neckline\",\n      \"Film grain\"\n    ]\n  }\n}"
-  },
-  {
-   "id": 197,
-   "title": "Trump vs Khamenei Mid Lane Clash",
-   "image": "/static/template-library/images/case197.jpg",
-   "imageAlt": "Trump vs Khamenei Mid Lane Clash",
-   "sourceLabel": "@underwoodxie96",
-   "sourceUrl": "https://x.com/underwoodxie96/status/2046529342415790275",
-   "prompt": "Generate a screenshot of Trump versus Khamenei in the mid lane in League of Legends.",
-   "promptPreview": "Generate a screenshot of Trump versus Khamenei in the mid lane in League of Legends.",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI"
-   ],
-   "scenes": [
-    "Creative"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-197",
-   "orig_title": "英雄联盟特朗普中路对决哈梅内伊",
-   "orig_prompt": "[中文]\n帮我生成一张特朗普对战哈梅内伊在英雄联盟中路对线的截图。\n\n[English]\nHelp me generate a screenshot of Trump versus Khamenei in the mid lane in League of Legends."
   },
   {
    "id": 196,
@@ -8172,30 +7914,6 @@
    "orig_prompt": "[中文]\n创建一个高级的 4:3 演示文稿封面幻灯片，介绍来自 http://chroniclehq.com 的 AI 原生演示平台 Chronicle。\n\nStyle:\n优雅，极简，现代，高级初创企业美学。类似于高端品牌指南封面（如 Apple / Linear / Notion 风格）。带有微妙深度感的柔和渐变背景，干净的留白，精致的排版，经过打磨的编辑式布局。\n\nMain title:\nCHRONICLE\n\nSubtitle:\nAI PRESENTATION PLATFORM\n\nBody copy (small elegant text):\n将原始想法转化为经过打磨的、高影响力的演示文稿。\n从笔记、文档、链接或现有幻灯片开始。\n使用 AI 生成美观的、符合品牌调性的幻灯片。\n在灵活的画布上自由编辑。\n导出为 PPT、PDF，或发布为网站。\n\nFeature highlights (small premium labels):\nSTORY-FIRST\nON-BRAND DESIGN\nAI EDITING\nFREEFORM CANVAS\nPPT EXPORT\nTEAM COLLABORATION\n\nBottom-right elegant logo text:\nchronicle\n\nVisual feeling:\n商务级高级感，战略级幻灯片质量，咨询级演示文稿，略带未来感但高度专业。\n\nComposition:\n干净的编辑式平衡，不对称布局，强烈的留白，演示软件主视觉感。\n\nAspect ratio:\n4:3\n\nLanguage:\n仅限英文\n\n[English]\nCreate a premium 4:3 presentation cover slide introducing Chronicle, the AI-native presentation platform from http://chroniclehq.com.\n\nStyle:\nelegant, minimal, modern, premium startup aesthetic. Similar to high-end brand guideline covers (like Apple / Linear / Notion style). Soft gradient background with subtle depth, clean whitespace, refined typography, polished editorial layout.\n\nMain title:\nCHRONICLE\n\nSubtitle:\nAI PRESENTATION PLATFORM\n\nBody copy (small elegant text):\nTurn raw ideas into polished, high-impact presentations.\nStart from notes, docs, links, or existing decks.\nGenerate beautiful, on-brand slides with AI.\nEdit freely on a flexible canvas.\nExport to PPT, PDF, or publish as a website.\n\nFeature highlights (small premium labels):\nSTORY-FIRST\nON-BRAND DESIGN\nAI EDITING\nFREEFORM CANVAS\nPPT EXPORT\nTEAM COLLABORATION\n\nBottom-right elegant logo text:\nchronicle\n\nVisual feeling:\nbusiness-class premium, strategy deck quality, consulting-grade presentation, slightly futuristic but highly professional.\n\nComposition:\nclean editorial balance, asymmetrical layout, strong whitespace, presentation software hero shot feeling.\n\nAspect ratio:\n4:3\n\nLanguage:\nEnglish only"
   },
   {
-   "id": 174,
-   "title": "Tang Dynasty Lady with Pink Vest",
-   "image": "/static/template-library/images/case174.jpg",
-   "imageAlt": "Tang Dynasty Lady with Pink Vest",
-   "sourceLabel": "@johnAGI168",
-   "sourceUrl": "https://x.com/johnAGI168/status/2046565555025367392",
-   "prompt": "A finely detailed Gongbi painting of a noble Tang Dynasty lady taking a stroll in the imperial garden. She looks elegant and calm.\n\nShe is holding a gold leash. At the end of the leash is a terrifying **Xenomorph monster (from the movie Alien)**. However, the Xenomorph is wearing a **cute pink silk vest** and is behaving like a well-trained dog.\n\nBackground features peonies and butterflies.\n\n**In the bottom right corner, a single red vertical artist chop seal reads \"Mr. Wu\", stylized like a watermark.** --ar 3:4",
-   "promptPreview": "A finely detailed Gongbi painting of a noble Tang Dynasty lady taking a stroll in the imperial garden. She looks elegant and calm.\n\nShe is holding a gold leash. At the end of the leash is a terrifying",
-   "category": "History & Classical Themes",
-   "styles": [
-    "Illustration",
-    "Classical"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "History"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-174",
-   "orig_title": "唐朝贵妇遛粉色马甲异形工笔画",
-   "orig_prompt": "[中文]\n一幅细节丰富的工笔画，描绘了一位唐朝贵族女子在御花园中漫步。她看起来优雅而平静。\n\n她手里拿着一根金色的牵引绳。牵引绳的尽头是一只可怕的**异形怪物（出自电影《异形》）**。然而，这只异形穿着一件**可爱的粉色丝绸马甲**，并且表现得像一只训练有素的狗。\n\n背景有牡丹和蝴蝶。\n\n**在右下角，有一个红色的竖排艺术家印章，写着“吴先生”（Mr. Wu），风格像水印一样。** --ar 3:4\n\n[English]\nA finely detailed Gongbi painting of a noble Tang Dynasty lady taking a stroll in the imperial garden. She looks elegant and calm.\n\nShe is holding a gold leash. At the end of the leash is a terrifying **Xenomorph monster (from the movie Alien)**. However, the Xenomorph is wearing a **cute pink silk vest** and is behaving like a well-trained dog.\n\nBackground features peonies and butterflies.\n\n**In the bottom right corner, a single red vertical artist chop seal reads \"吴先生\" (Mr. Wu), stylized like a watermark.** --ar 3:4"
-  },
-  {
    "id": 173,
    "title": "Ice Blue Skirt with Galaxy Stars",
    "image": "/static/template-library/images/case173.jpg",
@@ -8307,27 +8025,6 @@
    "orig_title": "大唐玄武门之变的朋友圈"
   },
   {
-   "id": 166,
-   "title": "Twelve Golden Saints Card Collection",
-   "image": "/static/template-library/images/case166.jpg",
-   "imageAlt": "Twelve Golden Saints Card Collection",
-   "sourceLabel": "@songguoxiansen",
-   "sourceUrl": "https://x.com/songguoxiansen/status/2046476566537080849",
-   "prompt": "Generate a 12-grid card image of the 12 Gold Saints from Saint Seiya, with the corresponding Chinese name written on each card, 4 per row, aspect ratio 16:9.",
-   "promptPreview": "Generate a 12-grid card image of the 12 Gold Saints from Saint Seiya, with the corresponding Chinese name written on each card, 4 per row, aspect ratio 16:9.",
-   "category": "Other Use Cases",
-   "styles": [
-    "Other Use Cases"
-   ],
-   "scenes": [
-    "Tech"
-   ],
-   "featured": true,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-166",
-   "orig_title": "十二黄金圣斗士卡牌合集",
-   "orig_prompt": "[中文]\n生成圣斗士星矢12个黄金圣斗士的12宫格卡牌图片，每张卡牌上写上对应的中文名，每行4个，宽高比16:9。\n\n[English]\nGenerate a 12-grid card image of the 12 Gold Saints from Saint Seiya, with the corresponding Chinese name written on each card, 4 per row, aspect ratio 16:9."
-  },
-  {
    "id": 165,
    "title": "Chill Beauty Grilling at Night Market",
    "image": "/static/template-library/images/case165.jpg",
@@ -8412,29 +8109,6 @@
    "featured": false,
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-162",
    "orig_title": "人物角色设定图"
-  },
-  {
-   "id": 161,
-   "title": "App Interface Mockup",
-   "image": "/static/template-library/images/case161.jpg",
-   "imageAlt": "type",
-   "sourceLabel": "@DanDaniDaniel01",
-   "sourceUrl": "https://x.com/DanDaniDaniel01",
-   "prompt": "{\n  \"type\": \"video game screenshot mockup\",\n  \"perspective\": \"third-person over-the-shoulder\",\n  \"character\": {\n    \"description\": \"male protagonist seen from behind\",\n    \"clothing\": \"grey tank top with graphic '{argument name=\\\"shirt graphic\\\" default=\\\"LEONIDA MARINE CENTER\\\"}', camouflage cargo shorts\"\n  },\n  \"environment\": {\n    \"setting\": \"tropical coastal town, dirt road, sunny daytime with scattered clouds\",\n    \"left_side\": \"wooden welcome sign reading 'Welcome to {argument name=\\\"location name\\\" default=\\\"LEONIDA KEYS\\\"} YOUR PARADISE', pink plastic flamingo, tropical foliage, distant water tower\",\n    \"center\": \"green building with 'FISH' sign and marlin graphic, sign reading 'BAIT TACKLE ICE BEER WINE', pedestrians walking\",\n    \"right_side\": \"two-story wooden building 'Brian's Boat Works & Marina', 'Brian's Bar' neon sign, parked pickup truck, jet skis on a trailer\"\n  },\n  \"ui_elements\": {\n    \"count\": 5,\n    \"components\": [\n      {\n        \"position\": \"top-left\",\n        \"type\": \"mission objective\",\n        \"text\": \"{argument name=\\\"mission title\\\" default=\\\"MEET RAUL\\\"}\\n{argument name=\\\"mission description\\\" default=\\\"Raul has some work for you at his boatyard\\\"}\"\n      },\n      {\n        \"position\": \"top-right\",\n        \"type\": \"status HUD\",\n        \"text\": \"13:47\\n$1,142\",\n        \"icon\": \"pink palm tree\"\n      },\n      {\n        \"position\": \"bottom-left\",\n        \"type\": \"minimap\",\n        \"description\": \"circular map with purple border, white map icons including 'N' for north\"\n      },\n      {\n        \"position\": \"bottom-left, right of minimap\",\n        \"type\": \"location text\",\n        \"text\": \"{argument name=\\\"location name\\\" default=\\\"LEONIDA KEYS\\\"}\\nPALM ISLAND\"\n      },\n      {\n        \"position\": \"bottom-right\",\n        \"type\": \"watermark\",\n        \"text\": \"{argument name=\\\"game title\\\" default=\\\"GTA VI\\\"}\\nPRE-ALPHA FOOTAGE\"\n      }\n    ]\n  }\n}",
-   "promptPreview": "{   \"type\": \"video game screenshot mockup\",   \"perspective\": \"third-person over-the-shoulder\",   \"character\": {     \"description\": \"male protagonist seen from behind\",     \"clothing\": \"grey tank top with graphic '{argume",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI",
-    "Character"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Fashion"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-161",
-   "orig_title": "应用界面样机图"
   },
   {
    "id": 160,
@@ -8722,94 +8396,6 @@
    "orig_prompt": "{\n  \"type\": \"mobile livestream e-commerce interface mockup\",\n  \"subject\": {\n    \"person\": \"Elon Musk\",\n    \"clothing\": \"black t-shirt with SPACEX logo\",\n    \"pose\": \"gesturing towards camera with both hands, explaining enthusiastically\",\n    \"watermark\": \"@Proof AI\"\n  },\n  \"background\": {\n    \"setting\": \"large display screen\",\n    \"image\": \"Mars landscape with Starship rocket and dome habitats\",\n    \"text\": [\n      \"SPACEX\",\n      \"{argument name=\\\"background title\\\" default=\\\"移民火星计划\\\"}\"\n    ]\n  },\n  \"ui_layout\": {\n    \"header\": {\n      \"broadcaster_info\": {\n        \"name\": \"{argument name=\\\"broadcaster name\\\" default=\\\"ElonMusk\\\"}\",\n        \"stats\": \"75.8万本场点赞\",\n        \"follow_button\": \"关注\"\n      },\n      \"viewer_stats\": {\n        \"avatars_count\": 3,\n        \"text\": \"10万+\",\n        \"close_button\": \"X\"\n      },\n      \"tags\": [\n        \"带货总榜第1名\",\n        \"更多直播 >\"\n      ]\n    },\n    \"product_card\": {\n      \"position\": \"mid-right\",\n      \"status\": \"讲解中\",\n      \"image\": \"Mars dome habitats\",\n      \"title\": \"{argument name=\\\"product title\\\" default=\\\"火星移民基础套餐\\\"}\",\n      \"price\": \"{argument name=\\\"product price\\\" default=\\\"¥99.00\\\"}\",\n      \"action_button\": \"抢\"\n    },\n    \"chat_overlay\": {\n      \"position\": \"bottom-left\",\n      \"join_alert\": \"星辰大海 加入了直播间\",\n      \"messages_count\": 7,\n      \"messages\": [\n        \"{argument name=\\\"top chat message\\\" default=\\\"梦想家: 支持马斯克！！🚀\\\"}\",\n        \"火星弟弟: 多少钱一位？\",\n        \"科技迷: 太酷了！想去火星！\",\n        \"未来已来: 如何报名？\",\n        \"小火箭: 🌹🌹🌹\",\n        \"宇宙无敌: 讲解一下细节\",\n        \"东方不败: 老马牛逼！👍👍👍\"\n      ]\n    },\n    \"bottom_action_bar\": {\n      \"input_placeholder\": \"说点什么...\",\n      \"icons_count\": 4,\n      \"icons\": [\"shopping cart\", \"gift box\", \"heart planet\", \"plus sign\"]\n    },\n    \"floating_reactions\": {\n      \"position\": \"bottom-right\",\n      \"elements\": \"stack of floating hearts, thumbs up, and laughing emojis\"\n    }\n  }\n}"
   },
   {
-   "id": 148,
-   "title": "Comprehensive Application Scenario Diagram",
-   "image": "/static/template-library/images/case148.jpg",
-   "imageAlt": "platform",
-   "sourceLabel": "@alanlovelq",
-   "sourceUrl": "https://x.com/alanlovelq",
-   "prompt": "A {argument name=\"platform\" default=\"Taobao\"} product detail page for {argument name=\"robot model\" default=\"T-800 robot\"}, displaying: front, side, and back three-view drawings of the robot, product price, product details, functions, and usage scenarios, etc.",
-   "promptPreview": "A {argument name=\"platform\" default=\"Taobao\"} product detail page for {argument name=\"robot model\" default=\"T-800 robot\"}, displaying: front, side, and back three-view drawings of the robot, product price, product detail",
-   "category": "UI & Interfaces",
-   "styles": [
-    "Product"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Story"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-148",
-   "orig_title": "综合应用场景图"
-  },
-  {
-   "id": 147,
-   "title": "Comprehensive Application Scenario Diagram",
-   "image": "/static/template-library/images/case147.jpg",
-   "imageAlt": "platform",
-   "sourceLabel": "@alanlovelq",
-   "sourceUrl": "https://x.com/alanlovelq",
-   "prompt": "A {argument name=\"platform\" default=\"Taobao\"} product detail page for {argument name=\"robot model\" default=\"T-800 robot\"}, displaying: front, side, and back three-view drawings of the robot, product price, product details, functions, and usage scenarios, etc.",
-   "promptPreview": "A {argument name=\"platform\" default=\"Taobao\"} product detail page for {argument name=\"robot model\" default=\"T-800 robot\"}, displaying: front, side, and back three-view drawings of the robot, product price, product detail",
-   "category": "Photography & Realism",
-   "styles": [
-    "Product"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Story"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-147",
-   "orig_title": "综合应用场景图"
-  },
-  {
-   "id": 146,
-   "title": "Comprehensive Application Scenario Diagram",
-   "image": "/static/template-library/images/case146.jpg",
-   "imageAlt": "platform",
-   "sourceLabel": "@alanlovelq",
-   "sourceUrl": "https://x.com/alanlovelq",
-   "prompt": "A {argument name=\"platform\" default=\"Taobao\"} product detail page for {argument name=\"robot model\" default=\"T-800 robot\"}, displaying: front, side, and back three-view drawings of the robot, product price, product details, functions, and usage scenarios, etc.",
-   "promptPreview": "A {argument name=\"platform\" default=\"Taobao\"} product detail page for {argument name=\"robot model\" default=\"T-800 robot\"}, displaying: front, side, and back three-view drawings of the robot, product price, product detail",
-   "category": "UI & Interfaces",
-   "styles": [
-    "Product"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Story"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-146",
-   "orig_title": "综合应用场景图"
-  },
-  {
-   "id": 145,
-   "title": "Comprehensive Application Scenario Image",
-   "image": "/static/template-library/images/case145.jpg",
-   "imageAlt": "platform",
-   "sourceLabel": "@alanlovelq",
-   "sourceUrl": "https://x.com/alanlovelq",
-   "prompt": "A {argument name=\"platform\" default=\"Taobao\"} product detail page for {argument name=\"robot model\" default=\"T-800 robot\"}, displaying: front, side, and back three-view drawings of the robot, product price, product details, functions, and usage scenarios, etc.",
-   "promptPreview": "A {argument name=\"platform\" default=\"Taobao\"} product detail page for {argument name=\"robot model\" default=\"T-800 robot\"}, displaying: front, side, and back three-view drawings of the robot, product price, product detail",
-   "category": "UI & Interfaces",
-   "styles": [
-    "Product"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Story"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-145",
-   "orig_title": "综合应用场景图"
-  },
-  {
    "id": 144,
    "title": "Themed Poster Layout Design",
    "image": "/static/template-library/images/case144.jpg",
@@ -8832,30 +8418,6 @@
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-144",
    "orig_title": "主题海报版式设计",
    "orig_prompt": "A luxurious cosmetic product advertisement featuring a single elegant glass jar with a shiny gold lid resting on a round, light-colored marble slab. The jar has gold text reading {argument name=\"brand name\" default=\"LUMIÉRE\"} and {argument name=\"product type\" default=\"MOISTURE RICH CREAM\"} with \"AGING CARE*\" below it. The background consists of soft, draped, shimmering champagne-colored silk fabric with delicate white flowers on the left. The lighting is warm, ethereal, and sun-drenched with soft bokeh. At the top center, elegant dark brown Japanese typography reads {argument name=\"main headline\" default=\"肌に、静かな贅沢を。\"} above a small decorative gold divider and the text {argument name=\"subheadline\" default=\"高保湿×エイジングケア*\"}. To the right of the jar, a thin gold circle contains Japanese text meaning 'With dense moisture, high-quality firmness and radiance'. At the bottom center is a dark rectangular call-to-action button with a thin gold border containing the text {argument name=\"button text\" default=\"詳しく見る\"} and a right-pointing chevron. In the bottom right corner, tiny fine print contains Japanese text meaning '*Care according to age'."
-  },
-  {
-   "id": 143,
-   "title": "Brand Logo Design",
-   "image": "/static/template-library/images/case143.jpg",
-   "imageAlt": "{argument name=",
-   "sourceLabel": "@Gc_qube",
-   "sourceUrl": "https://x.com/Gc_qube",
-   "prompt": "A photorealistic amateur photograph of a custom building block set resting on a light wood grain table in a living room. In the background stands a large product box with a red logo reading \"{argument name=\"brand name\" default=\"BRICKLY\"} BUILDING SETS\". The box features text reading \"8+\", \"540 PCS\", \"5 FIGURES\", and the main large title \"{argument name=\"set title\" default=\"WATTERSON FAMILY HOUSE\"}\". A red circular badge on the box reads \"CUSTOM SET FAN DESIGN\", and the box art depicts the house and characters under a blue sky. In the foreground sits the fully assembled block model of a {argument name=\"house color\" default=\"blue\"} two-story suburban house with a brown roof, white porch, red steps, a white picket fence, and a blocky green tree. To the left of the house is a built block model of a {argument name=\"car color\" default=\"pink\"} station wagon. Standing in a row in front of the house are exactly 5 custom block minifigures: a blue cat in tan pants, an orange fish with legs, a tall pink rabbit in a white shirt and tie, a blue cat in a white shirt, and a small pink rabbit in an orange dress. The background is a slightly blurred living room with a grey sofa and white blinds.",
-   "promptPreview": "A photorealistic amateur photograph of a custom building block set resting on a light wood grain table in a living room. In the background stands a large product box with a red logo reading \"{argument name=\"brand name\" d",
-   "category": "Photography & Realism",
-   "styles": [
-    "UI",
-    "Realistic",
-    "Product"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Social"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-143",
-   "orig_title": "品牌徽标设计图"
   },
   {
    "id": 142,
@@ -9272,30 +8834,6 @@
    "orig_prompt": "An anime-style light novel cover illustration featuring two characters in an intimate pose. On the left, a young woman with short dark hair, purple eyes, wearing a white hat, a frilly white dress with a pink bow tie, white gloves, and two white flower hairpins. She has an affectionate, teasing smile and is gently touching the chin of the man next to her. On the right, an adult man with {argument name=\"man's hair color\" default=\"red\"} hair parted in the middle, purple eyes, and a light goatee. He is wearing a black button-down shirt and has a slightly annoyed, reluctant expression with a sweat drop on his cheek. The scene features soft, romantic lighting with out-of-focus purple flower petals in the foreground corners. The image includes several Japanese text elements: a large stylized main title at the bottom reading {argument name=\"main title\" default=\"ちかつば\"}, a subtitle below it reading {argument name=\"subtitle\" default=\"ーその溺愛、独占欲の裏返し。ー\"}, vertical text on the top left reading {argument name=\"left quote\" default=\"可愛いだけじゃ、許さない。\"}, and vertical text on the top right reading {argument name=\"right quote\" default=\"その不機嫌、俺だけに向けろよ。\"}."
   },
   {
-   "id": 125,
-   "title": "E-commerce Product Display Design",
-   "image": "/static/template-library/images/case125.jpg",
-   "imageAlt": "type",
-   "sourceLabel": "@Gc_qube",
-   "sourceUrl": "https://x.com/Gc_qube",
-   "prompt": "Anime production layout sheet, traditional colored pencil genga, key animation drawing. Character: [character name, default: Nazuna Nanakusa], an anime girl with [hair color, default: light purple] hair styled in twin braids and bangs, blue eyes, wearing a dark oversized coat. Pose and expression: [expression, default: smug with a small fang, resting chin on hand]. Background: [background scene, default: nighttime city skyline with a railing], soft focus. Layout: top edge features standard animation paper peg holes. Left margin includes the series title \"[anime title, default: Yofukashi no Uta]\", production codes \"#05 C.\" and \"[A] (1)\", and a circled note reading \"Hair highlights are color traces\". Right margin includes a red box labeled \"002.normal\", timing layers \"A (1)\", \"B (1) (2) (3)\", \"C (1) (2) END\", and background notes \"BL Night view\" and \"BG Cityscape night view color traces\".",
-   "promptPreview": "Anime production layout sheet, traditional colored pencil genga, key animation drawing. Character: [character name, default: Nazuna Nanakusa], an anime girl with [hair color, default: light purple] ha",
-   "category": "Illustration & Art",
-   "styles": [
-    "Product",
-    "Character"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Travel"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-125",
-   "orig_title": "电商商品展示设计",
-   "orig_prompt": "{\n  \"type\": \"anime production layout sheet\",\n  \"style\": \"traditional colored pencil genga, key animation drawing\",\n  \"subject\": {\n    \"character\": \"{argument name=\\\"character name\\\" default=\\\"ナズナ 七草\\\"}\",\n    \"appearance\": \"anime girl with {argument name=\\\"hair color\\\" default=\\\"light purple\\\"} hair styled in twin braids and bangs, blue eyes, wearing a dark oversized coat\",\n    \"pose_and_expression\": \"{argument name=\\\"expression\\\" default=\\\"smug with a small fang, resting chin on hand\\\"}\"\n  },\n  \"background\": \"{argument name=\\\"background scene\\\" default=\\\"nighttime city skyline with a railing\\\"}, soft focus\",\n  \"layout\": {\n    \"top_edge\": \"standard animation paper peg holes\",\n    \"left_margin\": {\n      \"series_title\": \"{argument name=\\\"anime title\\\" default=\\\"よふかしのうた\\\"}\",\n      \"production_codes\": [\"#05 C.\", \"[A] (1)\"],\n      \"circled_note\": \"髪のハイライト 色トレスです\"\n    },\n    \"right_margin\": {\n      \"red_box\": \"002.normal\",\n      \"timing_layers\": [\"A (1)\", \"B (1) (2) (3)\", \"C (1) (2) END\"],\n      \"background_notes\": [\"BL 夜景\", \"BG 市街地夜景 色トレス\"]\n    }\n  }\n}"
-  },
-  {
    "id": 124,
    "title": "Themed Poster Layout Design",
    "image": "/static/template-library/images/case124.jpg",
@@ -9582,26 +9120,6 @@
    "featured": false,
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-113",
    "orig_title": "动漫插画创作图"
-  },
-  {
-   "id": 112,
-   "title": "Infographic Visualization Design",
-   "image": "/static/template-library/images/case112.jpg",
-   "imageAlt": "Generate a 12-grid card i...",
-   "sourceLabel": "@songguoxiansen",
-   "sourceUrl": "https://x.com/songguoxiansen",
-   "prompt": "Generate a 12-grid card image of the 12 Golden Saints from Saint Seiya, with each card featuring its corresponding Chinese name, 4 cards per row, in a 16:9 aspect ratio.",
-   "promptPreview": "Generate a 12-grid card image of the 12 Golden Saints from Saint Seiya, with each card featuring its corresponding Chinese name, 4 cards per row, in a 16:9 aspect ratio.",
-   "category": "Illustration & Art",
-   "styles": [
-    "Infographic"
-   ],
-   "scenes": [
-    "Tech"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-112",
-   "orig_title": "信息图可视化设计"
   },
   {
    "id": 111,
@@ -10056,30 +9574,6 @@
    "orig_prompt": "An anime-style YouTube stream thumbnail featuring a cheerful female VTuber. She has long {argument name=\"hair color\" default=\"pink with light blue inner highlights\"} hair, blue eyes, and wears black and white cat-ear headphones with a boom mic. She wears a white collared shirt with a black and pink star ribbon and a black choker, smiling with one hand near her chin. The background is a gaming room with {argument name=\"room lighting\" default=\"purple and blue neon\"} lighting, showing a desk equipped with 1 white keyboard, 1 mug, 1 glowing cat figure, 1 game controller, and 1 streaming microphone. The left side features large, bold, pop-art Japanese typography: a bright pink top word \"{argument name=\"main text line 1\" default=\"雑談\"}\" and a bright blue bottom word \"{argument name=\"main text line 2\" default=\"配信\"}\". Below is a pink banner reading \"{argument name=\"subtitle text\" default=\"今夜もゆるっとトーク!\"}\". A red \"LIVE\" badge sits in the top left. Floating speech bubbles, stars, and hearts decorate the composition."
   },
   {
-   "id": 91,
-   "title": "Game Interface Screenshot",
-   "image": "/static/template-library/images/case91.jpg",
-   "imageAlt": "{argument name=",
-   "sourceLabel": "@wolfaidev",
-   "sourceUrl": "https://x.com/wolfaidev",
-   "prompt": "A highly detailed, realistic first-person video game screenshot of a next-generation voxel-based world. At the top center, a large, bold 3D logo reads \"{argument name=\"game title\" default=\"MINECRAFT 2\"}\". The scene features a {argument name=\"environment\" default=\"lush, blocky landscape with a river, a small wooden cabin, a windmill, a waterfall, and majestic mountains in the background\"}. The world blends realistic lighting, volumetric clouds, and high-resolution textures with cubic, voxel geometry. In the foreground on the left, a {argument name=\"mob 1\" default=\"blocky green creeper\"} stands on the grass, while a {argument name=\"mob 2\" default=\"blocky brown wolf\"} stands on the dirt path to the right. On the far right, the player's hand holds a {argument name=\"held item\" default=\"pixelated blue diamond sword\"} in a first-person perspective. At the bottom of the screen is a game user interface featuring a health bar with 10 red hearts, a green experience bar with the number '16', a hunger bar with 10 brown meat icons, and a 9-slot inventory hotbar. The hotbar contains, from left to right: a selected blue tool with a green highlight box, a green tool, a knife, a wrench with the number '3', a piece of meat with '6', a lantern with '24', a dirt block with '10', a bucket, and a sponge block.",
-   "promptPreview": "A highly detailed, realistic first-person video game screenshot of a next-generation voxel-based world. At the top center, a large, bold 3D logo reads \"{argument name=\"game title\" default=\"MINECRAFT 2\"}\". The scene featu",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI",
-    "Realistic",
-    "Brand"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Story"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-91",
-   "orig_title": "游戏界面截图"
-  },
-  {
    "id": 90,
    "title": "Infographic Visualization Design",
    "image": "/static/template-library/images/case90.jpg",
@@ -10150,102 +9644,6 @@
    "featured": false,
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-88",
    "orig_title": "信息图可视化设计"
-  },
-  {
-   "id": 87,
-   "title": "Relationship Map Infographic",
-   "image": "/static/template-library/images/case87.jpg",
-   "imageAlt": "theme",
-   "sourceLabel": "@MrLarus",
-   "sourceUrl": "https://x.com/MrLarus",
-   "prompt": "Please generate a high-design character relationship map poster based on {argument name=\"theme\" default=\"Demon Slayer\"}. This image should not be a simple illustration, but a character relationship map that combines information visualization, narrative structure, poster design sense, and stylistic fidelity.\n\nPlease automatically complete the following:\n- Identify the work and core settings corresponding to the theme\n- Extract the most representative 6–12 key characters, not exceeding 15 if necessary\n- Identify and display key character relationships, including blood ties, romance, friendship, alliances, hostility, master-disciple, etc.\n- Automatically choose a composition method based on the work's characteristics, such as protagonist-centered, dual-core confrontation, faction-based, family tree, or chronological evolution\n- Automatically refine the work's style DNA, including color, worldview symbols, textures, mood, typography, and representative elements\n- Transform these stylistic elements into an overall visual design for the relationship map, rather than simply copying an official poster\n- Use different colors, line types, and arrows to distinguish different relationships, ensuring clear lines and layers without clutter\n- Make core characters most prominent, followed by important characters, and subordinate characters weakened to form a clear visual hierarchy\n- Ensure every character name is legible, with identity or faction labels if necessary\n\nThe final product should satisfy:\n- Immediate understanding of character hierarchy and key relationships\n- Obvious alignment with the original work's temperament and setting\n- Combines the clarity of an infographic with the premium design of a poster\n- Unified, exquisite, complete, and suitable for social media sharing or poster display\n- Avoids a cheap flowchart feel, messy piling, and information overload.",
-   "promptPreview": "Please generate a high-design character relationship map poster based on {argument name=\"theme\" default=\"Demon Slayer\"}. This image should not be a simple illustration, but a character relationship map that combines info",
-   "category": "Charts & Infographics",
-   "styles": [
-    "UI",
-    "Infographic",
-    "Poster"
-   ],
-   "scenes": [
-    "Commerce",
-    "Social",
-    "Travel"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-87",
-   "orig_title": "关系图谱信息图"
-  },
-  {
-   "id": 86,
-   "title": "Relationship Map Infographic",
-   "image": "/static/template-library/images/case86.jpg",
-   "imageAlt": "theme",
-   "sourceLabel": "@MrLarus",
-   "sourceUrl": "https://x.com/MrLarus",
-   "prompt": "Please generate a high-design character relationship map poster based on {argument name=\"theme\" default=\"Demon Slayer\"}. This image should not be a simple illustration, but a character relationship map that combines information visualization, narrative structure, poster design sense, and stylistic fidelity.\n\nPlease automatically complete the following:\n- Identify the work and core settings corresponding to the theme\n- Extract the most representative 6–12 key characters, not exceeding 15 if necessary\n- Identify and display key character relationships, including blood ties, romance, friendship, alliances, hostility, master-disciple, etc.\n- Automatically choose a composition method based on the work's characteristics, such as protagonist-centered, dual-core confrontation, faction-based, family tree, or chronological evolution\n- Automatically refine the work's style DNA, including color, worldview symbols, textures, mood, typography, and representative elements\n- Transform these stylistic elements into an overall visual design for the relationship map, rather than simply copying an official poster\n- Use different colors, line types, and arrows to distinguish different relationships, ensuring clear lines and layers without clutter\n- Make core characters most prominent, followed by important characters, and subordinate characters weakened to form a clear visual hierarchy\n- Ensure every character name is legible, with identity or faction labels if necessary\n\nThe final product should satisfy:\n- Immediate understanding of character hierarchy and key relationships\n- Obvious alignment with the original work's temperament and setting\n- Combines the clarity of an infographic with the premium design of a poster\n- Unified, exquisite, complete, and suitable for social media sharing or poster display\n- Avoids a cheap flowchart feel, messy piling, and information overload.",
-   "promptPreview": "Please generate a high-design character relationship map poster based on {argument name=\"theme\" default=\"Demon Slayer\"}. This image should not be a simple illustration, but a character relationship map that combines info",
-   "category": "Charts & Infographics",
-   "styles": [
-    "UI",
-    "Infographic",
-    "Poster"
-   ],
-   "scenes": [
-    "Commerce",
-    "Social",
-    "Travel"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-86",
-   "orig_title": "关系图谱信息图"
-  },
-  {
-   "id": 85,
-   "title": "Relationship Graph Infographic",
-   "image": "/static/template-library/images/case85.jpg",
-   "imageAlt": "theme",
-   "sourceLabel": "@MrLarus",
-   "sourceUrl": "https://x.com/MrLarus",
-   "prompt": "Please generate a high-design character relationship map poster based on {argument name=\"theme\" default=\"Demon Slayer\"}. This image should not be a simple illustration, but a character relationship map that combines information visualization, narrative structure, poster design sense, and stylistic fidelity.\n\nPlease automatically complete the following:\n- Identify the work and core settings corresponding to the theme\n- Extract the most representative 6–12 key characters, not exceeding 15 if necessary\n- Identify and display key character relationships, including blood ties, romance, friendship, alliances, hostility, master-disciple, etc.\n- Automatically choose a composition method based on the work's characteristics, such as protagonist-centered, dual-core confrontation, faction-based, family tree, or chronological evolution\n- Automatically refine the work's style DNA, including color, worldview symbols, textures, mood, typography, and representative elements\n- Transform these stylistic elements into an overall visual design for the relationship map, rather than simply copying an official poster\n- Use different colors, line types, and arrows to distinguish different relationships, ensuring clear lines and layers without clutter\n- Make core characters most prominent, followed by important characters, and subordinate characters weakened to form a clear visual hierarchy\n- Ensure every character name is legible, with identity or faction labels if necessary\n\nThe final product should satisfy:\n- Immediate understanding of character hierarchy and key relationships\n- Obvious alignment with the original work's temperament and setting\n- Combines the clarity of an infographic with the premium design of a poster\n- Unified, exquisite, complete, and suitable for social media sharing or poster display\n- Avoids a cheap flowchart feel, messy piling, and information overload.",
-   "promptPreview": "Please generate a high-design character relationship map poster based on {argument name=\"theme\" default=\"Demon Slayer\"}. This image should not be a simple illustration, but a character relationship map that combines info",
-   "category": "Charts & Infographics",
-   "styles": [
-    "UI",
-    "Infographic",
-    "Poster"
-   ],
-   "scenes": [
-    "Commerce",
-    "Social",
-    "Travel"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-85",
-   "orig_title": "关系图谱信息图"
-  },
-  {
-   "id": 84,
-   "title": "Relationship Graph Infographic",
-   "image": "/static/template-library/images/case84.jpg",
-   "imageAlt": "theme",
-   "sourceLabel": "@MrLarus",
-   "sourceUrl": "https://x.com/MrLarus",
-   "prompt": "Please generate a high-design character relationship map poster based on {argument name=\"theme\" default=\"Demon Slayer\"}. This image should not be a simple illustration, but a character relationship map that combines information visualization, narrative structure, poster design sense, and stylistic fidelity.\n\nPlease automatically complete the following:\n- Identify the work and core settings corresponding to the theme\n- Extract the most representative 6–12 key characters, not exceeding 15 if necessary\n- Identify and display key character relationships, including blood ties, romance, friendship, alliances, hostility, master-disciple, etc.\n- Automatically choose a composition method based on the work's characteristics, such as protagonist-centered, dual-core confrontation, faction-based, family tree, or chronological evolution\n- Automatically refine the work's style DNA, including color, worldview symbols, textures, mood, typography, and representative elements\n- Transform these stylistic elements into an overall visual design for the relationship map, rather than simply copying an official poster\n- Use different colors, line types, and arrows to distinguish different relationships, ensuring clear lines and layers without clutter\n- Make core characters most prominent, followed by important characters, and subordinate characters weakened to form a clear visual hierarchy\n- Ensure every character name is legible, with identity or faction labels if necessary\n\nThe final product should satisfy:\n- Immediate understanding of character hierarchy and key relationships\n- Obvious alignment with the original work's temperament and setting\n- Combines the clarity of an infographic with the premium design of a poster\n- Unified, exquisite, complete, and suitable for social media sharing or poster display\n- Avoids a cheap flowchart feel, messy piling, and information overload.",
-   "promptPreview": "Please generate a high-design character relationship map poster based on {argument name=\"theme\" default=\"Demon Slayer\"}. This image should not be a simple illustration, but a character relationship map that combines info",
-   "category": "Charts & Infographics",
-   "styles": [
-    "UI",
-    "Infographic",
-    "Poster"
-   ],
-   "scenes": [
-    "Commerce",
-    "Social",
-    "Travel"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-84",
-   "orig_title": "关系图谱信息图"
   },
   {
    "id": 83,
@@ -10991,28 +10389,6 @@
    "orig_title": "室内空间渲染图"
   },
   {
-   "id": 52,
-   "title": "Realistic Photography Style",
-   "image": "/static/template-library/images/case52.jpg",
-   "imageAlt": "marker color",
-   "sourceLabel": "@nicdunz",
-   "sourceUrl": "https://x.com/nicdunz",
-   "prompt": "A realistic photograph of a whiteboard with a highly detailed {argument name=\"marker color\" default=\"green\"} dry-erase marker drawing of {argument name=\"subject\" default=\"a samurai with a messy topknot and facial hair, hands clasped in prayer\"}. The character is drawn in a {argument name=\"art style\" default=\"detailed manga sketch\"} style, shown in profile with eyes closed, wearing a traditional kimono with a katana tucked into his belt. To the left of the character, handwritten text in all-caps reads \"{argument name=\"text line 1\" default=\"VAGABOND\"}\" with \"{argument name=\"text line 2\" default=\"MUSASHI\"}\" written directly below it. The whiteboard has a glossy surface with realistic light reflections and glare on the left side, and a thin metallic frame is visible at the bottom edge, giving the impression of an authentic classroom or office environment.",
-   "promptPreview": "A realistic photograph of a whiteboard with a highly detailed {argument name=\"marker color\" default=\"green\"} dry-erase marker drawing of {argument name=\"subject\" default=\"a samurai with a messy topknot and facial hair, h",
-   "category": "Illustration & Art",
-   "styles": [
-    "Realistic",
-    "Character"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-52",
-   "orig_title": "写实摄影风格图"
-  },
-  {
    "id": 51,
    "title": "Infographic Visualization Design",
    "image": "/static/template-library/images/case51.jpg",
@@ -11189,28 +10565,6 @@
    "featured": false,
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-44",
    "orig_title": "古风历史题材图"
-  },
-  {
-   "id": 43,
-   "title": "Illustrative Art Creation",
-   "image": "/static/template-library/images/case43.jpg",
-   "imageAlt": "type",
-   "sourceLabel": "@stark_nico99",
-   "sourceUrl": "https://x.com/stark_nico99",
-   "prompt": "{\n  \"type\": \"character portrait grid\",\n  \"theme\": \"{argument name=\\\"theme\\\" default=\\\"Game of Thrones characters\\\"}\",\n  \"style\": \"{argument name=\\\"art style\\\" default=\\\"2D flat illustration, clean line art, comic style, profile view facing right, pale skin with blush\\\"}\",\n  \"layout\": {\n    \"grid\": \"3x3\",\n    \"background\": \"light gray textured\",\n    \"frame_style\": \"white rounded-rectangle frames with text labels below each\"\n  },\n  \"count\": 9,\n  \"portraits\": [\n    { \"label\": \"Jon Snow\", \"description\": \"black hair half-up, beard, dark fur cloak\" },\n    { \"label\": \"Daenerys Targaryen\", \"description\": \"silver braided hair, blue dress\" },\n    { \"label\": \"Tyrion Lannister\", \"description\": \"curly brown hair, beard, dark tunic with gold pin\" },\n    { \"label\": \"Cersei Lannister\", \"description\": \"blonde braided hair, ornate red and gold dress\" },\n    { \"label\": \"Ned Stark\", \"description\": \"brown hair half-up, beard, dark fur cloak\" },\n    { \"label\": \"Arya Stark\", \"description\": \"short dark hair half-up, brown tunic, sword hilt\" },\n    { \"label\": \"Jaime Lannister\", \"description\": \"short blonde hair, gold armor with lion motif\" },\n    { \"label\": \"Sansa Stark\", \"description\": \"red braided hair, blue dress with fur collar\" },\n    { \"label\": \"Theon Greyjoy\", \"description\": \"short dark curly hair, dark tunic with kraken pin\" }\n  ]\n}",
-   "promptPreview": "{   \"type\": \"character portrait grid\",   \"theme\": \"{argument name=\\\"theme\\\" default=\\\"Game of Thrones characters\\\"}\",   \"style\": \"{argument name=\\\"art style\\\" default=\\\"2D flat illustration, clean line art, comic style, ",
-   "category": "Illustration & Art",
-   "styles": [
-    "Illustration",
-    "Character"
-   ],
-   "scenes": [
-    "Tech",
-    "Fashion"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-43",
-   "orig_title": "插画艺术创作图"
   },
   {
    "id": 42,
@@ -11600,46 +10954,6 @@
    "featured": false,
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-26",
    "orig_title": "建筑空间场景图"
-  },
-  {
-   "id": 25,
-   "title": "Comprehensive Application Scenario Illustration",
-   "image": "/static/template-library/images/case25.jpg",
-   "imageAlt": "reference",
-   "sourceLabel": "@nicdunz",
-   "sourceUrl": "https://x.com/nicdunz",
-   "prompt": "create a minecraft skin inspired by {argument name=\"reference\" default=\"my look\"}",
-   "promptPreview": "create a minecraft skin inspired by {argument name=\"reference\" default=\"my look\"}",
-   "category": "Characters & People",
-   "styles": [
-    "Characters"
-   ],
-   "scenes": [
-    "Story"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-25",
-   "orig_title": "综合应用场景图"
-  },
-  {
-   "id": 24,
-   "title": "Comic Panel Storyboard Design",
-   "image": "/static/template-library/images/case24.jpg",
-   "imageAlt": "character",
-   "sourceLabel": "@wewe50770964683",
-   "sourceUrl": "https://x.com/wewe50770964683",
-   "prompt": "Genshin Impact {argument name=\"character\" default=\"Raiden Shogun\"} cosplay selfies at the {argument name=\"event\" default=\"Shanghai Comic Con\"}",
-   "promptPreview": "Genshin Impact {argument name=\"character\" default=\"Raiden Shogun\"} cosplay selfies at the {argument name=\"event\" default=\"Shanghai Comic Con\"}",
-   "category": "Photography & Realism",
-   "styles": [
-    "Character"
-   ],
-   "scenes": [
-    "Tech"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-24",
-   "orig_title": "漫画分镜叙事设计"
   },
   {
    "id": 23,
