@@ -1113,3 +1113,37 @@ class MaestroExclusiveResidencyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class WarmSettleTests(unittest.TestCase):
+    """A small post-render memory deficit is waited out, not failed."""
+
+    def test_small_deficit_is_waited_out_before_retarget(self):
+        protocol = mock.Mock()
+        protocol.capacity_deficit_gib.side_effect = [1.3, 0.8, 0.0]
+        lease = SimpleNamespace(state="active", phase="parked", engine="h3", task="t2va")
+        warm = {"engine": "h3", "task": "t2va", "healthy": True, "busy": False}
+        sleeps = []
+        job = {"id": "next"}
+        with mock.patch.object(studio, "engine_up", return_value=False), \
+             mock.patch.object(studio, "_settle_sleep", side_effect=sleeps.append), \
+             mock.patch.object(studio, "save_state"), \
+             mock.patch.object(studio.RESIDENCY.hooks, "release_image_weights") as release:
+            with studio._exact_warm_video_admission(protocol, lease, "h3", "t2va", warm, job):
+                pass
+        self.assertEqual(sleeps, [2.0, 2.0])
+        self.assertEqual(protocol.capacity_deficit_gib.call_count, 3)
+        release.assert_not_called()
+        self.assertIn("settle", job["stage"])
+
+    def test_wait_is_bounded_and_large_deficits_are_not_waited(self):
+        protocol = mock.Mock()
+        protocol.capacity_deficit_gib.return_value = 1.0
+        clock = iter([0.0, 10.0, 200.0])
+        with mock.patch.object(studio, "_settle_sleep"), \
+             mock.patch.object(studio, "_settle_clock", side_effect=lambda: next(clock)), \
+             mock.patch.object(studio, "save_state"):
+            self.assertEqual(studio._wait_for_warm_settle(protocol, "h3", "t2va", 1.0, {}), 1.0)
+        protocol.capacity_deficit_gib.reset_mock()
+        self.assertEqual(studio._wait_for_warm_settle(protocol, "h3", "t2va", 11.2, None), 11.2)
+        protocol.capacity_deficit_gib.assert_not_called()

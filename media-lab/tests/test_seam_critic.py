@@ -105,6 +105,11 @@ def test_produce_films_a_board_with_one_seed_and_edits_of_the_master(tmp_path):
             dest.write_bytes(take.read_bytes() if url.endswith(".mp4") else b"png")
             return dest
 
+        def run(self, path, body, **kw):
+            j = self.wait(self.submit(path, body))
+            j["id"] = f"job{self.n}"
+            return j
+
     board = {"seed": 99, "bible": {"location": "a laundromat", "characters": [
                 {"name": "Maya", "look": "woman, curly hair", "wardrobe": "teal scrubs", "reference": "/media/maya.png"},
                 {"name": "Theo", "look": "man, red hair", "wardrobe": "green parka", "reference": "/media/theo.png"}]},
@@ -142,3 +147,19 @@ def test_lipsync_off_becomes_a_rerender_and_unmeasured_is_said():
 def test_syncnet_runner_needs_a_configured_checkout(monkeypatch):
     monkeypatch.delenv("MEDIA_LAB_SYNCNET_PYTHON", raising=False)
     assert seam_critic.syncnet_runner() is None
+
+
+def test_studio_run_rides_out_a_transient_capacity_refusal(monkeypatch):
+    from media_lab_core import director_cli
+    answers = iter([{"status": "error", "message": "Something went wrong — the studio stopped this job safely.",
+                     "detail": "h3/t2va requires 24.0 GiB including reserve; only 22.7 GiB available"},
+                    {"status": "done", "url": "/media/ok.mp4"}])
+    settled = []
+    monkeypatch.setattr(director_cli, "settle_memory", lambda **kw: settled.append(1))
+    studio = director_cli.Studio.__new__(director_cli.Studio)
+    studio.submit = lambda path, body: "j"
+    studio.wait = lambda jid, log=None: dict(next(answers))
+    j = studio.run("/api/generate", {"prompt": "x"})
+    assert j["status"] == "done" and settled == [1]
+    studio.wait = lambda jid, log=None: {"status": "error", "message": "The prompt is empty"}
+    assert studio.run("/api/generate", {"prompt": "x"})["status"] == "error" and settled == [1]

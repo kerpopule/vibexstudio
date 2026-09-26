@@ -2127,6 +2127,32 @@ def _gpu_reclaim_all(j=None):
             "boot_id": boot_path.read_text().strip() if boot_path.exists() else "unknown"}
 
 
+# Right after a warm take finishes, the engine's decode buffers take a few
+# seconds to come back. An admission check inside that window measured 22.7 of
+# the 24.0 GiB a warm H3 take needs and failed the NEXT queued take outright:
+# 3 of 4 queued diner takes on 2026-09-18, 5 of 6 queued takes on 2026-09-26.
+# A multi-shot production queues takes back to back, so wait (bounded) for a
+# SMALL measured deficit to clear. Nothing is relaxed: retarget re-checks.
+WARM_SETTLE_MAX_DEFICIT_GIB = float(os.getenv("MEDIA_LAB_WARM_SETTLE_MAX_DEFICIT_GIB", "4"))
+WARM_SETTLE_WAIT_S = float(os.getenv("MEDIA_LAB_WARM_SETTLE_WAIT_S", "90"))
+_settle_sleep = time.sleep
+_settle_clock = time.monotonic
+
+
+def _wait_for_warm_settle(protocol, engine, task, deficit, j=None):
+    if deficit <= 0 or deficit > WARM_SETTLE_MAX_DEFICIT_GIB:
+        return deficit
+    if j is not None:
+        j["stage"] = "letting memory settle after the last take…"
+        save_state()
+    deadline = _settle_clock() + WARM_SETTLE_WAIT_S
+    while deficit > 0 and _settle_clock() < deadline:
+        _settle_sleep(2.0)
+        deficit = protocol.capacity_deficit_gib(engine, task, warm=True)
+    print(f"[gpu] warm {engine}/{task} admission after settle wait: deficit {deficit:.2f} GiB", flush=True)
+    return deficit
+
+
 @contextmanager
 def _exact_warm_video_admission(protocol, lease, engine, task, warm, j=None):
     """Reclaim proven-idle image weights before exact-warm video admission.
@@ -2149,7 +2175,10 @@ def _exact_warm_video_admission(protocol, lease, engine, task, warm, j=None):
     if not exact_parked:
         yield
         return
-    if protocol.capacity_deficit_gib(engine, task, warm=True) <= 0:
+    deficit = protocol.capacity_deficit_gib(engine, task, warm=True)
+    if deficit > 0 and not engine_up("image"):
+        deficit = _wait_for_warm_settle(protocol, engine, task, deficit, j)
+    if deficit <= 0:
         yield
         return
 
@@ -11896,7 +11925,10 @@ def job(job_id: str, full: int = 0):
             "engine_used", "masked", "queue_lane", "fal_request_id", "fal_model_id",
             "fal_input", "fal_seed", "fal_expanded_prompt",
             # storyboard assembly: the seam critic's verdict and the editor's notes
-            "critic", "assembly_notes")
+            "critic", "assembly_notes",
+            # why a job stopped (e.g. a capacity refusal), so agents can tell a
+            # transient admission refusal from a real failure
+            "detail")
     queued_in = online_queue if job_queue_lane(j) == "online" else queue
     result = {k: j.get(k) for k in keys} | {
         "queue_position": queued_in.index(job_id) + 1 if job_id in queued_in else 0}

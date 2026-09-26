@@ -88,6 +88,25 @@ class Studio:
                 raise TimeoutError(f"job {job_id} still {j.get('status')} after {limit:.0f}s")
             time.sleep(poll)
 
+    def run(self, path: str, body: dict, *, label: str = "", retries: int = 2, log=None) -> dict:
+        """Submit, wait, and ride out a transient admission refusal.
+
+        Studios before director-school refused a take queued right behind
+        another one while memory settled ("requires 24.0 GiB ... only 22.7").
+        Wait for memory to settle and resubmit, at most ``retries`` times."""
+        for attempt in range(retries + 1):
+            jid = self.submit(path, body)
+            if log:
+                log(f"{label or path}: job {jid}" + (f" (retry {attempt})" if attempt else ""))
+            j = self.wait(jid, log=log)
+            j["id"] = jid
+            transient = j.get("status") == "error" and (
+                "GiB" in str(j.get("detail") or "") or "stopped this job safely" in str(j.get("message") or ""))
+            if j.get("status") == "done" or not transient or attempt == retries:
+                return j
+            settle_memory(log=log)
+        return j
+
     def fetch(self, url: str, dest: Path) -> Path:
         name = Path(urllib.parse.urlsplit(url).path).name
         if self.media_dir and (self.media_dir / name).is_file():
@@ -148,6 +167,25 @@ def plan_from_brief(brief: str, chat, *, revisions: int = 2, seed: int | None = 
     return board
 
 
+def settle_memory(*, need_gib: float = 25.0, limit_s: float = 150.0, log=None) -> None:
+    """On the studio machine, wait until MemAvailable is back above ``need_gib``;
+    elsewhere just give the studio a minute."""
+    meminfo = Path("/proc/meminfo")
+    if not meminfo.is_file():
+        time.sleep(60)
+        return
+    start = time.time()
+    while time.time() - start < limit_s:
+        fields = dict(line.split(":", 1) for line in meminfo.read_text().splitlines() if ":" in line)
+        available = int(fields.get("MemAvailable", "0 kB").split()[0]) / 1048576
+        if available >= need_gib:
+            break
+        time.sleep(3)
+    time.sleep(5)
+    if log:
+        log(f"  memory settled after {time.time() - start:.0f}s")
+
+
 # ------------------------------------------------------------------- produce
 
 def produce(board: dict, out_dir: Path, studio: Studio, *, rounds: int = 2, stills: bool = True,
@@ -175,11 +213,10 @@ def produce(board: dict, out_dir: Path, studio: Studio, *, rounds: int = 2, stil
     characters = ds.normalize_bible(bible)["characters"]
 
     def image(body: dict, label: str) -> str:
-        jid = studio.submit("/api/image", body)
-        log(f"{label}: job {jid}")
-        j = studio.wait(jid, log=log)
+        j = studio.run("/api/image", body, label=label, log=log)
+        jid = j["id"]
         if j.get("status") != "done" or not j.get("url"):
-            raise RuntimeError(f"{label} failed: {j.get('message')}")
+            raise RuntimeError(f"{label} failed: {j.get('message')} {j.get('detail') or ''}")
         journal.setdefault("stills", []).append({"label": label, "job": jid, "url": j["url"],
                                                  "prompt": body["prompt"], "source": body.get("source"),
                                                  "reference_source": body.get("reference_source")})
@@ -235,11 +272,10 @@ def produce(board: dict, out_dir: Path, studio: Studio, *, rounds: int = 2, stil
                     "seed": take_seed[i], "style": "none"}
             if i in still_urls:
                 body["source"] = still_urls[i]
-            jid = studio.submit("/api/generate", body)
-            log(f"round {round_no}: shot {i + 1} take -> job {jid}")
-            j = studio.wait(jid, log=log)
+            j = studio.run("/api/generate", body, label=f"round {round_no}: shot {i + 1} take", log=log)
+            jid = j["id"]
             if j.get("status") != "done" or not j.get("url"):
-                raise RuntimeError(f"shot {i + 1} failed: {j.get('message')}")
+                raise RuntimeError(f"shot {i + 1} failed: {j.get('message')} {j.get('detail') or ''}")
             dest = out_dir / f"shot-{i + 1:02d}-r{round_no}.mp4"
             studio.fetch(j["url"], dest)
             clips[i] = dest
