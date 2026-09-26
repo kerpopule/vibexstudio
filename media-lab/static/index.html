@@ -11,6 +11,22 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Media Lab">
 <script>
+/* Inside the VibeX Studio app (?embed=1, kept for this frame's session by
+   sessionStorage): the app owns the bottom tab bar and the Sparky corner
+   button, so the studio moves its area switcher to the top and hides its own
+   duplicates. ?embed=0 turns it off again. */
+(function(){try{
+  var q=new URLSearchParams(location.search),on=false;
+  try{
+    if(q.get('embed')==='0')sessionStorage.removeItem('mlab-embed');
+    on=q.get('embed')==='1'||(q.get('embed')!=='0'&&sessionStorage.getItem('mlab-embed')==='1');
+    if(on)sessionStorage.setItem('mlab-embed','1');
+  }catch(e){on=q.get('embed')==='1';}
+  if(on)document.documentElement.classList.add('embed');
+  window.MEDIALAB_EMBED=on;
+}catch(e){window.MEDIALAB_EMBED=false;}})();
+</script>
+<script>
 /* Paint the saved theme BEFORE first render — applying it later flashed the
    default ground on every launch. Colours mirror THEMES/THEME_INK below. */
 (function(){try{
@@ -700,6 +716,16 @@
   .swback:hover{color:var(--t-1)}
   .swcat .label{margin-top:14px}
   #setupWiz .chips{margin-top:6px}
+  /* ---- inside the VibeX Studio app: one navigation, one Sparky ----
+     The app's tab bar sits at the bottom and its Sparky in the corner, so the
+     area switcher moves to the top, the theme button mirrors the queue orb,
+     and the page's own chat button and sign-out step aside. */
+  html.embed nav{top:calc(8px + env(safe-area-inset-top));bottom:auto}
+  html.embed .tab{padding-top:calc(env(safe-area-inset-top) + 68px);
+     padding-bottom:calc(150px + env(safe-area-inset-bottom))}
+  html.embed #themeBtn{top:calc(10px + env(safe-area-inset-top));bottom:auto;left:10px}
+  html.embed .mlc-fab,html.embed #signOut{display:none!important}
+  @media (min-width:900px){html.embed .tab{padding-top:calc(env(safe-area-inset-top) + 108px)}}
 </style>
 <!-- the studio's own looks from its gitignored config/local/themes.json (empty when none) -->
 <link rel="stylesheet" href="/local/themes.css">
@@ -5354,7 +5380,9 @@ $('#swSkip').onclick=()=>{try{localStorage.setItem('lab-setup-skip','1');}catch(
 <script>
 /* ---- PWA: service worker + push ---- */
 let SWREG=null;
-if('serviceWorker' in navigator){
+/* not inside the app: a framed studio would register a partitioned worker
+   whose push prompts the browser refuses anyway */
+if('serviceWorker' in navigator&&!window.MEDIALAB_EMBED){
   navigator.serviceWorker.register('/sw.js').then(r=>{SWREG=r;initPush();}).catch(()=>{});
 }
 function b64ToU8(s){const pad='='.repeat((4-s.length%4)%4);const b=atob((s+pad).replace(/-/g,'+').replace(/_/g,'/'));
@@ -5396,5 +5424,29 @@ if(new URLSearchParams(location.search).get('queue')){
 <script src="/static/image-templates.js?v=5"></script>
 <script>window.MEDIALAB_CHAT_BOTTOM=80;</script>
 <script src="/static/medialab-chat.js?v=16"></script>
+<script>
+/* ---- inside the VibeX Studio app: tell the app the studio is up, and sign
+   back in through /embed if the embed session runs out ---- */
+(function(){
+  if(!window.MEDIALAB_EMBED)return;
+  var parentOrigin=null;try{parentOrigin=sessionStorage.getItem('mlab-embed-parent');}catch(e){}
+  var framed=(function(){try{return window.self!==window.top;}catch(e){return true;}})();
+  function tell(kind){
+    var msg={type:'vibex-lab:'+kind,page:'lab'};
+    if(window.ReactNativeWebView){try{window.ReactNativeWebView.postMessage(JSON.stringify(msg));}catch(e){}return;}
+    /* status only, nothing secret: the verified parent when known */
+    if(framed){try{window.parent.postMessage(msg,parentOrigin||'*');}catch(e){}}
+  }
+  tell('ready');
+  function recheck(){
+    fetch('/api/embed/status',{credentials:'same-origin',cache:'no-store'})
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(s){if(s&&!s.signedIn)location.replace('/embed?next='+encodeURIComponent(location.pathname+location.search));})
+      .catch(function(){});
+  }
+  setInterval(recheck,5*60*1000);
+  document.addEventListener('visibilitychange',function(){if(!document.hidden)recheck();});
+})();
+</script>
 </body>
 </html>

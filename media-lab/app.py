@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from media_lab_core import studio_library, studio_jobs, studio_inputs, background_host, background_setup
 from media_lab_core import local_config
 from media_lab_core import engine_licences, local_overlay
+from media_lab_core import embed_gate
 from media_lab_core import family_code, local_token, secret_files
 from media_lab_core.job_store import JobStore
 from media_lab_core.director_context import project_context_message
@@ -1456,6 +1457,13 @@ def request_role(request: Request) -> str:
     role = session_role(request.cookies.get(SESSION_COOKIE, ""))
     if role:
         return role
+    # The studio shown inside the VibeX Studio app signs in through the embed
+    # handshake (media_lab_core/embed_gate.py); that cookie carries the role of
+    # the device pass that minted it and counts only on the studio page's own
+    # same-origin requests.
+    role = embed_gate.cookie_role(request, ACCESS_SECRET, _role_code)
+    if role:
+        return role
     if local_token.matches(request.headers.get(local_token.HEADER), LOCAL_TOKEN):
         return "user"
     return ""
@@ -1491,7 +1499,8 @@ async def gate_middleware(request: Request, call_next):
     request.state.role = request_role(request)
     fresh = not did
 
-    scoped = studio_library.is_library_path(p) or studio_jobs.is_jobs_path(p)
+    scoped = (studio_library.is_library_path(p) or studio_jobs.is_jobs_path(p)
+              or p in embed_gate.BRIDGE_PATHS)
     bridge = p == '/api/gate' or scoped
     if bridge and request.method == 'OPTIONS':
         resp = Response(status_code=204)
@@ -1507,6 +1516,10 @@ async def gate_middleware(request: Request, call_next):
         # an owner script with the admin code in X-Lab-Pin and no cookie
         request.state.role = pin_role
         resp = await call_next(request)
+    elif request.method == "GET" and embed_gate.is_frame_navigation(request):
+        # Inside the VibeX Studio app: sign in through the frame handshake
+        # instead of showing a code screen whose cookie the frame can't keep.
+        resp = embed_gate.bootstrap_redirect(p, request.url.query)
     elif request.method == "GET" and ("text/html" in request.headers.get("accept", "") or p == "/"):
         resp = HTMLResponse(GATE_HTML, status_code=401)
     else:
@@ -1543,6 +1556,9 @@ async def gate_middleware(request: Request, call_next):
         resp.headers['Access-Control-Expose-Headers'] = 'X-Content-SHA256, X-Studio-Portable'
         resp.headers['Cache-Control'] = 'private, no-store'
         resp.headers['Vary'] = 'Authorization, Origin'
+    # Only this studio, the VibeX Studio app's own origins and (over loopback)
+    # local dev servers may frame any page here: no clickjacking of the studio.
+    embed_gate.apply_frame_headers(resp, request.headers.get("host") or "", BROWSER_ORIGINS)
     return resp
 
 # ---------- admin authority ----------
@@ -12280,7 +12296,8 @@ def chat(r: ChatReq, request: Request):
     # stricter: only a server-signed role cookie can read studio state or mutate
     # the queue. Client IP and Host are never authority.
     raw_cookie = request.cookies.get(SESSION_COOKIE, "")
-    if not signed_session_authorized(raw_cookie, session_role):
+    if not (signed_session_authorized(raw_cookie, session_role)
+            or embed_gate.cookie_role(request, ACCESS_SECRET, _role_code)):
         return JSONResponse({"error": "signed session required"}, status_code=401,
                             headers=CHAT_CORS)
     try:
@@ -12806,7 +12823,8 @@ def _studio_background_setup():
 
 app.include_router(background_setup.router(
     _studio_background_setup,
-    lambda request: session_role(request.cookies.get(SESSION_COOKIE, '')) == 'admin',
+    lambda request: (session_role(request.cookies.get(SESSION_COOKIE, '')) == 'admin'
+                     or embed_gate.cookie_role(request, ACCESS_SECRET, _role_code) == 'admin'),
     lambda: os.getenv('MEDIA_LAB_BACKGROUND_SETUP') == '1'))
 
 
@@ -12833,6 +12851,12 @@ app.include_router(studio_inputs.router(
     lambda raw: studio_jobs.identity(raw, ACCESS_SECRET, _role_code, max_age=STUDIO_PASS_AGE),
     lambda raw: studio_library.valid_ticket(raw, ACCESS_SECRET, _role_code, max_age=STUDIO_PASS_AGE),
     _studio_read_library_input))
+
+# The studio inside the VibeX Studio app: /embed handshake, tickets, status.
+GATE_EXEMPT.update(embed_gate.GATE_EXEMPT_PATHS)
+app.include_router(embed_gate.router(
+    secret=lambda: ACCESS_SECRET, role_code=_role_code, origins=lambda: BROWSER_ORIGINS,
+    secure=_secure_cookie, signed_in=_gate_ok, pass_max_age=STUDIO_PASS_AGE))
 
 @app.get("/api/me")
 def me(request: Request):
@@ -12983,6 +13007,8 @@ def manifest(theme: str = ""):
     ink = THEME_INK.get(theme) or local_overlay.theme_ink(theme) or THEME_INK[""]
     # id/start_url stay fixed — changing them would orphan the installed app
     data["background_color"] = data["theme_color"] = ink
+    # Tells the VibeX Studio app this studio can be shown inside it (/embed).
+    data["vibexEmbed"] = 1
     # CORS open on purpose: this gate-exempt endpoint doubles as the pairing
     # liveness probe for VibeXStudio web/desktop builds (browser fetch).
     return JSONResponse(data, media_type="application/manifest+json",
