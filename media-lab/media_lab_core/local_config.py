@@ -59,6 +59,8 @@ DEFAULTS: dict[str, str] = {
     # bounded memory-settle gate in front of every H3 cold load.
     "MEDIA_LAB_H3_IDLE_TASK": "t2va",
     "MEDIA_LAB_H3_RESTORE_QUIET_S": "300",
+    "MEDIA_LAB_GRACEFUL_HANDOFF": "0",
+    "MEDIA_LAB_HOLD_AUTORECOVER": "0",
     "MEDIA_LAB_H3_BATCH_MAX_WAIT_S": "900",
     "MEDIA_LAB_H3_LOAD_SETTLE_MAX_PSI": "2",
     "MEDIA_LAB_H3_LOAD_SETTLE_MAX_WAIT_S": "120",

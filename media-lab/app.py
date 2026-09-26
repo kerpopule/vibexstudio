@@ -21,6 +21,7 @@ from media_lab_core import installer as engine_installer
 from media_lab_core import cut as cut_core
 from media_lab_core.durable_gpu_protocol import CapacityUnqualified, LeaseBusy, StaleFence
 from media_lab_core.gpu_lease_runtime import delegation_env, delegation_headers, open_protocol
+from media_lab_core import gpu_handoff as _gpu_handoff
 from media_lab_core.solh3_control_guard import (current_heartbeat_allows_h3, read_pressure_sample,
                                                 write_runtime_environment)
 from runner.audio_signal_gate import audio_signal_metrics
@@ -879,6 +880,9 @@ async def _studio_lifespan(application):
     try:
         yield
     finally:
+        # A planned stop (systemctl stop/restart, a deploy) runs this; a crash or
+        # SIGKILL never does, so only a graceful stop can hand warm residency on.
+        _gpu_write_handoff_on_shutdown()
         await _stop_studio_background_host()
 
 
@@ -2051,16 +2055,97 @@ def _gpu_restart_adoption_proof(recovered):
             "pid": identity[0], "process_identity": identity[1], **warm}
 
 
+def _gpu_graceful_handoff_enabled():
+    """MEDIA_LAB_GRACEFUL_HANDOFF=1 (config/local.env): planned restarts hand an
+    idle parked residency to the next controller instead of holding the GPU."""
+    return local_config.int_value(_gpu_handoff.FLAG, 0) == 1
+
+
+def _gpu_resident_config(engine):
+    """What the engine says it has loaded, compared verbatim across a handoff."""
+    return h3_resident_config() if engine == "h3" else None
+
+
+def _gpu_handoff_warm(engine, resident):
+    healthy = _gpu_exact_idle(engine) and (engine != "h3" or resident is not None)
+    return {"healthy": bool(healthy), "busy": engine_busy(engine) if engine in ENGINES else True}
+
+
+def _gpu_write_handoff_on_shutdown():
+    """Planned stop: record an exact idle parked residency for the next start.
+
+    Takes the controller's protocol mutex and never releases it, so no fenced
+    GPU operation can begin after the record is written. If an operation is
+    running the mutex is busy and nothing is written: the next start holds, as
+    it always has. Every refusal is logged and harmless.
+    """
+    if os.getenv("MEDIA_LAB_DISABLE_BACKGROUND_WORKERS") == "1" or not _gpu_graceful_handoff_enabled():
+        return None
+    if not _gpu_protocol_mutex.acquire(timeout=5):
+        print("[gpu-lease] planned-stop handoff skipped: a GPU operation is running", flush=True)
+        return None
+    try:
+        protocol = gpu_protocol()
+        row = protocol.snapshot().get("lease")
+        lease = _gpu_active_lease
+        if lease is None or row is None or row.get("fence") != lease.fence:
+            raise _gpu_handoff.HandoffRefused("this controller does not own the durable lease")
+        engine, task = row["engine"], row["task"]
+        resident = _gpu_resident_config(engine)
+        record = _gpu_handoff.plan(
+            row, owner=f"media-lab-simple:{os.getpid()}", boot_id=protocol._boot_id(),
+            live_identity=_gpu_process_identity(engine),
+            warm=_gpu_handoff_warm(engine, resident), resident_config=resident,
+            running_jobs=sum(1 for j in jobs.values() if j.get("status") == "running"),
+            hold_exists=gpu_recovery_pending())
+        _gpu_handoff.write(GPU_HANDOFF, record)
+        print(f"[gpu-lease] planned stop: handed {engine}/{task} fence {record['fence']} "
+              f"to the next controller", flush=True)
+        return record
+    except Exception as exc:
+        print(f"[gpu-lease] planned-stop handoff skipped: {exc}", flush=True)
+        return None
+
+
+def _gpu_adopt_handoff(protocol, recovered, row, record):
+    """Adopt exactly the residency a graceful stop handed over, then re-park it."""
+    engine, task = row["engine"], row["task"]
+    resident = _gpu_resident_config(engine)
+    proof = _gpu_handoff.validate(
+        record, row, boot_id=protocol._boot_id(),
+        live_identity=_gpu_process_identity(engine),
+        warm=_gpu_handoff_warm(engine, resident), resident_config=resident,
+        running_jobs=sum(1 for j in jobs.values() if j.get("status") == "running"),
+        hold_exists=gpu_recovery_pending())
+    return _gpu_handoff.adopt(
+        protocol, recovered, owner=f"media-lab-simple:{os.getpid()}", proof=proof,
+        park_proof={"engine": engine, "task": task, "healthy": True, "busy": False})
+
+
 def initialize_gpu_cutover():
     """Adopt only exact idle ownership; quarantine every ambiguous restart."""
     global _gpu_active_lease, _gpu_cutover_ready
     protocol = gpu_protocol()
+    # Consumed on every start, used or not: a record can never be replayed.
+    handoff_record = _gpu_handoff.consume(GPU_HANDOFF)
     recovered = protocol.recover_startup()
     _gpu_active_lease = recovered
     lease = protocol.snapshot().get("lease")
     _gpu_cutover_ready = lease is None
     if lease is None:
         return True
+    if (recovered is not None and recovered._fd is not None and not GPU_RECOVERY_HOLD.exists()
+            and handoff_record is not None and _gpu_graceful_handoff_enabled()):
+        try:
+            _gpu_adopt_handoff(protocol, recovered, lease, handoff_record)
+            _gpu_active_lease = recovered
+            _gpu_cutover_ready = True
+            print(f"[gpu-lease] planned restart: adopted parked {recovered.engine}/"
+                  f"{recovered.task} for {recovered.job_id} (no hold)", flush=True)
+            return True
+        except Exception as exc:
+            print(f"[gpu-lease] planned-restart handoff refused: {exc}", flush=True)
+            lease = protocol.snapshot().get("lease") or lease
     if recovered is not None and recovered._fd is not None and not GPU_RECOVERY_HOLD.exists():
         try:
             proof = _gpu_restart_adoption_proof(recovered)
@@ -2389,6 +2474,7 @@ def gpu_render_ready(engine, task):
     return lease
 
 GPU_RECOVERY_HOLD = POOL_DIR / "gpu-recovery-hold.json"
+GPU_HANDOFF = POOL_DIR / "gpu-handoff.json"
 _gpu_recovery_blocked = False
 
 def gpu_recovery_pending():
