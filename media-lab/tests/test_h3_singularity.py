@@ -102,6 +102,7 @@ def test_references_are_wired_per_type_and_capped():
     inputs = g["56"]["inputs"]
     assert inputs["ref_images.ref_image_8"] == ["178", 0]
     assert g["180"]["inputs"]["force_rate"] == 24 and g["180"]["inputs"]["skip_first_frames"] == 12
+    assert g["180"]["inputs"]["format"] == "None"   # no loader-side resize or rate preset
     assert inputs["ref_videos.ref_video_2"] == ["182", 0]
     assert inputs["ref_audios.ref_audio_2"] == ["192", 0]
     assert not any(k.startswith("ref_video_audios") for k in inputs)  # soundtracks never condition
@@ -236,6 +237,8 @@ def test_pipeline_starts_warms_renders_and_stops_its_process_group(fake_env):
         assert (runtime / "singularity" / "in" / "job1-ref0.png").is_file()
         sing.sweep_inputs(runtime, "job1")
         assert not (runtime / "singularity" / "in" / "job1-ref0.png").exists()
+        assert not Path(row["output"]).exists()                    # renderer copy swept
+        assert (runtime / "singularity" / "out" / "graphs.jsonl").exists()
     finally:
         pipe.close()
     with pytest.raises(ProcessLookupError):

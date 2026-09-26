@@ -287,7 +287,7 @@ def build_graph(*, prompt: str, frames: int, orientation: str, seed: int, prefix
         g[nid] = {"class_type": "VHS_LoadVideoPath", "inputs": {
             "video": str(ref["path"]), "force_rate": FPS, "custom_width": 0, "custom_height": 0,
             "frame_load_cap": int(ref.get("cap") or 0), "skip_first_frames": int(ref.get("skip") or 0),
-            "select_every_nth": 1, "format": "AnimateDiff"}}
+            "select_every_nth": 1, "format": "None"}}
         g["56"]["inputs"][f"ref_videos.ref_video_{i}"] = [nid, 0]
     for i, ref in enumerate(audio_refs):
         nid = str(190 + i)
@@ -492,11 +492,17 @@ class SingularityPipeline:
     def start(self, warm_timeout_s: float = 1800.0):
         t0 = time.monotonic()
         self.comfy.start()
+        prefix = f"warm-{uuid.uuid4().hex[:8]}"
         try:
-            self.comfy.run(warm_graph(f"warm-{uuid.uuid4().hex[:8]}", self.models), timeout_s=warm_timeout_s)
+            self.comfy.run(warm_graph(prefix, self.models), timeout_s=warm_timeout_s)
         except Exception:
             self.comfy.stop()
             raise
+        for path in self.comfy.dirs["out"].glob(f"{prefix}_*"):
+            try:
+                path.unlink()
+            except OSError:
+                pass
         self.warm_s = round(time.monotonic() - t0, 1)
         self.log(f"singularity warm in {self.warm_s}s")
         return self
@@ -595,13 +601,16 @@ class SingularityPipeline:
 
 
 def sweep_inputs(runtime_root, rid: str):
-    """Remove one request's staged reference files (best effort)."""
-    base = Path(runtime_root) / "singularity" / "in"
-    for path in base.glob(f"{rid}-*"):
-        try:
-            path.unlink()
-        except OSError:
-            pass
+    """Remove one request's staged reference files and the renderer's own copies
+    of its output (the engine keeps the finished take in its out dir), so the
+    runtime dir does not grow with every take. Best effort."""
+    root = Path(runtime_root) / "singularity"
+    for base, pattern in ((root / "in", f"{rid}-*"), (root / "out", f"{rid}_*")):
+        for path in base.glob(pattern):
+            try:
+                path.unlink()
+            except OSError:
+                pass
 
 
 def copy_output(src: str, dst: str):

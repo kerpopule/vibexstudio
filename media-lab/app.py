@@ -13409,7 +13409,12 @@ def engines_eta(duration: str = "5", images: int = 0, videos: int = 0, audios: i
     return {"engines": out, "queue_ahead": len(ahead), "queue_ahead_min": ahead_min,
             "real_long": {"available": real_long_ok,
                           "max_seconds": _h3sing.seconds_of(singularity_max_frames()),
-                          "label": _h3sing.LABEL}}
+                          "label": _h3sing.LABEL,
+                          # how long it stays loaded after the last take, and
+                          # what warm Cinematic then takes to come back
+                          "linger_s": H3_SINGULARITY_LINGER_S,
+                          "restore_s": int((table.get("engines", {}).get("h3") or {})
+                                           .get("spinup_s") or 0)}}
 
 
 app.mount("/media", StaticFiles(directory=str(MEDIA)), name="media")

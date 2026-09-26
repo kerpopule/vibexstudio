@@ -266,7 +266,8 @@ def test_eta_route_prices_each_engine_with_its_spin_up(installed, monkeypatch):
                         lambda max_age_s=5.0: {"ltx25": False, "h3": True, "h3-real": False, "h3-ltx25": True})
     body = _client(installed).get("/api/engines/eta", params={"duration": "12"}).json()
     engines = body["engines"]
-    assert body["real_long"] == {"available": True, "max_seconds": 15.083, "label": "Real / Long"}
+    assert body["real_long"] == {"available": True, "max_seconds": 15.083, "label": "Real / Long",
+                                 "linger_s": 600, "restore_s": 380}
     assert engines["h3"]["total_s"] == 70 and engines["h3"]["fixed_length"] is True
     assert engines["h3"]["clip_seconds"] == 5.04
     real = engines["h3-real"]

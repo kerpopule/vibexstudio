@@ -1808,6 +1808,7 @@ $('#models').addEventListener('click',()=>setTimeout(durPaint,0));
    time; Cinematic reloads ~6 min after something else pushed it out). ---- */
 const ETA={realMax:15,timer:null,seq:0};
 function etaFmt(e){return e?e.text.replace(/^about /,'~'):'';}
+function etaMin(s){s=+s||0;return s>=90?'~'+Math.round(s/60)+' min':'~'+Math.max(10,Math.round(s/10)*10)+' s';}
 function etaRefs(){return {videos:(typeof V2V!=='undefined'&&V2V.item)?1:0};}
 async function etaRefresh(){
   const seq=++ETA.seq;
@@ -1832,7 +1833,7 @@ async function etaRefresh(){
     let t=`<b>${esc(e.label.split(' (')[0])}</b>: ${esc(e.text)}`;
     if(e.fixed_length&&!DUR_AUTO&&+$('#durSlider').value>6)t+=` <span class="etanote">Makes a ${e.clip_seconds} s clip whatever length you pick — Real / Long does 5–15 s.</span>`;
     else if(e.fixed_length)t+=` <span class="etanote">Always a ${e.clip_seconds} s clip.</span>`;
-    if(m==='h3-real'&&e.resident===false)t+=' <span class="etanote">Loads on demand; Cinematic comes back warm about 10 min after your last Real / Long take.</span>';
+    if(m==='h3-real'&&e.resident===false)t+=` <span class="etanote">Loads on demand. It stays loaded ${esc(etaMin(rl.linger_s))} after your last Real / Long take; then Cinematic reloads (${esc(etaMin(rl.restore_s))}) and is fast again.</span>`;
     return t;});
   if(d.queue_ahead)lines.push(`<span class="etanote">Starts after ${d.queue_ahead} queued ${d.queue_ahead>1?'takes':'take'} (~${d.queue_ahead_min} min).</span>`);
   $('#etaLine').innerHTML=lines.length?'⏱ '+lines.join('<br>'):'';
