@@ -137,9 +137,40 @@ network grants access — not being on the same Wi-Fi, not the tailnet, not
 - Installs from before word codes keep their old codes (an 8-letter access
   code, a 4-digit admin code) until you rotate. The server log warns when a
   code is short; rotate both: `media-lab code --rotate && media-lab code --rotate --admin`.
+- `media-lab code --set-family` sets a family code **you choose** instead of
+  a random one. It reads the code from stdin (a hidden prompt, asked twice, in
+  a terminal) or from `--from FILE`, never from the command line, and never
+  prints it. It refuses the admin code, an empty code and anything longer than
+  the gate's 80-character box. A short code (even 4 digits) is allowed: the
+  server log then warns at every start that it is short and guessable, and the
+  lockout below is what protects it. Like `--rotate`, it signs every family
+  device out once.
 - The codes are never written to the server log. Tools on the studio machine
   (the queue watchdog, the deploy script, the runners, `cut_cli`) use
   `local-token.txt` (also 0600) instead of a code.
+
+### Wrong codes: the lockout
+
+- **3 wrong codes within 10 minutes** from one network locks the code prompt
+  for that network for **1 hour**. Every later lockout of the same network
+  doubles: 2 h, 4 h, 8 h, ... up to 7 days. A whole day with no wrong code
+  steps it back down one level.
+- "One network" is one IPv4 address or one IPv6 /64 — through the Cloudflare
+  tunnel, the address Cloudflare saw; on the tailnet or LAN, the device's own
+  address. Everyone behind one home IPv4 address shares one counter.
+- It guards the **code prompt only**. A browser or paired app that is already
+  signed in keeps working during a lockout.
+- The admin code has **its own counter**. While the prompt is shut for a
+  network, only the admin code is checked there, so family typos never lock the
+  owner out. Owner scripts sending the admin code in `X-Lab-Pin` use that
+  counter too.
+- `media-lab code --locks` lists who is locked out right now;
+  `media-lab code --unlock` lifts every lockout and
+  `media-lab code --unlock <address>` lifts one (`anon` = this machine's own
+  scripts). The running studio applies it within a few seconds; the journal
+  says how many were lifted, never which address.
+- Lockouts are kept in `auth-attempts.json` (0600), so a restart does not
+  clear them.
 
 ## The desktop app
 
@@ -156,6 +187,9 @@ exists; otherwise call it by path.
 media-lab status [--json]      health, GPU, engines, service state
 media-lab pair   [--json]      pairing QR, URLs, family code
 media-lab code   [--rotate]    show / rotate the family code (--admin for the other)
+media-lab code --set-family    set a family code you chose (stdin or --from FILE)
+media-lab code --locks         who the code prompt is locked for right now
+media-lab code --unlock [IP]   lift code-prompt lockouts (all, or one address)
 media-lab start|stop|restart   service-aware; foreground fallback (start --foreground)
 media-lab logs   [-f]          journal / launchd log / pid-mode log
 media-lab setup  [--list]      the catalog planner + where the web wizard lives
