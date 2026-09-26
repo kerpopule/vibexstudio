@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from media_lab_core import engine_licences, local_config
 
 REPO = Path(__file__).resolve().parents[1]
-PERSONAL = {"h3", "yue2", "kontext", "qwen-image-21", "hunyuan-avatar"}
+PERSONAL = {"h3", "h3-singularity", "yue2", "kontext", "qwen-image-21", "hunyuan-avatar"}
 
 
 # ---------------------------------------------------------------- the table

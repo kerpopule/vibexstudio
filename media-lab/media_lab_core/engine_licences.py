@@ -48,6 +48,13 @@ LICENCES: dict[str, EngineLicence] = {e.id: e for e in (
         "may be used (it excludes some countries and sets attribution and revenue "
         "conditions). Enable it only if your use and location fit those terms."),
     EngineLicence(
+        "h3-singularity", "Real / Long (MiniMax H3 Singularity)",
+        "MiniMax H3 Community License + community fine-tune and LoRA terms",
+        "https://huggingface.co/MiniMaxAI", PERSONAL,
+        "A community fine-tune of MiniMax H3 with community LoRAs, run for personal and "
+        "internal testing only: MiniMax's H3 licence applies to it, and nothing about it is "
+        "cleared for public, customer or commercial use."),
+    EngineLicence(
         "yue2", "YuE2", "CC BY-NC 4.0 (weights)",
         "https://github.com/multimodal-art-projection/YuE", PERSONAL,
         "Non-commercial use only (YuE2 weights are CC BY-NC 4.0)"),
@@ -98,6 +105,7 @@ LICENCES: dict[str, EngineLicence] = {e.id: e for e in (
 # Request- and host-level names that run on one of the licensed engines above.
 ALIASES = {
     "h3-ltx25": "h3", "sol-h3": "h3", "minimax-h3": "h3",
+    "h3-real": "h3-singularity", "singularity": "h3-singularity",
     "flux-kontext": "kontext",
     "qwen-image-21-gpu": "qwen-image-21",
     "hunyuan_avatar": "hunyuan-avatar",

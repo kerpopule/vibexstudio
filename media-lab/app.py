@@ -25,6 +25,8 @@ from media_lab_core.solh3_control_guard import (current_heartbeat_allows_h3, rea
                                                 write_runtime_environment)
 from runner.audio_signal_gate import audio_signal_metrics
 from runner import h3_reference as _h3ref   # H3 Ref2VA / Qwen quality contract
+from runner import h3_singularity as _h3sing   # Real / Long (H3 Singularity) geometry
+from media_lab_core import av_sync, render_eta
 from runner.maestro_safety import admission_error as maestro_admission_error, reap_orphan_runners as reap_orphan_maestro_runners
 from residency import ResidencyController, ResidencyError
 from qwen_activity import probe_text_activity
@@ -1644,7 +1646,7 @@ def eta_key(j):
     # when resident vs multi-minute cold loads.
     temp = "warm" if j.get("warm") else "cold"
     if j["kind"] == "video":
-        return f"video/{j.get('engine','ltx25')}/{j.get('frames',121)}/{temp}"
+        return f"video/{_eta_engine(j)}/{j.get('frames',121)}/{temp}"
     if j["kind"] in ("music", "screenshotsong"):
         req = j.get("request") or {}
         seconds = req.get("duration_seconds") or req.get("length", "auto")
@@ -1665,11 +1667,38 @@ def eta_key(j):
         req = j.get("request") or {}
         return f"enhance/avatar/{int(req.get('avatar_frames') or 129)}/30"
     return j["kind"]
+def _eta_engine(j):
+    """The render-eta table id of a video job ("h3-real" for Real / Long)."""
+    engine = j.get("engine", "ltx25")
+    if engine == "h3" and _h3ref.wants_singularity(j.get("request") or {}):
+        return "h3-real"
+    return engine
+
+
+def _video_eta(j):
+    """Table estimate for one queued/running video job (None when unknown)."""
+    req = j.get("request") or {}
+    try:
+        return render_eta.estimate(
+            _eta_engine(j), (j.get("frames") or 121) / 24.0, resident=bool(j.get("warm")),
+            image_refs=len(req.get("references") or []),
+            video_refs=len(req.get("video_references") or []),
+            audio_refs=len(req.get("audio_references") or []),
+            detail=str(req.get("reference_detail") or "match"),
+            timings_path=RENDER_TIMINGS_FILE)
+    except Exception:
+        return None
+
+
 def eta_estimate(j):
     k = eta_key(j)
     v = _load(ETA_FILE, {}).get(k)
     if v:
         return max(1, round(sum(v) / len(v) / 60))
+    if j["kind"] == "video" and j.get("engine") in ("h3", "h3-ltx25", "ltx25"):
+        est = _video_eta(j)
+        if est:
+            return max(1, round(est["total_s"] / 60))
     if k == "enhance/avatar/129/30":
         # No completed HVA sample exists yet; use a conservative cold-load estimate
         # rather than the generic six-minute enhancement fallback. Real completions
@@ -1698,6 +1727,21 @@ def eta_record(j):
     k = eta_key(j)
     stats[k] = (stats.get(k, []) + [round(j["finished"] - j["started"])])[-8:]
     _save(ETA_FILE, stats)
+    if j.get("kind") == "video" and j.get("status") == "done" and \
+            j.get("engine") in ("h3", "h3-ltx25", "ltx25"):
+        # measured takes keep the model picker's estimates honest
+        req = j.get("request") or {}
+        try:
+            render_eta.record(
+                RENDER_TIMINGS_FILE, _eta_engine(j), seconds=(j.get("frames") or 121) / 24.0,
+                total_s=j["finished"] - j["started"],
+                spinup_s=(j.get("admit_s") or 0.0) if (j.get("admit_s") or 0.0) >= 30 else 0.0,
+                image_refs=len(req.get("references") or []),
+                video_refs=len(req.get("video_references") or []),
+                audio_refs=len(req.get("audio_references") or []),
+                detail=str(req.get("reference_detail") or "match"))
+        except Exception as exc:
+            print(f"[eta] render timing not recorded: {exc}", flush=True)
 
 # ---------- qwen ----------
 def qwen(system, user, max_tokens=2400):
@@ -1813,6 +1857,17 @@ def make_video_job(request):
     style = STYLES.get(request.get("style", "none"), STYLES["none"])
     if request.get("model") == "fal-video" and not fal_ready():
         raise ValueError("fal.ai isn't set up — add your API key in Cloud providers.")
+    if request.get("model") == "h3-real" or \
+            str(request.get("h3_engine") or "").lower() == _h3ref.H3_SINGULARITY_VARIANT:
+        # Real / Long is the H3 engine's load-on-demand Singularity variant.
+        refusal = singularity_refusal()
+        if refusal:
+            raise ValueError(refusal)
+        if request.get("model") in ("h3-real", None, ""):
+            request["model"] = "h3"
+        request["h3_engine"] = _h3ref.H3_SINGULARITY_VARIANT
+    else:
+        request.pop("h3_engine", None)
     engine = request.get("model") if request.get("model") in ("ltx25", "h3", "h3-ltx25", "fal-video") else "ltx25"
     uses_h3 = engine in ("h3", "h3-ltx25")
     if uses_h3 and not engine_licences.enabled("h3"):
@@ -1820,6 +1875,24 @@ def make_video_job(request):
     turbo_preset = _h3ref.required_turbo_preset(request)
     if turbo_preset and not uses_h3:
         raise ValueError("the managed H3 Turbo preset requires model 'h3'")
+    # H3 reference work runs on Real / Long where this host has it (Sol's
+    # Ref2VA needs more memory than a 128 GB box has). Stamp the decision on the
+    # job so a restart or a remix runs it the same way.
+    singularity = uses_h3 and _h3ref.wants_singularity(request)
+    if singularity:
+        request["h3_engine"] = _h3ref.H3_SINGULARITY_VARIANT
+        if turbo_preset:
+            raise ValueError("Real / Long runs its own pinned dual-sampling recipe; "
+                             "the managed H3 Turbo preset does not apply to it.")
+    audio_requested = request.get("audio_references") or []
+    if audio_requested:
+        if not singularity:
+            raise ValueError("audio references need the Real / Long engine; refusing to drop them.")
+        audio_usable = _h3ref.normalize_audio_references(audio_requested)
+        if len(audio_usable) != len(audio_requested):
+            raise ValueError("every audio reference must be a supported /media sound file "
+                             "with a non-negative start time")
+        request["audio_references"] = audio_usable
     request["h3_turbo"] = turbo_preset or False
     # H3 Ref2VA actor cloning: references are an explicit list of separate
     # pictures {b64, role}. They FAIL CLOSED here — a silently-dropped reference
@@ -1841,7 +1914,7 @@ def make_video_job(request):
                 "references were requested but none carried a decodable image "
                 "— refusing to boot the actor-cloning model with no actors.")
         # refuse contact-sheet concatenation of people if too many pictures
-        _h3ref.assert_ref_count_ok(len(usable))
+        _h3ref.assert_ref_count_ok(len(usable), singularity=singularity)
         # Keep only the validated references so garbage b64 never reaches the
         # engine. Roles (e.g. person/product/style) are preserved verbatim.
         request["references"] = usable
@@ -1885,16 +1958,25 @@ def make_video_job(request):
         # preflight() reads orientation back off w >= h. Anyone picking portrait
         # for a plain H3 clip got a landscape video and no warning.
         w, h = H3_SIZES.get(request.get("orientation", "landscape"), H3_SIZES["landscape"])
+    if singularity:
+        # Real / Long honours length (5-15 s) and shape; H3's 17k+5 grid, 24 fps.
+        frames = _h3sing.frames_for_seconds(_secs, singularity_max_frames())
+        orientation = request.get("orientation", "landscape")
+        w, h = _h3sing.output_size(orientation if orientation in _h3sing.ASPECTS else "landscape")
     # A cast character's canonical look line goes in verbatim, exactly as the
     # storyboard composes it — same words, so the same face turns up whether
     # they are cast in a one-off clip or in beat 7 of a film.
     looks = " ".join(cast_lines(request.get("cast")))
     full = style["prefix"] + (looks + " " if looks else "") + prompt
-    return submit_job("video", request, extra={"prompt": prompt, "style": request.get("style", "none"),
+    extra = {"prompt": prompt, "style": request.get("style", "none"),
         "engine": engine, "frames": frames, "w": w, "h": h, "full_prompt": full,
         # cloud renders never touch the local pool; "warm" is always true for them
         "warm": True if engine == "fal-video"
-                else engine_up("ltx" if engine == "ltx25" else "h3")})
+                else engine_up("ltx") if engine == "ltx25"
+                else h3_variant_warm(singularity)}
+    if singularity:
+        extra["engine_label"] = _h3sing.LABEL
+    return submit_job("video", request, extra=extra)
 
 RESUBMIT = {"video": make_video_job}
 
@@ -2536,6 +2618,49 @@ def _float_setting(key, default):
 H3_IDLE_TASK = _h3_idle_task(local_config.get("MEDIA_LAB_H3_IDLE_TASK", "t2va"))
 H3_RESTORE_QUIET_S = max(0, local_config.int_value("MEDIA_LAB_H3_RESTORE_QUIET_S", 300))
 H3_BATCH_MAX_WAIT_S = max(0, local_config.int_value("MEDIA_LAB_H3_BATCH_MAX_WAIT_S", 900))
+# Real / Long (H3 Singularity dual-sampling) is load-on-demand: it runs in the
+# H3 unit as its own variant, evicting Sol while it works. Once no queued take
+# needs it and it has idled this long, it is stood down and the idle reconciler
+# brings the warm Sol engine back (the always-warm H3 restore path).
+H3_SINGULARITY_LINGER_S = max(0, local_config.int_value("MEDIA_LAB_H3_SINGULARITY_LINGER_S", 600))
+RENDER_TIMINGS_FILE = POOL_DIR / "render-timings.json"
+
+
+def singularity_installed():
+    """The Real / Long runtime and weights are configured on this host."""
+    return local_config.singularity_configured()
+
+
+def singularity_refusal():
+    """Why Real / Long cannot take a job here, or None when it can."""
+    for engine in ("h3", "h3-singularity"):
+        if not engine_licences.enabled(engine):
+            return engine_licences.refusal(engine)
+    if not singularity_installed():
+        return "Real / Long (H3 Singularity) is not installed on this studio."
+    return None
+
+
+def singularity_enabled():
+    return singularity_refusal() is None
+
+
+def singularity_max_frames():
+    return _h3sing.aligned_frames(
+        local_config.int_value("H3_SINGULARITY_MAX_FRAMES", _h3sing.TRAINED_MAX_FRAMES),
+        _h3sing.HARD_MAX_FRAMES)
+
+
+def h3_variant_warm(singularity):
+    """True when the H3 variant a job needs is the one already resident."""
+    config = h3_resident_config()
+    if not config:
+        return False
+    return (config.get("variant") == _h3ref.H3_SINGULARITY_VARIANT) == bool(singularity)
+
+
+# H3 reference work routes to Real / Long on hosts that have it enabled.
+_h3ref.ROUTE_REFERENCES_TO_SINGULARITY = singularity_enabled()
 # Before any H3 cold load starts, wait (bounded) until memory has stopped moving
 # and memory pressure is calm, measured exactly the way the control-plane guard
 # measures it.  This never pauses or loosens the guard.
@@ -3015,7 +3140,7 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None, task=None):
                 raise ValueError(f"unsupported H3 variant: {variant!r}")
             env["H3_VARIANT"] = variant
             if task is not None:
-                if task not in ("t2va", "fl2va", "ref2va"):
+                if task not in _h3ref.H3_TASKS:
                     raise ValueError(f"unsupported H3 task family: {task!r}")
                 env["SOL_PRELOAD"] = task
             if turbo_preset is not None:
@@ -3030,8 +3155,11 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None, task=None):
         if name == "h3":
             if variant is not None and variant not in _h3ref.H3_VARIANTS:
                 raise ValueError(f"unsupported H3 variant: {variant!r}")
-            if task is not None and task not in ("t2va", "fl2va", "ref2va"):
+            if task is not None and task not in _h3ref.H3_TASKS:
                 raise ValueError(f"unsupported H3 task family: {task!r}")
+            if (variant == _h3ref.H3_SINGULARITY_VARIANT) != (task == _h3ref.H3_SINGULARITY_TASK) \
+                    and task is not None:
+                raise ValueError("the Real / Long variant and task family go together")
             if turbo_preset is not None and turbo_preset not in _h3ref.H3_TURBO_PRESETS:
                 raise ValueError(f"unsupported H3 Turbo preset: {turbo_preset!r}")
             sol = local_config.sol()
@@ -3056,6 +3184,13 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None, task=None):
                 runtime_env["SOL_PRELOAD"] = task
             if turbo_preset is not None:
                 runtime_env["H3_TURBO_PRESET"] = turbo_preset
+            if variant == _h3ref.H3_SINGULARITY_VARIANT:
+                refusal = singularity_refusal()
+                if refusal:
+                    if j is not None:
+                        j["detail"] = refusal
+                    return False
+                runtime_env.update({k: v for k, v in local_config.singularity().items() if v})
             runtime_dir = Path(os.getenv("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
             write_runtime_environment(runtime_dir / "media-lab-sol-h3.env", runtime_env)
             launched = subprocess.run(
@@ -3375,6 +3510,8 @@ def _gpu_task_for_engine(name, j=None):
     if job.get("_gpu_task"):
         return str(job["_gpu_task"])
     if name == "h3":
+        if _h3ref.wants_singularity(request):
+            return _h3ref.H3_SINGULARITY_TASK
         if request.get("references") or request.get("video_references"):
             return "ref2va"
         if (request.get("source") or request.get("start_image")
@@ -3586,6 +3723,9 @@ class _ResidencyRuntime:
                 raise LeaseBusy(f"idle restore lease is {lease.engine}/{lease.phase}, not {model}/load")
             if model == "h3":
                 target = {**_h3ref.required_runtime_config({}), "task": lease.task}
+                if lease.task == _h3ref.H3_SINGULARITY_TASK:
+                    # a Real / Long job's load lease: boot the variant it admitted
+                    target.update(variant=_h3ref.H3_SINGULARITY_VARIANT, turbo_preset=None)
                 return _boot_engine(
                     model, variant=target["variant"],
                     turbo_preset=target["turbo_preset"], task=target["task"],
@@ -3689,7 +3829,11 @@ def ensure_video_residency(name, j=None):
             target = "qwen-h3" if name == "h3" else "qwen-ltx-default"
             slots = None
         if j is not None:
-            j["stage"] = f"reconciling {target} residency…"
+            loading_real_long = (name == "h3"
+                                 and _h3ref.wants_singularity(j.get("request") or {})
+                                 and not h3_variant_warm(True))
+            j["stage"] = ("loading H3 Real / Long — about 7 min the first time…"
+                          if loading_real_long else f"reconciling {target} residency…")
             save_state()
         # Admission is priced from MemAvailable.  Idle image weights can hold
         # 20-30 GiB, but the controller cannot execute its planned release step
@@ -3914,6 +4058,28 @@ def reap_idle_engines():
             stop_engine(name)
 
 
+def stand_down_idle_real_long(now=None):
+    """Real / Long is load-on-demand. Once no queued or running take needs it
+    and it has idled H3_SINGULARITY_LINGER_S, stop it; the idle reconciler then
+    restores the idle profile (warm Sol t2va under qwen-h3) the usual way."""
+    config = h3_resident_config()
+    if not config or config.get("variant") != _h3ref.H3_SINGULARITY_VARIANT:
+        return False
+    if engine_busy("h3") or gpu_recovery_pending() or ENGINE_MAINTENANCE.exists():
+        return False
+    for job in list(jobs.values()):
+        if (job.get("status") in ("running", "queued") and job_engine(job) == "h3"
+                and _h3ref.wants_singularity(job.get("request") or {})):
+            return False
+    idle = engine_idle_s("h3")
+    if idle is None or idle < H3_SINGULARITY_LINGER_S:
+        return False
+    print(f"[residency] Real / Long idle {idle:.0f}s; standing it down so warm Sol returns",
+          flush=True)
+    stop_engine("h3")
+    return True
+
+
 def reaper():
     while True:
         time.sleep(60)
@@ -3921,6 +4087,10 @@ def reaper():
             auto_requeue()
         except Exception as e:
             print(f"[recovery] auto-requeue skipped: {e}", flush=True)
+        try:
+            stand_down_idle_real_long()
+        except Exception as e:
+            print(f"[residency] Real / Long stand-down skipped: {e}", flush=True)
         try:
             reap_idle_engines()
             if not video_work_pending():
@@ -4324,6 +4494,31 @@ def _h3_v2v_stage(j):
     return staged_refs, first_frame
 
 
+def _stage_audio_references(j, refs):
+    """Real / Long reference audio: decode each /media sound from its start into
+    a WAV the engine reads from its staging dir. None after a fail(): a requested
+    reference is never silently dropped."""
+    out_dir = POOL_DIR / "h3-out"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    seconds = float(j.get("frames") or 124) / 24.0
+    staged = []
+    for i, ref in enumerate(refs, 1):
+        src = media_path(ref.get("source") or "")
+        if not src or src.suffix.lower() not in _h3ref.H3_AUDIO_EXTENSIONS:
+            fail(j, "A reference sound is missing or unsupported — refusing to render without it.")
+            return None
+        name = f"{j['id']}-audio-{i}.wav"
+        target = out_dir / name
+        done = _ff(["-ss", f"{float(ref.get('start_sec') or 0.0):.3f}", "-i", str(src),
+                    "-t", f"{max(1.0, seconds):.3f}", "-vn", "-ac", "2", "-ar", "48000",
+                    str(target)], timeout=300)
+        if done.returncode != 0 or not _nonempty(target):
+            fail(j, "A reference sound could not be decoded — refusing to render without it.")
+            return None
+        staged.append({"file": name, "role": ref.get("role") or "voice and sound"})
+    return staged
+
+
 def _h3_v2v_cast_references(j, jd):
     """Materialize selected character identities as separate Ref2VA pictures."""
     req = j.get("request") or {}
@@ -4558,13 +4753,18 @@ def _run_h3_ltx_video(j, *, references, staged_video_refs, start_b64):
     _write_h3_ltx_receipt(job_dir, receipt)
 
     ref2va = bool(references or staged_video_refs)
+    real_long = _h3ref.wants_singularity(req)
     h3_body = {
-        "prompt": h3_prompt(j["full_prompt"], start_image=bool(start_b64) and not ref2va),
+        "prompt": h3_prompt(j["full_prompt"], start_image=bool(start_b64) and not ref2va and not real_long),
         "frames": max(124, int(j.get("frames") or 124)),
         "width": int(j.get("w") or 1344),
         "height": int(j.get("h") or 768),
         "seed": seed,
     }
+    if real_long:
+        orientation = "landscape" if h3_body["width"] >= h3_body["height"] else "portrait"
+        h3_body.update(h3_engine=_h3ref.H3_SINGULARITY_VARIANT, orientation=orientation)
+        h3_body["width"], h3_body["height"] = _h3sing.output_size(orientation)
     if references:
         h3_body["references"] = [
             {key: value for key, value in ref.items() if not str(key).startswith("_")}
@@ -4765,31 +4965,47 @@ def run_video(j):
         if prepared is None:
             return
         start_b64 = base64.b64encode(prepared.read_bytes()).decode()
+    staged_audio_refs = []
+    if eng == "h3" and req.get("audio_references"):
+        # Real / Long reference sounds are decoded before any engine loads
+        staged_audio_refs = _stage_audio_references(j, req.get("audio_references") or [])
+        if staged_audio_refs is None:
+            return
     st = ensure_engine(eng, j)
+    # start-to-admission: seconds on a warm engine, the whole spin-up on a cold one
+    j["admit_s"] = round(time.time() - float(j.get("started") or time.time()), 1)
     if st == "busy":
         return fail(j, BUSY_MSG)
     if st == "up":
         j["stage"] = "generating"
-        ref2va_request = bool((references or staged_video_refs) and eng == "h3")
+        real_long = eng == "h3" and _h3ref.wants_singularity(req)
+        ref2va_request = bool((references or staged_video_refs) and eng == "h3" and not real_long)
         # Ref2VA does not consume image_start. The engine promotes a supplied
         # source into Picture 1 as a composition reference instead. Do NOT add
         # h3_prompt's pre-tagged Picture 1 header here: that suppresses Maestro's
         # complete relationship map and previously made Picture 1 point at the
         # first identity portrait while the real source frame was ignored.
         _p = h3_prompt(j["full_prompt"],
-                       start_image=bool(start_b64) and not ref2va_request) \
+                       start_image=bool(start_b64) and not ref2va_request and not real_long) \
              if eng == "h3" else j["full_prompt"]
         body = {"prompt": _p, "frames": j["frames"],
                 "width": j["w"], "height": j["h"],
                 "seed": int((j.get("request") or {}).get("seed")
                             or int(j["id"][:8], 16) % 1_000_000_000 or 1)}
+        if real_long:
+            # Real / Long honours length and shape; references ride along below
+            body["h3_engine"] = _h3ref.H3_SINGULARITY_VARIANT
+            body["orientation"] = req.get("orientation") or _h3sing.orientation_of(j["w"], j["h"])
+            if staged_audio_refs:
+                body["audio_references"] = staged_audio_refs
         # H3 Ref2VA actor-cloning: references ride the request (validated in
         # make_video_job) and are forwarded to the engine verbatim, with the
         # reference detail. FAIL CLOSED on the resident checkpoint: reference
         # pictures must never reach a fl2va-resident engine.
         if (references or staged_video_refs) and eng == "h3":
             if h3_resident_variant() not in (
-                    _h3ref.H3_REF2VA_VARIANT, _h3ref.H3_FUSED_R1024_VARIANT):
+                    _h3ref.H3_REF2VA_VARIANT, _h3ref.H3_FUSED_R1024_VARIANT,
+                    _h3ref.H3_SINGULARITY_VARIANT):
                 return fail(j, "Ref2VA actor-cloning was requested but the resident "
                                "H3 checkpoint is not actor-capable — refusing to feed "
                                "reference pictures/video to the wrong model. Boot an "
@@ -4811,6 +5027,8 @@ def run_video(j):
         r = engine_generate(eng, body, j, timeout=5400)
         touch_engine(eng)
         if r.get("ok"):
+            if r.get("av_sync"):
+                j["av_sync"] = r["av_sync"]   # the lip-sync check's receipt
             out = POOL_DIR / f"{eng}-out" / r["file"]
             if out.exists():
                 j["stage"] = "encoding"
@@ -7757,7 +7975,14 @@ def preflight(eng, body):
     """
     b = dict(body)
     fr = int(b.get("frames") or 121)
-    if eng == "h3":
+    if eng == "h3" and _h3ref.wants_singularity(b):
+        # Real / Long: 5-15 s on the 17k+5 grid; portrait, landscape or square.
+        b["frames"] = _h3sing.aligned_frames(fr, singularity_max_frames())
+        b["h3_engine"] = _h3ref.H3_SINGULARITY_VARIANT
+        if b.get("orientation") not in _h3sing.ASPECTS:
+            b["orientation"] = _h3sing.orientation_of(b.get("width"), b.get("height"))
+        b["width"], b["height"] = _h3sing.output_size(b["orientation"])
+    elif eng == "h3":
         b["frames"] = max(H3_MIN_FRAMES, min(H3_MAX_FRAMES, ((fr - 5 + 16) // 17) * 17 + 5))
         # the shim snaps to H3's trained 768 short edge; just keep the ASPECT
         # honest here. 864x480 was the preview preset and cost us the eyes.
@@ -7774,7 +7999,8 @@ def preflight(eng, body):
     return b
 
 def engine_generate(eng, body, j=None, timeout=7200):
-    task = ("ref2va" if eng == "h3" and (body.get("references") or body.get("video_references")) else
+    task = (_h3ref.H3_SINGULARITY_TASK if eng == "h3" and _h3ref.wants_singularity(body) else
+            "ref2va" if eng == "h3" and (body.get("references") or body.get("video_references")) else
             "fl2va" if eng == "h3" and body.get("start_image_b64") else "t2va")
     marker = object()
     previous = marker if j is None else j.get("_gpu_task", marker)
@@ -9154,6 +9380,15 @@ def pick_next_job():
         return None
     resident = next((n for n in VIDEO_ENGINE_NAMES if engine_up(n)), None)
     if resident == "h3":
+        # Sol and Real / Long share the H3 unit; switching between them is a
+        # full cold load, so the resident variant's takes go first.
+        live = (h3_resident_config() or {}).get("variant")
+        live_real_long = live == _h3ref.H3_SINGULARITY_VARIANT
+        for i, jid in enumerate(queue):
+            job = jobs.get(jid) or {}
+            if (job_engine(job) == "h3" and
+                    _h3ref.wants_singularity(job.get("request") or {}) == live_real_long):
+                return queue.pop(i)
         for i, jid in enumerate(queue):
             if job_engine(jobs.get(jid)) == "h3":
                 return queue.pop(i)
@@ -9633,6 +9868,11 @@ class GenReq(BaseModel):
     v2v_swap_first_frame: bool = False # SAM 3 + local Qwen identity/outfit preparation
     v2v_wardrobe: str = ""
     h3_turbo: Union[bool, str] = False  # managed v4 six/eight-step preset only
+    # Real / Long (model "h3-real"): up to 3 /media sound references
+    # {source, role, start_sec}; "h3_engine": "singularity" is the same choice
+    # spelled on an "h3" request (remix keeps it).
+    audio_references: list = []
+    h3_engine: str = ""
 class MusicReq(BaseModel):
     vibe: str
     lyrics: str = ""
@@ -11715,6 +11955,8 @@ def brief(j):
             # which painter actually rendered it — recorded since the image
             # service existed, never shown until now
             "engine_used": j.get("engine_used") or None,
+            "engine_label": j.get("engine_label") or None,
+            "av_sync": j.get("av_sync") or None,
             "queue_lane": job_queue_lane(j),
             "fal_model_id": j.get("fal_model_id") or None,
             "fal_request_id": j.get("fal_request_id") or None,
@@ -13104,6 +13346,70 @@ def local_template_asset(name: str):
 @app.get("/api/engines/licences")
 def engines_licences():
     return engine_licences.public_view()
+
+
+_eta_residency = {"at": 0.0, "value": None}
+
+
+def _picker_residency(max_age_s=5.0):
+    """Which picker engines are loaded right now (cached a few seconds: the
+    page asks on every slider move)."""
+    now = time.time()
+    if _eta_residency["value"] is not None and now - _eta_residency["at"] < max_age_s:
+        return _eta_residency["value"]
+    config = h3_resident_config() or {}
+    real_long = config.get("variant") == _h3ref.H3_SINGULARITY_VARIANT
+    sol = bool(config) and not real_long and config.get("task") == "t2va"
+    value = {"ltx25": engine_up("ltx"), "h3": sol, "h3-real": real_long, "h3-ltx25": sol}
+    _eta_residency.update(at=now, value=value)
+    return value
+
+
+@app.get("/api/engines/eta")
+def engines_eta(duration: str = "5", images: int = 0, videos: int = 0, audios: int = 0,
+                detail: str = "match"):
+    """Estimated wall time per video engine for the model picker, including the
+    spin-up an engine pays when it is not loaded (config/render-eta.json,
+    refreshed from completed takes)."""
+    try:
+        seconds = float(duration) if str(duration).strip().lower() != "auto" else 5.0
+    except ValueError:
+        seconds = 5.0
+    seconds = min(20.0, max(3.0, seconds))
+    images, videos, audios = (max(0, min(9, int(images))), max(0, min(3, int(videos))),
+                              max(0, min(3, int(audios))))
+    resident = _picker_residency()
+    table = render_eta.load_table()
+    real_long_ok = singularity_enabled()
+    route_refs = real_long_ok and bool(images or videos or audios)
+    out = {}
+    for model in ("ltx25", "h3", "h3-real", "h3-ltx25"):
+        if model == "h3-real" and not real_long_ok:
+            continue
+        engine = "h3-real" if (model in ("h3", "h3-ltx25") and route_refs) else model
+        refs = {"image_refs": images, "video_refs": videos, "audio_refs": audios} \
+            if engine == "h3-real" else {}
+        est = render_eta.estimate(engine, seconds, resident=resident.get(engine, False),
+                                  detail=detail, table=table,
+                                  timings_path=RENDER_TIMINGS_FILE, **refs)
+        if est is None:
+            continue
+        if engine != model:
+            est["routed_to"] = "h3-real"
+            est["text"] += " · references run on Real / Long"
+        out[model] = est
+    ahead = [j for j in jobs.values()
+             if j.get("status") in ("queued", "running") and _local_gpu_job(j)]
+    ahead_min = 0
+    for j in ahead:
+        try:
+            ahead_min += eta_estimate(j)
+        except Exception:
+            pass
+    return {"engines": out, "queue_ahead": len(ahead), "queue_ahead_min": ahead_min,
+            "real_long": {"available": real_long_ok,
+                          "max_seconds": _h3sing.seconds_of(singularity_max_frames()),
+                          "label": _h3sing.LABEL}}
 
 
 app.mount("/media", StaticFiles(directory=str(MEDIA)), name="media")
