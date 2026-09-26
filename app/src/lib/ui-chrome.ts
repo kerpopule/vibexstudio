@@ -1,7 +1,8 @@
 /**
  * App-chrome switches shared between screens and the tab pill. The Media
- * Lab tab hides the VibeX tab pill while a paired server's own bottom nav is
- * on screen — two floating pills stacked on each other was the alternative.
+ * Lab tab hides the VibeX tab pill while Cut (or an older studio page that
+ * still has its own bottom nav) needs the whole window — two floating pills
+ * stacked on each other was the alternative.
  */
 import { create } from 'zustand';
 
