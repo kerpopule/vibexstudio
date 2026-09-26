@@ -47,7 +47,11 @@ DEFAULT_CONFIG = Path(os.path.expanduser("~/.config/spark-backup/config.json"))
 NEVER = ["admin-pin.txt", "access-code.txt", "access-secret.txt", "local-token.txt",
          "vapid_private.pem", "local.env", "auth-attempts.json", "push-subs.json",
          "*.sock", "*.pid", ".env", "auth.json", "*.key", "id_*"]
-REMOTE_RSYNC = "nice -n 19 ionice -c3 rsync"
+# The host-side rsync runs in its own memory-capped scope, so the page cache
+# it fills while reading the library is reclaimed inside that scope and never
+# squeezes a warm (or loading) video engine; plus the lowest CPU/IO priority.
+REMOTE_RSYNC = ("systemd-run --user --scope --quiet -p MemoryHigh=1G -p MemoryMax=3G "
+                "nice -n 19 ionice -c3 rsync")
 STAGE_DIR = ".cache/spark-backup-stage"
 
 STAGE_SCRIPT = r'''
@@ -222,7 +226,7 @@ def rsync_pull(spec: dict, rel: str, dest: Path, link: Path | None, *, runner=su
     target = dest / rel_clean
     target.mkdir(parents=True, exist_ok=True)
     cmd = ["rsync", "-a", "--numeric-ids", "--delete", "--timeout=600",
-           f"--rsync-path={REMOTE_RSYNC}", "-e", " ".join(shlex.quote(x) for x in ssh_cmd(spec)[:-1])]
+           f"--rsync-path={spec.get('rsync_path') or REMOTE_RSYNC}", "-e", " ".join(shlex.quote(x) for x in ssh_cmd(spec)[:-1])]
     for pattern in NEVER + list(spec.get("exclude", [])):
         cmd.append(f"--exclude={pattern}")
     if link is not None and (link / rel_clean).is_dir():
@@ -234,6 +238,23 @@ def rsync_pull(spec: dict, rel: str, dest: Path, link: Path | None, *, runner=su
     # 24 = some files vanished during transfer (a job finished): not an error.
     if r.returncode not in (0, 24):
         raise RuntimeError(f"rsync {rel} exited {r.returncode}: {(r.stderr or '')[-400:]}")
+
+
+def wait_for_precheck(spec: dict, *, runner=subprocess.run, sleep=time.sleep) -> None:
+    """Run the set's host-side precheck until it passes (e.g. "no engine is
+    loading and memory pressure is calm"), or give up after precheck_wait_s."""
+    check = spec.get("precheck")
+    if not check:
+        return
+    deadline = time.time() + float(spec.get("precheck_wait_s", 1800))
+    while True:
+        r = runner(ssh_cmd(spec) + [check], capture_output=True, text=True, timeout=60)
+        if r.returncode == 0:
+            return
+        if time.time() >= deadline:
+            raise RuntimeError("precheck never passed (host busy); skipped this run")
+        log(f"{spec['ssh']}: precheck not passed yet; waiting 2 min")
+        sleep(120)
 
 
 def back_up(name: str, spec: dict, cfg: dict, *, today: str | None = None) -> dict:
@@ -249,6 +270,7 @@ def back_up(name: str, spec: dict, cfg: dict, *, today: str | None = None) -> di
     ok, why = space_ok(root, int(last.get("bytes") or 0), cfg)
     if not ok:
         raise RuntimeError(f"space guard: {why}")
+    wait_for_precheck(spec)
     started = time.time()
     partial = set_dir / f"{today}.partial"
     if partial.exists():

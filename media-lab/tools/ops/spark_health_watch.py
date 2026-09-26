@@ -90,7 +90,9 @@ def write_json(path: Path, value) -> None:
 def http(url: str, *, timeout: float = 10.0, data: bytes | None = None,
          headers: dict | None = None):
     """(status, parsed-or-text body). status 0 = no answer."""
-    req = urllib.request.Request(url, data=data, headers=headers or {})
+    # Cloudflare answers Python's stock user agent with a 403 (error 1010).
+    req = urllib.request.Request(url, data=data,
+                                 headers={"User-Agent": "SparkHealthWatch/1.0", **(headers or {})})
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
         with opener.open(req, timeout=timeout) as r:

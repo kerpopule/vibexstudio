@@ -238,7 +238,8 @@ def test_rsync_command_is_a_safe_pull(tmp_path):
     assert f"--link-dest={link / 'lab/media'}" in cmd
     assert "--exclude=admin-pin.txt" in cmd and "--exclude=local.env" in cmd
     assert cmd[-2] == "user@host.example:lab/media/" and cmd[-1].endswith("new/lab/media/")
-    assert any(c.startswith("--rsync-path=nice -n 19 ionice -c3") for c in cmd)
+    assert any(c.startswith("--rsync-path=systemd-run --user --scope") and "ionice -c3 rsync" in c
+               for c in cmd)
     with pytest.raises(ValueError):
         backup.rsync_pull({"ssh": "x"}, "lab/file.json", tmp_path, None)
 
@@ -309,3 +310,16 @@ def test_studio_probe_reads_files_and_never_prints_the_token(tmp_path, monkeypat
     assert doc["sol"]["configured"] is True and doc["sol"]["loaded"] is False
     probe.main(["-", "studio", str(root)])
     assert "t" * 64 not in capsys.readouterr().out
+
+
+def test_precheck_waits_then_gives_up(monkeypatch):
+    results = iter([1, 1, 0])
+    calls = []
+    runner = lambda cmd, **k: calls.append(cmd) or type("R", (), {"returncode": next(results)})()
+    backup.wait_for_precheck({"ssh": "x", "precheck": "true", "precheck_wait_s": 9999},
+                             runner=runner, sleep=lambda s: None)
+    assert len(calls) == 3 and calls[0][-1] == "true"
+    with pytest.raises(RuntimeError, match="precheck never passed"):
+        backup.wait_for_precheck({"ssh": "x", "precheck": "false", "precheck_wait_s": 0},
+                                 runner=lambda c, **k: type("R", (), {"returncode": 1})(),
+                                 sleep=lambda s: None)
