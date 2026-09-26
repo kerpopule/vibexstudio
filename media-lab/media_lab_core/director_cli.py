@@ -167,7 +167,7 @@ def plan_from_brief(brief: str, chat, *, revisions: int = 2, seed: int | None = 
     return board
 
 
-def settle_memory(*, need_gib: float = 25.0, limit_s: float = 150.0, log=None) -> None:
+def settle_memory(*, need_gib: float = 24.5, limit_s: float = 90.0, log=None) -> None:
     """On the studio machine, wait until MemAvailable is back above ``need_gib``;
     elsewhere just give the studio a minute."""
     meminfo = Path("/proc/meminfo")

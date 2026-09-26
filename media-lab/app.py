@@ -6397,7 +6397,8 @@ def compose_beat_prompt(board, beat, chars=None):
     placed = [f"{n} on the {v} of the frame" for n, v in sides.items() if v in ("left", "right")]
     if placed:
         add("; ".join(placed))
-    if wanted and not re.search(r"\b(to|at|into) (the )?(camera|lens)\b", shot, re.I):
+    if wanted and not re.search(r"\b((to|at|into) (the )?(camera|lens|viewer|audience)|presenter|selfie|"
+                                r"vlog|direct address|addresses the)\b", shot, re.I):
         add("Nobody looks into the camera")
     # Cast scoping (the "same performer in every shot" fix, 2026-08-16):
     #   beat-level cast  -> explicit, always attaches (the user tapped it).

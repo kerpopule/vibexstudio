@@ -529,6 +529,22 @@ def beat_times(path: str | Path, *, start: float = 0.0, duration: float | None =
 
 # ------------------------------------------------------------------- planning
 
+FADE_IN_WORDS = {"fade_in", "fade_from_black", "fade_up"}
+_ALIASES = {"crossfade": "dissolve", "cross_dissolve": "dissolve", "mix": "dissolve",
+            "fade": "fade_through_black", "fade_black": "fade_through_black",
+            "dip_to_black": "fade_through_black", "hard_cut": "cut", "straight_cut": "cut"}
+
+
+def normalize_transition(value: Any) -> str:
+    """A model- or person-written transition name as one the editor knows;
+    anything else (``fade_in``, ``wipe``...) becomes a straight cut."""
+    if isinstance(value, Mapping):
+        value = value.get("kind")
+    kind = str(value or "cut").strip().lower().replace("-", "_").replace(" ", "_")
+    kind = _ALIASES.get(kind, kind)
+    return kind if kind in TRANSITIONS else "cut"
+
+
 def _transition(shot: Mapping, index: int, fps: int) -> dict[str, Any]:
     raw = shot.get("transition_in") or {}
     if isinstance(raw, str):
@@ -1041,18 +1057,21 @@ def legacy_board_plan(board: Mapping[str, Any], sources: Sequence[tuple], *, wid
     director wrote them, a plain cut otherwise; explicit trims are honoured
     exactly and switch auto-trim off for that beat."""
     shots = []
-    for beat, clip, start, end, _duration in sources:
+    fade_in = 0
+    for index, (beat, clip, start, end, _duration) in enumerate(sources):
         explicit = beat.get("trim_in_seconds") not in (None, "") or beat.get("trim_out_seconds") not in (None, "")
         shot = {"path": str(clip), "id": str(beat.get("title") or "")[:60] or None,
                 "dialogue": bool(str(beat.get("speaker") or "").strip()) or '"' in str(beat.get("video_prompt") or ""),
-                "transition_in": beat.get("transition") or "cut"}
+                "transition_in": normalize_transition(beat.get("transition"))}
+        if index == 0 and str(beat.get("transition") or "").lower().replace("-", "_") in FADE_IN_WORDS:
+            fade_in = 12
         if beat.get("scene"):
             shot["scene"] = str(beat["scene"])
         if explicit:
             shot["trim_in"], shot["trim_out"] = start, end
         shots.append(shot)
     plan = {"schema": SCHEMA, "shots": shots, "width": width, "height": height, "fps": 24,
-            "quality": quality, "fade_out_frames": 12}
+            "quality": quality, "fade_out_frames": 12, "fade_in_frames": fade_in}
     if song is not None:
         plan["music"] = {"path": str(song), "gain_db": 0.0, "beat_align": True}
         plan["clip_audio"] = False

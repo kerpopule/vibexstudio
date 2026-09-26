@@ -150,3 +150,13 @@ def test_takes_are_paced_to_the_planned_length(tmp_path):
     shot = resolved["shots"][0]
     assert shot["length_frames"] == 72
     assert shot["in_frame"] > 0 and any("paced" in r for r in shot["trim_reasons"])
+
+
+def test_model_written_transitions_never_break_assembly(tmp_path):
+    a = clip(tmp_path / "a.mp4", seconds=2.0)
+    sources = [({"transition": "fade_in"}, a, 0, 2, 2), ({"transition": "Cross-Dissolve"}, a, 0, 2, 2),
+               ({"transition": "wipe"}, a, 0, 2, 2)]
+    plan = stitch.legacy_board_plan({}, sources, width=320, height=180)
+    assert [s["transition_in"] for s in plan["shots"]] == ["cut", "dissolve", "cut"]
+    assert plan["fade_in_frames"] == 12
+    stitch.plan_cut(plan)

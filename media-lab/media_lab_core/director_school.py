@@ -588,6 +588,8 @@ def cut_plan(board: Mapping[str, Any], clips: Sequence[str], *, width: int, heig
         shots.append(shot)
     plan = {"schema": "media_lab.director_cut.v1", "shots": shots, "width": width, "height": height,
             "fps": fps, "quality": quality, "fade_in_frames": 6, "fade_out_frames": 18}
+    if beats and beats[0]["transition"] in {"fade_in", "fade_from_black", "fade_up"}:
+        plan["fade_in_frames"] = 12
     if music:
         plan["music"] = {"path": music, "gain_db": 0.0, "beat_align": True}
         plan["clip_audio"] = False
