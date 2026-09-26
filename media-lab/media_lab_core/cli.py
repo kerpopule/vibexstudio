@@ -3,6 +3,9 @@
     media-lab status [--json]      health, GPU, engines, service state
     media-lab pair   [--json]      the pairing QR, URLs and family code again
     media-lab code   [--rotate]    show / rotate the family code (admin: --admin)
+    media-lab code --set-family    set a family code you chose (read from stdin / --from)
+    media-lab code --locks         who the code prompt is locked for right now
+    media-lab code --unlock [IP]   lift code-prompt lockouts (all, or one address)
     media-lab start|stop|restart   service-aware (systemd --user / launchd),
                                    foreground/detached fallback otherwise
     media-lab logs   [-f]          journal, launchd log file, or the pid-mode log
@@ -38,7 +41,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from . import family_code, pairing, secret_files
+from . import door_lockout, family_code, pairing, secret_files
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_PORT = pairing.DEFAULT_PORT
@@ -506,6 +509,123 @@ def cmd_pair(args, cfg, root) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# the door: a family code you choose, and the lockout
+# ---------------------------------------------------------------------------
+
+GATE_MAX_CHARS = 80      # the code box on the gate page takes at most this many
+UNLOCK_WAIT_S = 10.0     # the running studio checks for an unlock request every 3 s
+_pause = time.sleep      # (a seam for the tests)
+
+
+def read_chosen_code(source: str | None) -> str:
+    """The family code the owner chose, from a file or stdin -- never argv, so
+    it never shows up in `ps` or shell history. A terminal gets a hidden
+    prompt, asked twice."""
+    if source and source != "-":
+        text = Path(source).expanduser().read_text(encoding="utf-8")
+    elif sys.stdin.isatty():
+        import getpass
+        text = getpass.getpass("New family code: ")
+        if getpass.getpass("The same code again: ") != text:
+            raise ValueError("the two entries differ; nothing changed")
+    else:
+        text = sys.stdin.read(4096)
+    code = text.strip()
+    if "\n" in code or "\r" in code:
+        raise ValueError("the code must be one line")
+    if not family_code.normalize(code):
+        raise ValueError("the code is empty (spaces, dashes and dots do not count)")
+    if len(code) > GATE_MAX_CHARS:
+        raise ValueError(f"the code is longer than the gate's {GATE_MAX_CHARS}-character box")
+    if not code.isprintable():
+        raise ValueError("the code has a control character in it")
+    return code
+
+
+def set_family_code(root: Path, code: str) -> str:
+    """Write the owner's chosen family code. Returns "set" or "unchanged".
+    Refuses a code that equals the admin code (everyone with it would be
+    admin). A short code is allowed -- it is the owner's choice -- and the
+    caller warns; the door's lockout is what protects it."""
+    access_path, admin_path = code_paths(root)
+    admin = read_code(admin_path)
+    if admin and family_code.normalize(admin) == family_code.normalize(code):
+        raise ValueError("that is the admin code; the family code must be different")
+    current = read_code(access_path)
+    if current is not None and current == code:
+        secret_files.tighten([access_path])
+        return "unchanged"
+    write_code(access_path, code)
+    return "set"
+
+
+def _auth_file(root: Path) -> Path:
+    return root / "auth-attempts.json"
+
+
+def unlock_saved(root: Path, target: str) -> int:
+    """Lift lockouts in the saved state directly (for a studio that is not
+    running; a running one holds the table in memory and uses the request)."""
+    path = _auth_file(root)
+    try:
+        state = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return 0
+    if not isinstance(state, dict):
+        return 0
+    n = door_lockout.unlock(door_lockout.load_tables(state), target)
+    if n:
+        secret_files.write_private(path, json.dumps(state))
+    return n
+
+
+def cmd_code_unlock(root: Path, raw: str, wait_s: float | None = None) -> int:
+    try:
+        target = door_lockout.target_key(raw)
+    except ValueError as exc:
+        print(f"media-lab code --unlock: {exc}", file=sys.stderr)
+        return 2
+    who = "every client" if target == "all" else (
+        "this machine's own scripts" if target == "anon" else target.removeprefix("ip:"))
+    wait_s = UNLOCK_WAIT_S if wait_s is None else wait_s
+    req = door_lockout.request_unlock(root, target)
+    deadline = time.monotonic() + wait_s
+    while time.monotonic() < deadline:
+        if not req.exists():
+            print(f"lockouts lifted for {who} (the running studio applied it; see `media-lab logs`)")
+            return 0
+        _pause(0.25)
+    if not req.exists():
+        print(f"lockouts lifted for {who} (the running studio applied it; see `media-lab logs`)")
+        return 0
+    n = unlock_saved(root, target)
+    print(f"the studio did not pick the request up within {wait_s:.0f} s (is it running?): "
+          f"cleared {n} saved lockout record(s) for {who} directly; the request stays in "
+          f"{req.name} and is applied at the next start")
+    return 0
+
+
+def cmd_code_locks(root: Path) -> int:
+    try:
+        state = json.loads(_auth_file(root).read_text())
+    except (OSError, ValueError):
+        state = {}
+    rows = door_lockout.describe(door_lockout.load_tables(state if isinstance(state, dict) else {}),
+                                 time.time())
+    if not rows:
+        print("no lockouts: the code prompt is open for everyone")
+        return 0
+    h = door_lockout.human
+    for r in rows:
+        state_txt = f"LOCKED for {h(r['locked_for'])}" if r["locked_for"] else "open"
+        print(f"{r['counter']:5}  {r['client']:<32}  {state_txt:<22}  lockouts so far {r['level']}"
+              f"  wrong in the last 10 min {r['recent_wrong']}  next lockout {h(r['next_lock'])}")
+    print("(up to 3 s behind the running studio)  lift one: media-lab code --unlock <address>;"
+          "  lift all: media-lab code --unlock")
+    return 0
+
+
 def cmd_code(args, cfg, root) -> int:
     """Show, create or rotate the door codes.
 
@@ -514,8 +634,34 @@ def cmd_code(args, cfg, root) -> int:
     old code is signed out — each one enters the new code once. ``--quiet``
     never prints a code (for automation and remote shells): it names the file.
     ``--ensure`` creates whichever code files are missing and changes nothing
-    that exists (install.sh uses it)."""
+    that exists (install.sh uses it).
+
+    ``--set-family`` sets a family code the owner chose (read from ``--from
+    FILE`` or stdin, never the command line; never printed). ``--locks`` and
+    ``--unlock [ADDRESS]`` show and lift the code prompt's lockouts."""
     access_path, admin_path = code_paths(root)
+    if args.locks:
+        return cmd_code_locks(root)
+    if args.unlock is not None:
+        return cmd_code_unlock(root, args.unlock)
+    if args.set_family:
+        try:
+            outcome = set_family_code(root, read_chosen_code(args.source))
+        except (OSError, ValueError) as exc:
+            print(f"media-lab code --set-family: {exc}", file=sys.stderr)
+            return 2
+        if outcome == "unchanged":
+            print(f"the family code in {access_path} is already that code; nothing changed")
+            return 0
+        print(f"new family code written to {access_path} (mode 0600; not shown)")
+        print("The server picks it up within a second: every device signed in with the "
+              "old family code is signed out and needs the new one once.", file=sys.stderr)
+        if family_code.is_weak(read_code(access_path)):
+            print("warning: this family code is short and guessable. The door's lockout is what "
+                  "protects it (3 wrong codes in 10 minutes shut the prompt for that network for "
+                  "1 h, then 2 h, 4 h, 8 h ...). A longer code is safer: `media-lab code --rotate`.",
+                  file=sys.stderr)
+        return 0
     if args.ensure:
         made = []
         if secret_files.ensure(access_path, lambda: mint_access_code() + "\n"):
@@ -756,6 +902,16 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--rotate", action="store_true",
                    help="replace the code; every device that used the old one is signed out")
     s.add_argument("--admin", action="store_true", help="the admin code instead")
+    s.add_argument("--set-family", action="store_true",
+                   help="set the family code to one you choose, read from --from FILE or "
+                        "stdin (never the command line); it is not printed")
+    s.add_argument("--from", dest="source", metavar="FILE",
+                   help="with --set-family: read the code from FILE ('-' = stdin)")
+    s.add_argument("--locks", action="store_true",
+                   help="list the clients the code prompt is locked for")
+    s.add_argument("--unlock", nargs="?", const="all", metavar="ADDRESS",
+                   help="lift code-prompt lockouts: all of them, or one address "
+                        "('anon' = this machine's own scripts)")
     s.add_argument("--quiet", action="store_true",
                    help="never print a code; name the file that holds it")
     s.add_argument("--ensure", action="store_true",

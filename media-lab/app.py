@@ -14,7 +14,7 @@ from media_lab_core import studio_library, studio_jobs, studio_inputs, backgroun
 from media_lab_core import local_config
 from media_lab_core import engine_licences, local_overlay
 from media_lab_core import embed_gate
-from media_lab_core import family_code, local_token, secret_files
+from media_lab_core import door_lockout, family_code, local_token, secret_files
 from media_lab_core.job_store import JobStore
 from media_lab_core.director_context import project_context_message
 from media_lab_core import installer as engine_installer
@@ -1150,78 +1150,66 @@ def gate_exempt(p: str) -> bool:
         return False
     return p in GATE_EXEMPT or p in PUBLIC_STATIC
 
-# ---------- brute-force lockout ----------
+# ---------- the code prompt's lockout ----------
+# The owner's rule (2026-09-26; media_lab_core/door_lockout.py has the details
+# and the arithmetic): 3 wrong codes within 10 minutes from one client locks the
+# code prompt for that client for 1 hour; each later lockout of the same client
+# doubles (2 h, 4 h, 8 h, ... capped at a week); a clean day steps it back down
+# one level; `media-lab code --unlock` lifts it at once. It guards the PROMPT
+# only: a device that is already signed in keeps working, because its cookie or
+# studio pass is checked without ever coming through here.
+#
+# WHO is "one client" — never who to TRUST (nothing here grants access):
 # FLEET RULE (again): behind the Cloudflare tunnel every request arrives from
-# 127.0.0.1 at the socket level, so the peer address is worthless here. But the
-# tunnel ingress only ever forwards the two public hostnames, and for those the
+# this machine at the socket level, so the peer address is worthless there. But
+# the tunnel ingress only forwards the public hostnames, and for those the
 # Cloudflare edge sets CF-Connecting-IP itself, overwriting anything the client
-# sent — so on public-host traffic that header IS a trustworthy client identity.
-# Three layers:
-#   1. per-key exponential backoff. The key is the caller's device cookie when
-#      they present a SERVER-SIGNED one, otherwise their CF-Connecting-IP. A curl
-#      loop that sends no cookie therefore all lands on one IP key and backs off,
-#      instead of minting a brand-new identity for every guess (which is what
-#      made the old per-device layer free to evade).
-#   2. bounded identity minting. Signed device cookies are handed out at most
-#      ISSUE_MAX per hour per IP to anyone who has not passed the gate, so an
-#      attacker cannot farm clean keys to reset their own backoff.
-#   3. global SOFT throttle. The old third layer was a hard ceiling on guesses
-#      the whole server would evaluate per minute, and it was a denial of service:
-#      a stranger could keep the window permanently full and nobody — including
-#      the owner, with the right code — could get in. The global layer now REFUSES
-#      NOTHING. When the server-wide failure rate is hot it only (a) delays the
-#      responses to attempts that already turned out to be WRONG, and (b) adds a
-#      bonus to the failing key's own next wait. A correct code is never delayed
-#      and never refused by anything global, and a device with a clean record is
-#      never made to wait at all.
+# sent — so on public-host traffic that header IS a trustworthy client
+# identity. A direct (tailnet / LAN) connection is keyed by its own address.
+# The key is the network, not the browser — an IPv4 address or an IPv6 /64 —
+# so throwing cookies away or hopping addresses inside one /64 buys nothing.
+# Traffic with no identity at all (this machine's own scripts, or one of our
+# proxies on a host not listed in MEDIA_LAB_PUBLIC_HOSTS) shares the key "anon".
+#
+# Two counters with the same rule: "gate" (the code prompt) and "admin" (the
+# admin code in X-Lab-Pin, and the prompt WHILE "gate" is locked — then only
+# the admin code is checked, so family typos never lock the owner out).
+#
+# A global SOFT throttle stays on top: when the server-wide failure rate is hot
+# it only DELAYS answers that already turned out to be wrong. Nothing global
+# ever refuses, so a stranger cannot hold the door shut against anybody else's
+# network, and a correct code is never delayed.
 ATTEMPTS_FILE = ROOT / "auth-attempts.json"
-DEVICE_COOKIE = "mlab_device"
-DEVICE_FREE_TRIES = 2        # attempts 1-2 are immediate
-DEVICE_MAX_WAIT = 15 * 60    # 15 min ceiling on the per-key backoff
 GLOBAL_WINDOW = 60           # rolling window, seconds
 GLOBAL_SOFT_FAILS = 12       # failures per window before the soft throttle engages
 THROTTLE_MIN = 1.0           # artificial delay added to a WRONG answer when hot
 THROTTLE_MAX = 3.0
-PRESSURE_BONUS = 20          # extra seconds on a FAILING key's next wait when hot
-ISSUE_WINDOW = 3600          # device-cookie minting window, seconds
-ISSUE_MAX = 60               # signed device cookies per hour per un-gated IP
-KEY_TTL = 6 * 3600           # forget a key this long after its last failure
-KEY_MAX = 400                # hard cap on tracked keys per namespace
 _attempt_lock = threading.Lock()
 _attempts = _load(ATTEMPTS_FILE, {})
+if not isinstance(_attempts, dict):
+    _attempts = {}
+# Earlier builds kept a per-browser backoff here; its keys mean nothing now.
+for _old_key in ("devices", "issued", "reserve"):
+    _attempts.pop(_old_key, None)
+_lockouts = door_lockout.load_tables(_attempts)
 _att_dirty = False
 
-def _att_ns(ns):
-    return (_attempts.setdefault("devices", {}).setdefault(ns, {}),
-            _attempts.setdefault("global", {}).setdefault(ns, []))
 
-def device_wait(n):
-    """Required wait after n recorded failures: 0, 0, 1, 2, 4, 8 ... capped."""
-    if n < DEVICE_FREE_TRIES:
-        return 0
-    return min(2 ** min(n - DEVICE_FREE_TRIES, 24), DEVICE_MAX_WAIT)
+def _door_now() -> float:
+    """The lockout's clock (one seam, so tests can move time forward)."""
+    return time.time()
+
 
 def _att_prune(now):
-    # A key only matters until its backoff expires; keeping it a full day let an
-    # attacker grow this file without bound. Drop it once it cannot lock anyone
-    # out any more, and cap the table so a flood can never blow up memory/disk.
-    for devs in _attempts.get("devices", {}).values():
-        for k in [k for k, v in devs.items()
-                  if now - v.get("last", 0) > max(
-                      KEY_TTL, v.get("wait", device_wait(v.get("fails", 0))) * 3)]:
-            devs.pop(k, None)
-        if len(devs) > KEY_MAX:
-            for k, _v in sorted(devs.items(),
-                                key=lambda kv: kv[1].get("last", 0))[:len(devs) - KEY_MAX]:
-                devs.pop(k, None)
-    for bucket in ("global", "reserve"):
-        for ts in _attempts.get(bucket, {}).values():
-            ts[:] = [t for t in ts if now - t < GLOBAL_WINDOW]
-    iss = _attempts.get("issued", {})
-    for k in [k for k, v in iss.items() if not v or now - max(v) > ISSUE_WINDOW]:
-        iss.pop(k, None)
-    for v in iss.values():
-        v[:] = [t for t in v if now - t < ISSUE_WINDOW]
+    for table in _lockouts.values():
+        door_lockout.prune(table, now)
+    glob = _attempts.get("global")
+    if not isinstance(glob, dict):
+        glob = _attempts["global"] = {}
+    for ns in list(glob):
+        ts = glob[ns] if isinstance(glob[ns], list) else []
+        glob[ns] = [t for t in ts if isinstance(t, (int, float)) and now - t < GLOBAL_WINDOW]
+
 
 def _att_touch():
     # Rewriting the whole file on every guess meant O(n) synchronous disk I/O
@@ -1230,18 +1218,42 @@ def _att_touch():
     global _att_dirty
     _att_dirty = True
 
+
+def _door_take_unlock() -> int:
+    """Apply the owner's `media-lab code --unlock`, if a request is waiting
+    (auth-unlock.json under the data root; the CLI writes it, this deletes
+    it). The journal says how many lockouts were lifted, never which address."""
+    target = door_lockout.take_unlock_request(ROOT)
+    if target is None:
+        return 0
+    with _attempt_lock:
+        n = door_lockout.unlock(_lockouts, target)
+    _att_touch()
+    print(f"[media-lab] the owner lifted {n} code-prompt lockout record(s) "
+          f"({'every client' if target == 'all' else 'one client'})", flush=True)
+    return n
+
+
 def _att_flusher():
     global _att_dirty
     while True:
         time.sleep(3)
+        try:
+            _door_take_unlock()
+        except Exception as exc:          # never let the writer thread die
+            print(f"[media-lab] unlock request not applied: {exc.__class__.__name__}", flush=True)
         if not _att_dirty:
             continue
         with _attempt_lock:
             _att_dirty = False
-            _att_prune(time.time())
+            _att_prune(_door_now())
             snap = json.loads(json.dumps(_attempts))
         _save(ATTEMPTS_FILE, snap)
+
+
+_door_take_unlock()              # a request left while the studio was down
 threading.Thread(target=_att_flusher, daemon=True).start()
+
 
 def _proxy_peer(peer: str) -> bool:
     """Did this connection come from one of OUR proxies (cloudflared, tailscale
@@ -1254,12 +1266,13 @@ def _proxy_peer(peer: str) -> bool:
         return True
     return ip.is_loopback or peer in OWN_ADDRESSES
 
+
 def _client_ip(request: Request) -> str:
-    """WHO to throttle — never who to trust (auth never looks at this).
+    """WHO to lock out — never who to trust (auth never looks at this).
 
     * A direct connection (the peer is not one of our proxies): the peer
       address is the caller. A tailnet or LAN device therefore has its own
-      backoff key and cannot mint a fresh identity by forging CF-Connecting-IP
+      lockout and cannot mint a fresh identity by forging CF-Connecting-IP
       next to "Host: <public hostname>".
     * Through one of our proxies on a public hostname: CF-Connecting-IP, which
       the Cloudflare edge overwrites on every request.
@@ -1274,114 +1287,64 @@ def _client_ip(request: Request) -> str:
         return _throttle_ip(request.headers.get("cf-connecting-ip") or "")
     return ""
 
+
 def _throttle_ip(raw: str) -> str:
-    """The backoff key for one address.
+    """The lockout key for one address: IPv4 as-is, a public IPv6 address by
+    its /64, an IPv4-mapped one by its IPv4 address, tailnet (fd7a:…) and
+    other private addresses as they are (door_lockout.throttle_key)."""
+    return door_lockout.throttle_key(raw)
 
-    An IPv6 visitor normally holds a whole /64 — home broadband and phones get
-    one each — and can pick a new address in it for every request, so keying
-    the full address handed them a fresh set of free guesses every time. A
-    public IPv6 address is therefore keyed by its /64, an IPv4-mapped one by
-    its IPv4 address. IPv4, tailnet (fd7a:…) and other private addresses are
-    keyed exactly as they are."""
-    raw = (raw or "").strip()[:45]
-    try:
-        ip = ipaddress.ip_address(raw.strip("[]"))
-    except ValueError:
-        return raw
-    if ip.version == 6:
-        if ip.ipv4_mapped:
-            return str(ip.ipv4_mapped)
-        if ip.is_global:
-            return str(ipaddress.ip_network(f"{ip}/64", strict=False))
-    return str(ip)
 
-def device_sign(did: str) -> str:
-    return hmac.new(ACCESS_SECRET.encode(), f"dev:{did}".encode(),
-                    hashlib.sha256).hexdigest()[:12]
+def _door_key(request: Request) -> str:
+    ip = getattr(request.state, "client_ip", None)
+    if ip is None:
+        ip = _client_ip(request)
+    return door_lockout.client_key(ip)
 
-def device_new() -> str:
-    d = uuid.uuid4().hex
-    return f"{d}.{device_sign(d)}"
 
-def device_valid(raw: str) -> str:
-    """The id, or "" — an unsigned/forged cookie buys you nothing, so a guesser
-    cannot hand themselves a fresh identity per attempt."""
-    m = re.fullmatch(r"([0-9a-f]{32})\.([0-9a-f]{12})", raw or "")
-    if m and hmac.compare_digest(m.group(2), device_sign(m.group(1))):
-        return m.group(1)
-    return ""
-
-def _req_key(request: Request) -> str:
-    did = getattr(request.state, "device_id", "")
-    if did:
-        return "dev:" + did
-    ip = getattr(request.state, "client_ip", "")
-    return ("ip:" + ip) if ip else "anon"
-
-def issue_allowed(ip: str) -> bool:
-    if not ip:
-        return True
-    now = time.time()
+def door_wait(ns, key) -> int:
+    """Seconds the `ns` door stays shut for this client (0 = open). Checked
+    BEFORE any code is compared: a guesser who is told "wrong" at full speed
+    and only then locked out has learned everything they wanted."""
+    now = _door_now()
     with _attempt_lock:
-        iss = _attempts.setdefault("issued", {}).setdefault(ip, [])
-        iss[:] = [t for t in iss if now - t < ISSUE_WINDOW]
-        if len(iss) >= ISSUE_MAX:
-            return False
-        iss.append(now)
-    _att_touch()
-    return True
+        return door_lockout.remaining(_lockouts[ns], key, now)
 
-def device_block(ns, key):
-    """(seconds, scope) this caller must wait before their next guess is even
-    EVALUATED. Per-key ONLY — the global layer refuses nothing, which is what
-    makes it impossible for a stranger to hold the door shut against the owner.
-
-    The block still gates evaluation rather than just delaying the answer: a
-    guesser who gets told "wrong" at full speed and only then gets throttled has
-    learned everything they wanted, so the backoff would be decorative."""
-    now = time.time()
-    with _attempt_lock:
-        _att_prune(now)
-        devs, _g = _att_ns(ns)
-        e = devs.get(key)
-        if not e:
-            return 0, ""                     # never failed here: always immediate
-        left = e.get("wait", device_wait(e.get("fails", 0))) - (now - e.get("last", 0))
-        return (int(math.ceil(left)), "device") if left > 0 else (0, "")
 
 def global_hot(ns) -> bool:
     """Is the server-wide failure rate above the soft threshold right now?"""
-    now = time.time()
+    now = _door_now()
     with _attempt_lock:
-        _devs, g = _att_ns(ns)
-        g[:] = [t for t in g if now - t < GLOBAL_WINDOW]
+        glob = _attempts.setdefault("global", {})
+        g = glob[ns] = [t for t in glob.get(ns, []) if now - t < GLOBAL_WINDOW]
         return len(g) >= GLOBAL_SOFT_FAILS
 
-def record_fail(ns, key):
-    """Book a WRONG answer. Returns (delay_seconds, next_wait): `delay` is the
-    artificial pause to add to this failing response, `next_wait` is how long
-    this key must now sit out. Both only ever apply to failures."""
-    now = time.time()
+
+def door_fail(ns, key):
+    """Book a WRONG code. Returns (delay_seconds, verdict): `delay` is the
+    artificial pause to add to this failing answer when the server is hot;
+    `verdict` is door_lockout.strike's (locked, retry_after, tries_left, ...)."""
+    now = _door_now()
     hot = global_hot(ns)
     with _attempt_lock:
-        devs, g = _att_ns(ns)
-        g.append(now)
-        e = devs.setdefault(key, {"fails": 0, "last": 0})
-        e["fails"] += 1
-        e["last"] = now
-        e["wait"] = min(DEVICE_MAX_WAIT,
-                        device_wait(e["fails"]) + (PRESSURE_BONUS if hot else 0))
-        nxt = e["wait"]
+        _attempts.setdefault("global", {}).setdefault(ns, []).append(now)
+        verdict = door_lockout.strike(_lockouts[ns], key, now)
     _att_touch()
+    if verdict["locked"]:
+        # which client is private; that it happened is not
+        print(f"[media-lab] code prompt locked for one client: {ns} counter, lockout "
+              f"#{verdict['level']}, {door_lockout.human(verdict['retry_after'])}", flush=True)
     delay = random.uniform(THROTTLE_MIN, THROTTLE_MAX) if hot else 0.0
-    return delay, nxt
+    return delay, verdict
 
-def record_ok(ns, key):
+
+def door_ok(ns, key):
+    now = _door_now()
     with _attempt_lock:
-        devs, _g = _att_ns(ns)
-        gone = devs.pop(key, None) is not None
-    if gone:
+        changed = door_lockout.succeed(_lockouts[ns], key, now)
+    if changed:
         _att_touch()
+
 
 def _secure_cookie(request: Request) -> bool:
     """Mark cookies Secure only when this request really came over HTTPS. The Lab
@@ -1393,9 +1356,15 @@ def _secure_cookie(request: Request) -> bool:
     proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
     return proto == "https" or request.url.scheme == "https"
 
-def locked_response(wait, scope, extra=None):
-    body = {"ok": False, "error": "locked", "locked": True,
-            "retry_after": wait, "scope": scope}
+def locked_response(wait, extra=None):
+    """429 for a client whose code prompt is shut: when it opens again, and
+    the reminder that signed-in devices are not affected."""
+    wait = max(1, int(wait))
+    body = {"ok": False, "error": "locked", "locked": True, "retry_after": wait,
+            "scope": "network",
+            "message": (f"Too many wrong codes from this network. Try again in "
+                        f"{door_lockout.human(wait)}. Devices that are already signed in "
+                        "keep working.")}
     return JSONResponse(body | (extra or {}), status_code=429,
                         headers={"Retry-After": str(wait)})
 
@@ -1432,7 +1401,8 @@ button{width:100%;margin-top:14px;padding:15px;font-size:.9rem;font-weight:600;l
  background:linear-gradient(140deg,#E8C193,#C99A6A 55%,#A97B4E);color:#160D06}
 button:disabled{filter:grayscale(.7);opacity:.5;cursor:not-allowed}
 .err{display:none;margin-top:12px;color:#C8455A;font-size:.85rem}
-.wait{color:#C99A6A}</style></head><body>
+.wait{color:#C99A6A}
+[hidden]{display:none!important}</style></head><body>
 <div class="card"><div class="k">VibeX Studio</div><h1>Media Lab</h1>
 <p>Enter your family code. Each device only needs it once.</p>
 <form id="f"><input id="c" type="password" autocomplete="current-password" aria-label="Family code"
@@ -1440,22 +1410,30 @@ button:disabled{filter:grayscale(.7);opacity:.5;cursor:not-allowed}
 <button id="s" class="show" type="button" aria-pressed="false">Show code</button>
 <button id="b" type="submit">Enter the studio</button></form>
 <div class="err" id="e"></div>
+<button id="o" class="show" type="button" hidden>Studio owner? Enter the admin code</button>
 <p class="hint">Spaces, dashes and capitals don't matter. Studio owner? Your admin code works here too.</p></div>
 <script>
-const F=document.getElementById('f'),C=document.getElementById('c'),
+const F=document.getElementById('f'),C=document.getElementById('c'),O=document.getElementById('o'),
       B=document.getElementById('b'),E=document.getElementById('e'),S=document.getElementById('s');
 const BAD="That's not the family code — check it and try again.";
 S.onclick=()=>{const on=C.type==='password';C.type=on?'text':'password';
  S.textContent=on?'Hide code':'Show code';S.setAttribute('aria-pressed',String(on));C.focus();};
 let timer=null;
-function lock(sec,scope){clearInterval(timer);B.disabled=true;C.disabled=true;
+// 3 wrong codes in 10 minutes shut this prompt for the whole network: 1 h,
+// then 2 h, 4 h, 8 h ... Devices already signed in are not affected, and the
+// owner's admin code still works (it has its own counter).
+function span(sec){const d=Math.floor(sec/86400),h=Math.floor(sec%86400/3600),m=Math.floor(sec%3600/60);
+ if(d)return d+' d '+h+' h';if(h)return h+' h '+String(m).padStart(2,'0')+' min';
+ return m+':'+String(sec%60).padStart(2,'0');}
+function lock(sec){clearInterval(timer);B.disabled=true;C.disabled=true;O.hidden=false;
  E.className='err wait';E.style.display='block';
- const tick=()=>{if(sec<=0){clearInterval(timer);B.disabled=false;C.disabled=false;
-   E.className='err';E.style.display='none';C.focus();return;}
-  const m=Math.floor(sec/60),s=String(sec%60).padStart(2,'0');
-  E.textContent='Too many tries from this device — try again in '+m+':'+s;
+ const tick=()=>{if(sec<=0){clearInterval(timer);B.disabled=false;C.disabled=false;O.hidden=true;
+   E.className='err';E.style.display='none';C.placeholder='family code';C.focus();return;}
+  E.textContent='Too many wrong codes from this network. Try again in '+span(sec)+
+   '. Devices that are already signed in keep working.';
   sec--;};
  tick();timer=setInterval(tick,1000);}
+O.onclick=()=>{B.disabled=false;C.disabled=false;C.placeholder='admin code';O.hidden=true;C.focus();};
 F.onsubmit=async ev=>{ev.preventDefault();
  let r,d={};
  try{r=await fetch('/api/gate',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -1463,8 +1441,10 @@ F.onsubmit=async ev=>{ev.preventDefault();
   E.textContent='The studio is unreachable — try again.';E.style.display='block';return;}
  if(r.ok){location.replace('/');return;}
  try{d=await r.json();}catch(err){}
- if(r.status===429||d.retry_after>=3){lock(Math.max(1,Math.ceil(d.retry_after||1)),d.scope);}
- else{E.className='err';E.textContent=BAD;E.style.display='block';}
+ if(r.status===429||d.locked){lock(Math.max(1,Math.ceil(d.retry_after||1)));}
+ else{E.className='err';E.style.display='block';
+  E.textContent=BAD+(d.tries_left===1?' One more wrong try locks this network out for '+
+   span(d.next_lock||3600)+'.':'');}
  C.value='';C.focus();};
 C.focus();
 </script></body></html>"""
@@ -1494,18 +1474,32 @@ def request_role(request: Request) -> str:
 def _gate_ok(request: Request) -> bool:
     return bool(getattr(request.state, "role", "") or request_role(request))
 
-def _pin_role(request: Request) -> str:
+def _pin_role(request: Request) -> tuple[str, int]:
     """X-Lab-Pin carrying the ADMIN code lets an owner script in without a
-    cookie ("admin"). Same per-key backoff as the door itself, so the header is
-    no cheaper to guess than the gate. The family code is not accepted here."""
-    key = _req_key(request)
-    if device_block("admin", key)[0]:
-        return ""
+    cookie. Returns ("admin", 0), or ("", wait) where wait > 0 means this
+    client's admin counter is locked. Same rule as the prompt, on the separate
+    "admin" counter, so the header is no cheaper to guess than the door. The
+    family code is not accepted here."""
+    key = _door_key(request)
+    wait = door_wait("admin", key)
+    if wait:
+        return "", wait
     if is_admin(request.headers.get("x-lab-pin")):
-        record_ok("admin", key)
-        return "admin"
-    record_fail("admin", key)
-    return ""
+        door_ok("admin", key)
+        return "admin", 0
+    _delay, verdict = door_fail("admin", key)
+    return "", (verdict["retry_after"] if verdict["locked"] else 0)
+
+
+def _door_refusal(request: Request, p: str):
+    """What a visitor with no sign-in gets."""
+    if request.method == "GET" and embed_gate.is_frame_navigation(request):
+        # Inside the VibeX Studio app: sign in through the frame handshake
+        # instead of showing a code screen whose cookie the frame can't keep.
+        return embed_gate.bootstrap_redirect(p, request.url.query)
+    if request.method == "GET" and ("text/html" in request.headers.get("accept", "") or p == "/"):
+        return HTMLResponse(GATE_HTML, status_code=401)
+    return JSONResponse({"error": "locked"}, status_code=401)
 
 @app.middleware("http")
 async def gate_middleware(request: Request, call_next):
@@ -1514,13 +1508,8 @@ async def gate_middleware(request: Request, call_next):
     p = gate_path(request.url.path)
     # A rotated code takes effect here, before anything checks a cookie or pass.
     _refresh_codes()
-    # A visitor is only tracked separately from their IP once they carry a cookie
-    # this server signed. An unsigned or forged one counts as no cookie at all.
-    did = device_valid(request.cookies.get(DEVICE_COOKIE, ""))
-    request.state.device_id = did
     request.state.client_ip = _client_ip(request)
     request.state.role = request_role(request)
-    fresh = not did
 
     scoped = (studio_library.is_library_path(p) or studio_jobs.is_jobs_path(p)
               or p in embed_gate.BRIDGE_PATHS)
@@ -1535,24 +1524,16 @@ async def gate_middleware(request: Request, call_next):
         resp = await call_next(request)
     elif request.state.role:
         resp = await call_next(request)
-    elif request.headers.get("x-lab-pin") and (pin_role := _pin_role(request)):
-        # an owner script with the admin code in X-Lab-Pin and no cookie
-        request.state.role = pin_role
-        resp = await call_next(request)
-    elif request.method == "GET" and embed_gate.is_frame_navigation(request):
-        # Inside the VibeX Studio app: sign in through the frame handshake
-        # instead of showing a code screen whose cookie the frame can't keep.
-        resp = embed_gate.bootstrap_redirect(p, request.url.query)
-    elif request.method == "GET" and ("text/html" in request.headers.get("accept", "") or p == "/"):
-        resp = HTMLResponse(GATE_HTML, status_code=401)
     else:
-        resp = JSONResponse({"error": "locked"}, status_code=401)
-    # Anyone through the gate gets an identity for free; anyone still outside it
-    # gets one out of a per-IP hourly budget, so clean keys can't be farmed.
-    if fresh and (_gate_ok(request) or issue_allowed(request.state.client_ip)):
-        resp.set_cookie(DEVICE_COOKIE, device_new(), max_age=60 * 60 * 24 * 730,
-                        httponly=True, samesite="lax", path="/",
-                        secure=_secure_cookie(request))
+        # an owner script with the admin code in X-Lab-Pin and no cookie
+        pin_role, pin_wait = _pin_role(request) if request.headers.get("x-lab-pin") else ("", 0)
+        if pin_role:
+            request.state.role = pin_role
+            resp = await call_next(request)
+        elif pin_wait:
+            resp = locked_response(pin_wait)
+        else:
+            resp = _door_refusal(request, p)
     # NOTHING behind the gate may be stored by a SHARED cache. We sit behind a
     # Cloudflare tunnel, and .mp4 is on Cloudflare's default cache-by-extension
     # list — so an origin that says nothing about caching was letting the edge
@@ -1622,16 +1603,18 @@ def _pin_guard(request: Request, pin: Optional[str], refusal: str):
     if not p:
         return JSONResponse({"ok": False, "error": refusal, "owner_only": refusal == OWNER_ONLY,
                              "role": request_role(request) or "user"}, status_code=403)
-    key = _req_key(request)
-    wait, scope = device_block("admin", key)
+    key = _door_key(request)
+    wait = door_wait("admin", key)
     if wait:
-        return locked_response(wait, scope, {"error": "locked"})
+        return locked_response(wait)
     if is_admin(p):
-        record_ok("admin", key)
+        door_ok("admin", key)
         return None
-    _delay, nxt = record_fail("admin", key)
-    return JSONResponse({"ok": False, "error": "bad code", "retry_after": nxt,
-                         "scope": "device"}, status_code=403)
+    _delay, verdict = door_fail("admin", key)
+    if verdict["locked"]:
+        return locked_response(verdict["retry_after"], {"wrong": True})
+    return JSONResponse({"ok": False, "error": "bad code", "retry_after": 0, "scope": "network",
+                         "tries_left": verdict["tries_left"]}, status_code=403)
 
 # ---------- ETA stats ----------
 ETA_DEFAULT = {"video": 6, "music": 12, "screenshotsong": 14, "image": 3, "character": 9, "storyboard": 4, "assemble": 2,
@@ -12790,33 +12773,52 @@ class GateReq(BaseModel):
 
 @app.post("/api/gate")
 async def gate(r: GateReq, request: Request):
-    """One door. The code you type decides the role you get."""
-    key = _req_key(request)
-    # The ONLY thing that can refuse outright is this caller's own backoff, earned
-    # by their own wrong answers. Nothing global refuses, so a stranger hammering
-    # the door cannot keep anybody else out.
-    wait, scope = device_block("gate", key)
-    if wait:
-        return locked_response(wait, scope)
+    """One door. The code you type decides the role you get.
+
+    3 wrong codes in 10 minutes shut it for this client (network) for 1 h,
+    then 2 h, 4 h, 8 h ... (media_lab_core/door_lockout.py). The ONLY thing
+    that can refuse outright is this client's own lockout, earned by its own
+    wrong answers: nothing global refuses, so a stranger hammering the door
+    cannot keep anybody else's network out."""
+    key = _door_key(request)
     # Forgiving typing: case, spaces, dashes, dots and underscores do not
     # matter ("Maple otter-LANTERN comet" == "maple-otter-lantern-comet").
     # Compare as bytes — compare_digest raises on non-ASCII str, and a stray
     # accented character in the box must read as "wrong code", not a 500.
     code = family_code.normalize(r.code).encode("utf-8", "replace")
     role = ""
-    if code and ADMIN_CODE and hmac.compare_digest(code, ADMIN_CODE.encode()):
-        role = "admin"
-    elif code and ACCESS_CODE and hmac.compare_digest(code, ACCESS_CODE.encode()):
-        role = "user"
-    if not role:
-        delay, nxt = record_fail("gate", key)
-        if delay:
-            # async sleep: a sync one would tie up a threadpool worker and hand
-            # the attacker a cheaper denial of service than the one just removed
-            await asyncio.sleep(delay)
-        return JSONResponse({"ok": False, "retry_after": nxt, "scope": "device"},
-                            status_code=403)
-    record_ok("gate", key)
+    wait = door_wait("gate", key)
+    if wait:
+        # Shut for this network. Only the ADMIN code is checked now, on its own
+        # counter: family typos never lock the owner out, and the family code
+        # is not compared at all, so a guesser learns nothing during a lockout.
+        if not code or door_wait("admin", key):
+            return locked_response(wait)
+        if ADMIN_CODE and hmac.compare_digest(code, ADMIN_CODE.encode()):
+            role = "admin"
+            door_ok("admin", key)
+        else:
+            delay, _verdict = door_fail("admin", key)
+            if delay:
+                await asyncio.sleep(delay)
+            return locked_response(wait)
+    else:
+        if code and ADMIN_CODE and hmac.compare_digest(code, ADMIN_CODE.encode()):
+            role = "admin"
+        elif code and ACCESS_CODE and hmac.compare_digest(code, ACCESS_CODE.encode()):
+            role = "user"
+        if not role:
+            delay, verdict = door_fail("gate", key)
+            if delay:
+                # async sleep: a sync one would tie up a threadpool worker and hand
+                # the attacker a cheaper denial of service than the one removed
+                await asyncio.sleep(delay)
+            if verdict["locked"]:
+                return locked_response(verdict["retry_after"], {"wrong": True})
+            return JSONResponse({"ok": False, "retry_after": 0, "scope": "network",
+                                 "tries_left": verdict["tries_left"],
+                                 "next_lock": verdict["next_lock"]}, status_code=403)
+        door_ok("gate", key)
     if r.studio_library or r.studio_render:
         if r.studio_render and not r.studio_device:
             return JSONResponse({'error': 'A device identity is required for generation permission.'}, status_code=422)

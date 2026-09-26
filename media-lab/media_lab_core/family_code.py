@@ -11,9 +11,14 @@ Media Lab has exactly two codes:
 
 Both are random words from ``WORDS`` joined with dashes, e.g.
 ``maple-otter-lantern-comet``. Four words from a list this size is about 40
-bits: with the gate's per-device backoff that is out of reach of online
-guessing, and it is still something a grandparent can read off a fridge note.
-The admin code uses six words (about 60 bits).
+bits: with the gate's lockout (door_lockout.py: 3 wrong codes in 10 minutes
+shut the prompt for that network for 1 h, then 2 h, 4 h ...) that is out of
+reach of online guessing, and it is still something a grandparent can read off
+a fridge note. The admin code uses six words (about 60 bits).
+
+The owner may also choose a family code (``media-lab code --set-family``),
+even a short one. The server then warns in its log at every start that the
+code is short and guessable; the lockout is what keeps a short code safe.
 
 Typing is forgiving. Case, spaces, dashes, dots, commas and underscores are
 ignored when the code is checked, so "Maple Otter lantern-COMET" opens the same
