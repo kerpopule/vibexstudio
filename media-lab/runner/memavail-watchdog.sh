@@ -29,6 +29,12 @@ count=0; [ -f "$COUNT_FILE" ] && count=$(cat "$COUNT_FILE" 2>/dev/null || echo 0
 if [ "$avail_kb" -lt "$floor_kb" ]; then count=$((count + 1)); else count=0; fi
 echo "$count" > "$COUNT_FILE"
 mkdir -p "$(dirname "$LOG")" 2>/dev/null
+# One line every 5 s is ~15 MB a month: keep the current file under LOG_MAX_KB
+# and one previous generation.
+LOG_MAX_KB="${LOG_MAX_KB:-5120}"
+if [ -f "$LOG" ] && [ "$(( $(stat -c %s "$LOG" 2>/dev/null || stat -f %z "$LOG" 2>/dev/null || echo 0) / 1024 ))" -ge "$LOG_MAX_KB" ]; then
+  mv -f "$LOG" "$LOG.1" 2>/dev/null || true
+fi
 printf '%s avail=%dMiB free=%dMiB swapfree=%dMiB below_floor=%d/%d container=%s\n' \
   "$(date '+%F %T')" "$avail_mib" "$free_mib" "$swapfree_mib" "$count" "$CONSECUTIVE" "$running" >> "$LOG" 2>/dev/null
 

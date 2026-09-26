@@ -40,7 +40,10 @@ STRIKES = 2
 
 UNITS = [
     # (unit, probe url, what a healthy answer looks like)
-    ("media-lab-simple.service", local_config.studio_url() + "/api/queue", None),
+    # media-lab-simple.service is NOT here on purpose (2026-09-26): the queue
+    # watchdog is its one restart owner, with strikes and an hourly cap. Two
+    # watchers restarting the studio caused the 2026-09-02 storm (189 restarts)
+    # and every restart while H3 was warm used to cost a recovery hold.
     ("media-lab-image.service", "http://127.0.0.1:8295/health", None),
     ("media-lab-tunnel.service", None, None),
     # media-lab-pool.service is intentionally inactive in cold-idle mode.
@@ -60,6 +63,13 @@ CONTAINERS = [
 # a container that was started in the last few minutes: that is somebody else
 # working, and a restart would fight them mid-migration.
 CHAT_PROBE = "http://127.0.0.1:8003/v1/models"
+# Where the studio's text model really lives. On a box whose text model is
+# served by another machine through the :8004 bridge, a dead :8003 is NOT a
+# reason to start a local chat container (a ~34 GB model beside a warm H3).
+# Local container repair is therefore opt-in: MEDIA_LAB_SUPERVISE_LOCAL_CHAT=1.
+TEXT_BRIDGE = local_config.text_upstream() + "/v1/models"
+TEXT_MODEL = "media-lab-text"
+SUPERVISE_LOCAL_CHAT = local_config.int_value("MEDIA_LAB_SUPERVISE_LOCAL_CHAT", 0) == 1
 CHAT_PREFIX = "qwen38-"
 CHAT_STRIKES = 4          # ~4 minutes of a dead endpoint before we act
 # Qwen3.8 27B can need more than five minutes to load from a cold container.
@@ -175,6 +185,26 @@ def restart_container(name):
     return fix
 
 
+def text_bridge_models(timeout=10):
+    try:
+        with LOCAL_OPENER.open(TEXT_BRIDGE, timeout=timeout) as r:
+            data = json.load(r)
+        return [str(m.get("id")) for m in data.get("data", []) if isinstance(m, dict)]
+    except Exception:
+        return None
+
+
+def check_text_bridge(st):
+    """Report the remote text model's state; never start anything for it."""
+    models = text_bridge_models()
+    ok = models is not None and TEXT_MODEL in models
+    was = st.get("text_bridge_ok")
+    if ok != was:
+        log(f"text bridge {'lists ' + TEXT_MODEL if ok else ('answers without ' + TEXT_MODEL if models is not None else 'is not answering')}"
+            " (reported only; the text model is served remotely)")
+    st["text_bridge_ok"] = ok
+
+
 def main():
     st = load()
 
@@ -202,9 +232,11 @@ def main():
         else:
             clear(st, key)
 
-    # --- the chat model, by endpoint ---
+    # --- the text model, by endpoint ---
     key = "chat:qwen"
-    if os.path.exists(CHAT_MAINTENANCE):
+    if not SUPERVISE_LOCAL_CHAT:
+        check_text_bridge(st)
+    elif os.path.exists(CHAT_MAINTENANCE):
         clear(st, key)
         log(f"{key} maintenance marker present — standing clear")
     elif probe(CHAT_PROBE, timeout=15):
