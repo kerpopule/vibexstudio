@@ -24,6 +24,7 @@ import urllib.request
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from media_lab_core import local_config   # config/local.env, stdlib only
+from media_lab_core import local_token    # local-token.txt, stdlib only
 
 HOME = os.path.expanduser("~")
 STATE = os.path.join(str(local_config.home()), "supervisor-state.json")
@@ -96,11 +97,21 @@ def save(st):
     os.replace(tmp, STATE)
 
 
+def probe_request(url):
+    """The probe request. The studio behind the family door only answers a
+    caller that proves it runs on this machine: local-token.txt in the
+    X-Media-Lab-Local header, the same proof the queue watchdog sends. Without
+    it every probe was a 401 in the studio's log (two a minute). headers_for
+    attaches the token only to the studio's own address AND port, so the image
+    service and every other probe carry nothing."""
+    return local_token.authorize(urllib.request.Request(url))
+
+
 def probe(url, timeout=10):
     if not url:
         return True
     try:
-        with LOCAL_OPENER.open(url, timeout=timeout) as r:
+        with LOCAL_OPENER.open(probe_request(url), timeout=timeout) as r:
             return 200 <= r.getcode() < 400
     except urllib.error.HTTPError as e:
         return e.code < 500          # a 4xx still proves the server is alive

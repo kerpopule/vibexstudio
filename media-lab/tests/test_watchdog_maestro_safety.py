@@ -55,6 +55,46 @@ class WatchdogMaestroSafetyTests(unittest.TestCase):
         opened.assert_called_once()
         global_open.assert_not_called()
 
+    def test_supervisor_studio_probe_carries_the_local_token(self):
+        # The family door answers an unauthenticated probe with 401 (alive, but
+        # log noise twice a minute); the supervisor must prove it is local.
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "local-token.txt").write_text("e" * 64 + "\n")
+            fake_response = mock.MagicMock()
+            fake_response.__enter__.return_value.getcode.return_value = 200
+            with mock.patch.object(local_config, "home", return_value=Path(tmp)), \
+                 mock.patch.object(service_supervisor.LOCAL_OPENER, "open",
+                                   return_value=fake_response) as opened:
+                self.assertTrue(service_supervisor.probe(QUEUE_URL))
+        request = opened.call_args.args[0]
+        self.assertEqual(QUEUE_URL, request.full_url)
+        self.assertEqual("e" * 64, request.unredirected_hdrs.get("X-media-lab-local"))
+        self.assertIsNone(request.get_header("Host"))
+        source = (ROOT / "runner/service_supervisor.py").read_text(encoding="utf-8")
+        self.assertNotIn('"Host": "localhost"', source)
+
+    def test_supervisor_sends_the_token_to_no_other_service(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "local-token.txt").write_text("e" * 64 + "\n")
+            with mock.patch.object(local_config, "home", return_value=Path(tmp)):
+                for url in ("http://127.0.0.1:8295/health", "http://127.0.0.1:8003/v1/models",
+                            "http://127.0.0.1:17493/health"):
+                    with self.subTest(url=url):
+                        request = service_supervisor.probe_request(url)
+                        self.assertNotIn("X-media-lab-local", request.unredirected_hdrs)
+                        self.assertNotIn("X-media-lab-local", request.headers)
+
+    def test_supervisor_probe_still_counts_a_refusal_as_alive_without_a_token(self):
+        # No token on this box (or unreadable): the probe goes out bare and a
+        # 401 still proves the server is up, so nothing is restarted over it.
+        refused = urllib.error.HTTPError(QUEUE_URL, 401, "locked", {}, None)
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(local_config, "home", return_value=Path(tmp)), \
+                 mock.patch.object(service_supervisor.LOCAL_OPENER, "open",
+                                   side_effect=refused) as opened:
+                self.assertTrue(service_supervisor.probe(QUEUE_URL))
+        self.assertNotIn("X-media-lab-local", opened.call_args.args[0].unredirected_hdrs)
+
     def test_active_runner_detection_uses_queue_owned_docker_exec(self):
         for module in (queue_watchdog, service_supervisor):
             with self.subTest(module=module.__name__), mock.patch.object(
