@@ -19,6 +19,7 @@ from media_lab_core.job_store import JobStore
 from media_lab_core.director_context import project_context_message
 from media_lab_core import installer as engine_installer
 from media_lab_core import cut as cut_core
+from media_lab_core import stitch as stitch_core, seam_critic, director_school
 from media_lab_core.durable_gpu_protocol import CapacityUnqualified, LeaseBusy, StaleFence
 from media_lab_core.gpu_lease_runtime import delegation_env, delegation_headers, open_protocol
 from media_lab_core.solh3_control_guard import (current_heartbeat_allows_h3, read_pressure_sample,
@@ -564,50 +565,9 @@ RULES:
 - NEVER use format words — "video", "reel", "short-form", "montage", "vlog", "clip" — or meta-phrases like "in every shot": the video model literally PAINTS them as stacked panels and captions. Call it "footage" and state constants declaratively.
 Return ONLY the JSON object, no markdown fences, no commentary."""
 
-BOARD_SYS = """You are a film director breaking a story into scenes for the LTX-2 AI video generator. LTX-2 natively PERFORMS spoken dialogue written in double quotes (with lip sync and voices), plus sound effects and on-screen text — so dialogue belongs IN the prompts.
-
-WORK IN TWO PASSES. FIRST read the user's whole brief and extract a STORY BIBLE — the constants every
-shot must share. THEN write the beats against that bible.
-
-Respond with ONLY a JSON object:
-{"title": "short film title",
- "bible": {
-   "style": "<ONE sentence naming medium, era, palette, film stock or render look, lighting and mood — this sentence is pasted into EVERY shot>",
-   "characters": [{"name": "<exact name>", "look": "<canonical 30-50 word appearance line: age, build, hair, eyes, skin, exact clothing, distinguishing details — no camera words, no action>", "voice": "<ONE canonical voice line, 10-25 words: sex, age, accent, pitch, pace, energy — e.g. 'warm American woman in her mid-30s, medium pitch, bright unhurried delivery'. Invent one if the user gave none and keep it for every shot.>"}],
-   "world": "<setting, era, time of day and production-design constants shared by every shot>",
-   "camera": "<the lens and camera-movement language used throughout>"},
- "beats": [{"title": "...", "description": "...", "characters": ["<bible names present in THIS shot>"], "speaker": "<bible name of whoever SPEAKS in this shot (on camera OR narrating over it), or "">", "video_prompt": "...", "duration": "5"}]}
-
-BIBLE RULES — these decide whether the clips match each other:
-- If the user's brief already gives a cast list, character descriptions, an animation/style statement, or a world, PRESERVE THEIR WORDING VERBATIM in the bible. Copy their sentences across. Do not paraphrase, do not "improve", do not invent a replacement. Their wording IS the quality.
-- Only invent a style, world, camera or character look when the user gave none — then commit to it and apply that same invention to every beat.
-- Every character who appears anywhere in the story gets EXACTLY ONE entry in bible.characters, under ONE name. NEVER rename a character between beats, never redesign them, never give the same person two looks.
-- bible.style, bible.world and bible.camera must be shot-agnostic: no per-scene action, no one-off props.
-- bible fields describe what the CAMERA SEES — never the artifact or the edit. FORBIDDEN in style/world: "video", "short-form", "reel", "clip", "montage", "recipe video", "vlog format", and meta-instructions like "in every shot" or "always" — the model PAINTS those words as split-screen video collages. Translate the user's format intent into pure visual language (palette, light, lens, mood) and their every-shot rules into concrete descriptions repeated per beat.
-
-BEAT RULES:
-- If the user's brief contains a numbered or bulleted shot list, produce EXACTLY ONE beat per shot, in their order, keeping their shot text. Otherwise give 3 to 8 beats with a beginning, middle and end.
-- If the user states a TOTAL runtime (e.g. "a two-minute film"), plan enough beats that the durations sum close to it (each beat is 3-12 seconds, up to 16 beats). If they gave only a few scenes for a longer runtime, invent the missing scenes in the same style so the whole runtime is covered — their scenes stay verbatim, in order.
-- "title" is 2-5 words; "description" is one plain-English sentence for the storyboard card.
-- "characters" lists the bible names VISIBLE ON SCREEN in that shot, spelled EXACTLY as in bible.characters. Use [] for a shot with nobody in it — insert shots, product shots, food close-ups, scenery. Someone merely narrating over the shot is NOT visible.
-- Refer to cast characters BY NAME in every beat they appear in — never as "a woman", "the presenter", "the host". If the cast has exactly one person and the story has a single performer/presenter/narrator on camera, that performer IS the cast character: use their name.
-- A shot with characters [] must SAY so in the video_prompt: open with the camera framing (e.g. "Top-down close-up." / "Extreme close-up, hands only.") and include "no people visible" or "hands only" so the camera stays on the subject.
-- ONE atomic physical action per beat. "Pour the butter, spread it, then add onions" is three beats, not one — multi-step actions in a single shot come out as physics soup.
-CRAFT RULES for every video_prompt — the model renders these reliably; break them and the shot comes out wrong. These rules OUTRANK the brief's wording: translate conflicting requests (crowds -> 1-2 faces + faceless background figures; fast cameras -> smooth decisive moves + more, shorter beats) instead of obeying them literally:
-- Short declarative sentences, one idea each. Present tense, concrete camera verbs (dolly in, pan, track, push-in).
-- ONE pair of hands in any close-up. ONE utensil or container in motion. ONE pour/sprinkle/cut at a time — never "salt and pepper" pouring together (the model fuses the shakers), never two hands from different people, never two simultaneous streams.
-- Name the target's STARTING state: "pours the sauce into the empty glass dish", not "the dish of sauce". Describing the finished state alongside the action makes the model render both at once.
-- At most TWO people with visible faces per shot; groups appear from behind, in silhouette, or cropped below the shoulders.
-- Motion at a natural, deliberate pace — never "frantic" or "rapid"; fast motion tears the image.
-- Kill the plastic look: include "shot on a 35mm lens, raw footage, subtle film grain, natural skin texture, 180-degree shutter, natural motion blur" and ONE coherent light source per shot. Never "smooth", "flawless" or "perfect" for skin or hands.
-- EXACTLY ONE pair of hands, belonging to one unseen person, in every hands-only shot — never a second person, never a second pair of hands entering.
-- "video_prompt" is that one continuous shot — 40-150 words, present tense: subject, action, setting, camera move, lighting.
-- Write ONLY what happens in this shot. The style sentence, the world constants and each character's look line are attached to every prompt automatically, so do NOT restate them.
-- PRESERVE THE USER'S OWN WORDS. If they wrote the shot, keep their description and dialogue verbatim; split only at natural cut points.
-- Dialogue: include the exact spoken words in double quotes with speaker and delivery, e.g.: He turns, smirks, and says in a mocking deep voice: "I am big mad." The model performs quoted lines aloud.
-- "speaker" is whoever performs the shot's spoken words — INCLUDING narration over a shot they are not visible in (a cooking step voiced by the host is speaker: host, characters: []). Use "" only for a truly silent shot. The same narrator keeps the same speaker across every shot they voice; their bible voice line is attached automatically, so the voice never changes mid-film.
-- "duration": whole seconds 3-12, as a string. If the user says how long a scene runs, use THEIR number (clamped to 3-12). Otherwise: "12" if the beat carries more than one spoken line, "8" for one spoken line or complex action, "5" for everything else.
-Return ONLY the JSON object, no markdown fences, no commentary."""
+# The director's system prompt lives with the rest of the director's rules
+# (media_lab_core/director_school.py) so the CLI and agents use the same one.
+BOARD_SYS = director_school.BOARD_SYS
 
 MV_CONCEPT_SYS = """You are a music video director. Given a song's production brief and lyrics,
 write ONE short music-video concept (under 60 words, a single paragraph): who we see (one clearly
@@ -637,6 +597,9 @@ into a renderable form instead of obeying it literally —
     (a confident push-in, a clean lateral track). Never render fast camera or limb motion.
 Everything else in the concept stays word-for-word.
 - Short declarative sentences, one idea each. A long winding sentence produces drifting motion.
+- Vary the framing between consecutive scenes (wide, then medium, then close) — two scenes in a row at the same
+  size on the same performer read as a jump cut. Open with a wide that shows the place. The performer keeps the
+  same side of the frame and never looks into the lens unless the concept is a performance to camera.
 - A scene 8 seconds or longer MAY contain ONE internal cut ("Cut to a close-up of…") — the model
   holds the performer and lighting across it. Re-establish framing after the cut.
 - Present tense, concrete motion verbs (dolly in, pan left, track alongside, push-in, tilt up).
@@ -6148,6 +6111,8 @@ def still_prompt(p):
                 "no collage, no panels, no storyboard grid. Absolutely no on-screen text: "
                 "no subtitles, no captions, no words, no lettering, no watermarks, no logos.")
 
+H3_SCHEMA_RE = re.compile(r"^(For the target video[^\n]*\n+)?integrated_multimodal_description:", re.I)
+
 def h3_prompt(text, speaker_desc="", music="none", start_image=False, line=""):
     """MiniMax H3's OFFICIAL prompt schema — three named fields, in this order,
     separated by blank lines, and (when a start frame is supplied) an I2VA
@@ -6166,8 +6131,20 @@ def h3_prompt(text, speaker_desc="", music="none", start_image=False, line=""):
     instruction line must match what is actually sent — the I2VA form for ONE
     start image. Sending the FL2VA form promises a second keyframe that never
     arrives, and the model spends the tail of the clip converging on nothing.
-    LTX keeps the flowing paragraph — never send this structure to LTX."""
+    LTX keeps the flowing paragraph — never send this structure to LTX.
+
+    A prompt that ALREADY carries the schema (a director or agent composed it,
+    e.g. media_lab_core.director_school.compose_h3_prompt) passes through
+    untouched apart from the I2VA line. Wrapping it again sent H3 a nested
+    "integrated_multimodal_description: [Shot 1] integrated_multimodal_description:
+    [Shot 1] ..." with two soundscape and two music fields: every take of the
+    2026-09-18 diner cut went out that way."""
     t = str(text or "").strip()
+    if H3_SCHEMA_RE.search(t):
+        head = ("For the target video, at 0.00 seconds into the target video, "
+                "<Picture 1> (from [Shot 1]) is fully referenced.\n\n") \
+            if start_image and not t.startswith("For the target video") else ""
+        return head + t
     spoke = {"n": 0}
     def _d(m):
         spoke["n"] += 1
@@ -6311,6 +6288,8 @@ def clean_bible(raw, cast=()):
         if isinstance(c, dict) and str(c.get("name", "")).strip():
             e = {"name": str(c["name"]).strip()[:80], "look": str(c.get("look", "")).strip()[:900],
                  "voice": str(c.get("voice", "")).strip()[:300]}
+            if str(c.get("wardrobe") or "").strip():
+                e["wardrobe"] = str(c["wardrobe"]).strip()[:400]
             if c.get("char_id"):
                 e["char_id"] = str(c["char_id"])
             chars.append(e)
@@ -6329,10 +6308,15 @@ def clean_bible(raw, cast=()):
         else:
             chars.append({"name": str(sc.get("name") or "").strip()[:80],
                           "look": appearance[:900], "char_id": sc.get("id")})
-    return {"style": str(raw.get("style", "")).strip()[:900],
-            "world": str(raw.get("world", "")).strip()[:900],
-            "camera": str(raw.get("camera", "")).strip()[:900],
-            "characters": chars[:12]}
+    bible = {"style": str(raw.get("style", "")).strip()[:900],
+             "world": str(raw.get("world", "")).strip()[:900],
+             "camera": str(raw.get("camera", "")).strip()[:900],
+             "characters": chars[:12]}
+    # director-school continuity constants (optional; older boards lack them)
+    for key, limit in (("palette", 300), ("time_of_day", 200)):
+        if str(raw.get(key) or "").strip():
+            bible[key] = str(raw[key]).strip()[:limit]
+    return bible
 
 def compose_beat_prompt(board, beat, chars=None):
     """The prompt actually sent to the video model, built deterministically:
@@ -6360,8 +6344,14 @@ def compose_beat_prompt(board, beat, chars=None):
         t = re.sub(r"\b(vertical|short.?form|recipe)?\s*(video|reel|montage|vlog)\b",
                    "footage", str(t or ""), flags=re.I)
         return re.sub(r"\b(in|on) every (shot|scene|frame)\b", "throughout", t, flags=re.I)
+    size = director_school.shot_size(beat.get("shot_size"))
+    if size and director_school.SIZE_PHRASE[size].lower() not in seen:
+        angle = str(beat.get("angle") or "").strip()
+        add(director_school.SIZE_PHRASE[size] + (f", {angle}" if angle else ""))
     add(scrub(bible.get("style")))
     add(scrub(bible.get("world")))
+    add(scrub(bible.get("time_of_day")))
+    add(scrub(bible.get("palette")))
     add(scrub(bible.get("camera")))
     bchars = bible.get("characters") or []
     names = beat.get("characters")
@@ -6371,6 +6361,15 @@ def compose_beat_prompt(board, beat, chars=None):
     for c in bchars:
         if _norm_name(c.get("name")) in wanted:
             add(_look_line(c.get("name"), c.get("look")))
+            wardrobe = str(c.get("wardrobe") or "").strip()
+            if wardrobe and wardrobe.lower() not in str(c.get("look") or "").lower():
+                add(f"{c.get('name')} wears {wardrobe}")
+    sides = beat.get("screen_side") if isinstance(beat.get("screen_side"), dict) else {}
+    placed = [f"{n} on the {v} of the frame" for n, v in sides.items() if v in ("left", "right")]
+    if placed:
+        add("; ".join(placed))
+    if wanted and not re.search(r"\b(to|at|into) (the )?(camera|lens)\b", shot, re.I):
+        add("Nobody looks into the camera")
     # Cast scoping (the "same performer in every shot" fix, 2026-08-16):
     #   beat-level cast  -> explicit, always attaches (the user tapped it).
     #   board-level cast -> attaches ONLY to beats that actually show the
@@ -6579,6 +6578,14 @@ def run_storyboard(j):
                                        if isinstance(b.get("characters"), list) else None),
                         "speaker": str(b.get("speaker") or "")[:80],
                         "duration": str(beat_seconds(b.get("duration"))),
+                        # director's grammar (media_lab_core.director_school reads these)
+                        "scene": str(b.get("scene") or "")[:80],
+                        "shot_size": str(b.get("shot_size") or "")[:12],
+                        "angle": str(b.get("angle") or "")[:40],
+                        "screen_side": ({str(k)[:80]: str(v).lower() for k, v in b["screen_side"].items()
+                                         if str(v).lower() in ("left", "right", "center")}
+                                        if isinstance(b.get("screen_side"), dict) else {}),
+                        "transition": str(b.get("transition") or "")[:24],
                         "still_url": None, "clip_url": None, "poster": None}
                        for b in beats],
              "final_url": None, "ts": int(time.time())}
@@ -6881,6 +6888,88 @@ def run_assemble(j):
         sources.append((beat, clip, start, end, duration))
     if not sources:
         return fail(j, "Film at least one scene first.")
+    song = MEDIA / f"{Path(str(board.get('song_id') or '')).name}.mp3"
+    if ASSEMBLY_ENGINE != "legacy":
+        return _run_assemble_director(j, board, boards, sources,
+                                      song if board.get("song_id") and song.exists() else None)
+    return _run_assemble_legacy(j, board, boards, sources)
+
+
+# The storyboard assembler. "director" (default) is media_lab_core.stitch:
+# dead head/tail frames trimmed, colour matched per scene, shots levelled and
+# the mix loudness-normalised, audio crossfaded at every seam (J/L cuts where
+# the director asked), hard cuts on the song's beat, one encode at CRF 18,
+# then the measured seam critic. "legacy" is the old plain concat, kept only
+# as an escape hatch (MEDIA_LAB_ASSEMBLY_ENGINE=legacy).
+ASSEMBLY_ENGINE = os.getenv("MEDIA_LAB_ASSEMBLY_ENGINE", "director").strip().lower() or "director"
+ASSEMBLY_QUALITY = os.getenv("MEDIA_LAB_ASSEMBLY_QUALITY", "high").strip().lower() or "high"
+
+
+def _critic_chat():
+    """The studio's multimodal companion as the critic's eyes, when it can see.
+
+    MEDIA_LAB_CRITIC_VISION=off skips the look; MEDIA_LAB_CRITIC_VISION_URL /
+    _MODEL point it elsewhere (a local model only). A text-only engine fails
+    the one-picture probe and the report says the look did not run."""
+    if os.getenv("MEDIA_LAB_CRITIC_VISION", "").strip().lower() in {"off", "0", "false", "no"}:
+        return None
+    url = os.getenv("MEDIA_LAB_CRITIC_VISION_URL", "").strip() or QWEN_VISION_URL
+    model = os.getenv("MEDIA_LAB_CRITIC_VISION_MODEL", "").strip() or QWEN_MODEL
+    chat = seam_critic.default_vision_chat(url, model, timeout=90)
+    return chat if seam_critic.vision_probe(chat) else None
+
+
+def _run_assemble_director(j, board, boards, sources, song):
+    j["stage"] = "encoding"
+    jd = JOBS_DIR / j["id"]
+    jd.mkdir(parents=True, exist_ok=True)
+    sizes = set()
+    for _beat, clip, *_rest in sources:
+        try:
+            info = stitch_core.probe(clip)
+            sizes.add((info["width"], info["height"]))
+        except stitch_core.StitchError as exc:
+            return fail(j, f"A scene clip could not be read: {exc}")
+    # every take on one canvas (all H3, or all LTX) -> keep it; mixed -> the board's
+    width, height = next(iter(sizes)) if len(sizes) == 1 else board_size(board)
+    plan = stitch_core.legacy_board_plan(board, sources, width=width, height=height,
+                                         song=song, quality=ASSEMBLY_QUALITY)
+    final = MEDIA / f"board_{board['id']}.mp4"
+    try:
+        receipt = stitch_core.render(plan, final)
+    except stitch_core.StitchError as exc:
+        return fail(j, f"The film could not be stitched together: {exc}")
+    except Exception as exc:
+        return fail(j, "The film could not be stitched together — try again.", exc)
+    (jd / "assembly-receipt.json").write_text(json.dumps(receipt, indent=1))
+    try:
+        j["stage"] = "checking every cut"
+        critic = seam_critic.review(final, receipt, frames_dir=jd / "seams",
+                                    bible=board.get("bible"), chat=_critic_chat())
+        (jd / "critic.json").write_text(json.dumps(critic, indent=1))
+    except Exception as exc:   # the critic never blocks a delivery silently: it says it did not run
+        critic = {"summary": f"critic did not run ({type(exc).__name__})", "rerender": [], "seams": []}
+    trims = [{"beat": i + 1, "in": s["in"], "out": s["out"], "why": s["trim_reasons"]}
+             for i, s in enumerate(receipt["plan"]["shots"]) if s["trim_reasons"]]
+    board["assembly"] = {
+        "engine": "director-v1", "quality": receipt["quality"], "job_id": j["id"],
+        "receipt": f"jobs/{j['id']}/assembly-receipt.json", "trims": trims,
+        "beats": receipt["plan"].get("beats"), "notes": receipt["plan"].get("notes") or [],
+        "critic": critic.get("summary"), "rerender": critic.get("rerender") or [],
+    }
+    j["critic"] = {"summary": critic.get("summary"), "rerender": critic.get("rerender") or []}
+    j["assembly_notes"] = receipt["plan"].get("notes") or []
+    poster_path = MEDIA / f"board_{board['id']}.jpg"
+    subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", "1", "-i", str(final),
+                    "-frames:v", "1", str(poster_path)], check=False)
+    final_url = f"/media/board_{board['id']}.mp4"
+    poster_url = f"/media/board_{board['id']}.jpg" if _nonempty(poster_path) else ""
+    if _commit_storyboard_assembly(board, boards, j, final, final_url, poster_url) and not song:
+        gallery_add(f"board_{board['id']}", f"🎞 {board.get('title','Storyboard film')}", "boardfilm",
+                    final_url, poster_url, style="storyboard")
+
+
+def _run_assemble_legacy(j, board, boards, sources):
     j["stage"] = "encoding"
     clips = [item[1] for item in sources]
     n = len(sources)
@@ -11102,6 +11191,12 @@ class BeatEditReq(BaseModel):
     trim_in_seconds: Optional[float] = None
     trim_out_seconds: Optional[float] = None
     clear_trim: bool = False
+    # director's grammar (docs/DIRECTOR-SCHOOL.md)
+    scene: Optional[str] = None
+    shot_size: Optional[str] = None      # EWS|WS|FS|MWS|MS|MCU|CU|ECU|INSERT|OTS|TWO
+    angle: Optional[str] = None
+    screen_side: Optional[dict] = None   # {"Maya": "left", "Theo": "right"}
+    transition: Optional[str] = None     # cut|cut_on_action|match_cut|j_cut|l_cut|dissolve|fade_through_black
 
 @app.post("/api/storyboard/{sid}/beat")
 def storyboard_beat_edit(sid: str, r: BeatEditReq):
@@ -11146,6 +11241,20 @@ def storyboard_beat_edit(sid: str, r: BeatEditReq):
         beat["use_still"] = bool(r.use_still)
     if r.orientation is not None:
         beat["orientation"] = r.orientation if r.orientation in SIZES else None
+    if r.scene is not None:
+        beat["scene"] = str(r.scene)[:80]
+    if r.shot_size is not None:
+        beat["shot_size"] = director_school.shot_size(r.shot_size) or ""
+    if r.angle is not None:
+        beat["angle"] = str(r.angle)[:40]
+    if r.screen_side is not None:
+        beat["screen_side"] = {str(k)[:80]: str(v).lower() for k, v in r.screen_side.items()
+                               if str(v).lower() in ("left", "right", "center")}
+    if r.transition is not None:
+        kind = str(r.transition).strip().lower().replace(" ", "_").replace("-", "_")
+        if kind and kind not in stitch_core.TRANSITIONS:
+            return JSONResponse({"error": f"unknown transition {kind!r}"}, status_code=422)
+        beat["transition"] = kind
     beat["composed_prompt"] = compose_beat_prompt(board, beat)
     _save(BOARDS_FILE, boards)
     return {"ok": True, "beat": beat}
@@ -11226,11 +11335,24 @@ def storyboard_reorder(sid: str, r: ReorderReq):
     _save(BOARDS_FILE, boards)
     return {"ok": True, "beats": board["beats"], "dropped_queued": dropped}
 
+@app.get("/api/storyboard/{sid}/exam")
+def storyboard_exam(sid: str):
+    """Director school: grade the board before any GPU time is spent (coverage,
+    180-degree line, dialogue budget, faces per shot, transitions, lettering)
+    and say which engine each shot needs, with an estimate that includes
+    spin-up. Read-only."""
+    board = next((b for b in _load(BOARDS_FILE, []) if b.get("id") == sid), None)
+    if not board:
+        return JSONResponse({"error": "unknown board"}, status_code=404)
+    return director_school.plan_summary(board)
+
 class BibleReq(BaseModel):
     style: Optional[str] = None
     world: Optional[str] = None
     camera: Optional[str] = None
-    characters: Optional[list] = None    # [{"name":..., "look":...}]
+    palette: Optional[str] = None
+    time_of_day: Optional[str] = None
+    characters: Optional[list] = None    # [{"name":..., "look":..., "wardrobe":...}]
 
 @app.post("/api/storyboard/{sid}/bible")
 def storyboard_bible_edit(sid: str, r: BibleReq):
@@ -11241,7 +11363,7 @@ def storyboard_bible_edit(sid: str, r: BibleReq):
     if not board:
         return JSONResponse({"error": "unknown board"}, status_code=404)
     raw = dict(board.get("bible") or {})
-    for k in ("style", "world", "camera"):
+    for k in ("style", "world", "camera", "palette", "time_of_day"):
         v = getattr(r, k)
         if v is not None:
             raw[k] = str(v)
@@ -11771,7 +11893,9 @@ def job(job_id: str, full: int = 0):
             # the painter that actually ran, so the UI can label the version
             # it just produced instead of leaving the user to guess
             "engine_used", "masked", "queue_lane", "fal_request_id", "fal_model_id",
-            "fal_input", "fal_seed", "fal_expanded_prompt")
+            "fal_input", "fal_seed", "fal_expanded_prompt",
+            # storyboard assembly: the seam critic's verdict and the editor's notes
+            "critic", "assembly_notes")
     queued_in = online_queue if job_queue_lane(j) == "online" else queue
     result = {k: j.get(k) for k in keys} | {
         "queue_position": queued_in.index(job_id) + 1 if job_id in queued_in else 0}
