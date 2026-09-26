@@ -36,7 +36,8 @@ def test_uncertain_render_never_restarts_or_reissues(tmp_path, message):
                         H3_MAX_FRAMES=121, save_state=lambda:None,
                         hold_gpu_recovery=hold, gpu_recovery_pending=lambda:False,
                         gpu_render_ready=lambda e,t: object(),
-                        delegation_headers=lambda lease: {})
+                        delegation_headers=lambda lease: {},
+                        _render_stage_label=lambda stage: stage or 'generating')
     job = {'id':'fixture', 'request':{}}
     result = generate('h3', {'prompt':'fixture'}, job)
     assert calls == ['restart', 'request', 'hold'], 'uncertain remote work must be reconciled, not restarted or reissued'
@@ -432,3 +433,84 @@ def test_direct_gpu_stage_closes_prior_queued_job_context_before_switch():
     close_at = text.index('_gpu_finish_job_operation()')
     refuse_at = text.index('nested GPU operation cannot switch engine or task')
     assert close_at < refuse_at
+
+
+def _stage_fixture(admission_label):
+    """_engine_generate_authorized with an admission that relabels the job."""
+    import fcntl, re
+    seen = []
+    saves = []
+    def admit(eng, job):
+        job['stage'] = admission_label
+        return 'up'
+    def request(url, body, timeout=None, headers=None):
+        seen.append(job_ref[0]['stage'])
+        return {'ok': True, 'file': 'x.mp4'}
+    job_ref = [None]
+    namespace = dict(ENGINES={'h3': {'port': 1}}, preflight=lambda e, b: b,
+                     fcntl=fcntl, http_json=request, ensure_engine=admit,
+                     H3_ENGINE_HTTP_TIMEOUT_S=100, re=re, H3_MIN_FRAMES=5,
+                     H3_MAX_FRAMES=121, save_state=lambda: saves.append(1),
+                     hold_gpu_recovery=lambda *a: None, gpu_recovery_pending=lambda: False,
+                     gpu_render_ready=lambda e, t: object(),
+                     delegation_headers=lambda lease: {})
+    tree = ast.parse(APP.read_text())
+    for name in ('ADMISSION_STAGE_PREFIXES',):
+        node = next(n for n in tree.body if isinstance(n, ast.Assign)
+                    and any(getattr(t, 'id', None) == name for t in n.targets))
+        exec(compile(ast.Module(body=[node], type_ignores=[]), str(APP), 'exec'), namespace)
+    namespace['_render_stage_label'] = function('_render_stage_label', **namespace)
+    generate = function('_engine_generate_authorized', **namespace)
+    return generate, job_ref, seen, saves
+
+
+@pytest.mark.parametrize('caller_stage, expected', [
+    ('generating', 'generating'),
+    ('stage 1/2 · H3 draft', 'stage 1/2 · H3 draft'),
+    ('starting', 'generating'),
+    (None, 'generating'),
+])
+def test_warm_render_does_not_keep_the_admission_label(caller_stage, expected):
+    # Live 2026-09-25: a warm H3 t2va render showed "reconciling qwen-h3
+    # residency…" for its whole 70 s because admission relabelled the job and
+    # nothing put the render label back before the engine call.
+    generate, job_ref, seen, saves = _stage_fixture('reconciling qwen-h3 residency…')
+    job = {'id': 'fixture', 'request': {}}
+    if caller_stage is not None:
+        job['stage'] = caller_stage
+    job_ref[0] = job
+    result = generate('h3', {'prompt': 'fixture'}, job)
+    assert result['ok'] is True
+    assert seen == [expected]
+    assert job['stage'] == expected
+    assert saves, 'the corrected label must be persisted for the queue view'
+
+
+def test_caller_stage_survives_a_relabel_before_the_authorized_call():
+    # engine_generate captures the caller's label before gpu_operation can
+    # write "releasing idle image weights for warm video admission…".
+    generate, job_ref, seen, _ = _stage_fixture('loading H3 ref2va…')
+    job = {'id': 'fixture', 'request': {},
+           'stage': 'releasing idle image weights for warm video admission…'}
+    job_ref[0] = job
+    generate('h3', {'prompt': 'fixture'}, job, render_stage='stage 1/2 · H3 draft')
+    assert seen == ['stage 1/2 · H3 draft']
+
+
+def test_admission_label_stays_when_admission_fails():
+    import fcntl, re
+    job = {'id': 'fixture', 'request': {}, 'stage': 'generating'}
+    def refuse(eng, j):
+        j['stage'] = 'reconciling qwen-h3 residency…'
+        return 'busy'
+    generate = function('_engine_generate_authorized', ENGINES={'h3': {'port': 1}},
+                        preflight=lambda e, b: b, fcntl=fcntl,
+                        http_json=lambda *a, **k: pytest.fail('no render after refusal'),
+                        ensure_engine=refuse, H3_ENGINE_HTTP_TIMEOUT_S=100, re=re,
+                        H3_MIN_FRAMES=5, H3_MAX_FRAMES=121, save_state=lambda: None,
+                        hold_gpu_recovery=lambda *a: None, gpu_recovery_pending=lambda: False,
+                        gpu_render_ready=lambda e, t: object(),
+                        delegation_headers=lambda lease: {},
+                        _render_stage_label=lambda s: s or 'generating')
+    result = generate('h3', {'prompt': 'fixture'}, job)
+    assert result['ok'] is False

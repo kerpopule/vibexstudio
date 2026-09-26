@@ -7780,9 +7780,14 @@ def engine_generate(eng, body, j=None, timeout=7200):
     previous = marker if j is None else j.get("_gpu_task", marker)
     if j is not None:
         j["_gpu_task"] = task
+    # The stage the caller put on screen for this render ("generating",
+    # "stage 1/2 · H3 draft", ...). Admission below overwrites it with its own
+    # progress labels, so remember it before any of that runs.
+    render_stage = j.get("stage") if j is not None else None
     try:
         with gpu_operation(eng, task, j):
-            return _engine_generate_authorized(eng, body, j=j, timeout=timeout, task=task)
+            return _engine_generate_authorized(eng, body, j=j, timeout=timeout, task=task,
+                                               render_stage=render_stage)
     finally:
         if j is not None:
             if previous is marker:
@@ -7791,7 +7796,26 @@ def engine_generate(eng, body, j=None, timeout=7200):
                 j["_gpu_task"] = previous
 
 
-def _engine_generate_authorized(eng, body, j=None, timeout=7200, task="t2va"):
+# Progress labels that engine admission writes while it reconciles residency,
+# frees memory or loads weights. None of them describes a render in progress.
+ADMISSION_STAGE_PREFIXES = (
+    "reconciling ", "releasing idle image weights", "loading H3", "warming up",
+    "making room", "making safe memory", "letting memory settle",
+    "adjusting for the engine",
+)
+
+
+def _render_stage_label(stage):
+    """The label to show once the engine is admitted and the render is running."""
+    if (not isinstance(stage, str) or not stage.strip()
+            or stage in ("queued", "starting")
+            or stage.startswith(ADMISSION_STAGE_PREFIXES)):
+        return "generating"
+    return stage
+
+
+def _engine_generate_authorized(eng, body, j=None, timeout=7200, task="t2va",
+                                render_stage=None):
     """Call a video engine, and CORRECT the request rather than failing it.
 
     Every engine has contracts the app can get wrong (H3: frames must be 17k+5
@@ -7807,6 +7831,9 @@ def _engine_generate_authorized(eng, body, j=None, timeout=7200, task="t2va"):
     body = preflight(eng, body)
     if j is not None and j.get("id"):
         body.setdefault("request_id", str(j["id"]))
+    if render_stage is None and j is not None:
+        render_stage = j.get("stage")
+    render_stage = _render_stage_label(render_stage)
     state = ensure_engine(eng, j)
     if state != "up":
         return {"ok": False, "error": f"engine admission failed: {state}"}
@@ -7817,6 +7844,13 @@ def _engine_generate_authorized(eng, body, j=None, timeout=7200, task="t2va"):
     for attempt in (1, 2, 3):
         if j is not None and j.get("cancel"):
             return {"ok": False, "error": "stopped by the studio"}
+        # Admission (and a corrected retry) leaves its own label behind, e.g.
+        # "reconciling qwen-h3 residency…". On a warm engine the render starts
+        # at once, so that label used to sit on screen for the whole render.
+        # The engine is admitted now: show what is actually running.
+        if j is not None and j.get("stage") != render_stage:
+            j["stage"] = render_stage
+            save_state()
         try:
             if gpu_recovery_pending():
                 return {"ok": False, "error": "GPU recovery hold", "recovery_required": True}
