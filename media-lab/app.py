@@ -1263,14 +1263,37 @@ def _client_ip(request: Request) -> str:
       next to "Host: <public hostname>".
     * Through one of our proxies on a public hostname: CF-Connecting-IP, which
       the Cloudflare edge overwrites on every request.
-    * Anything else: "" (one shared anonymous key)."""
+    * Anything else: "" (one shared anonymous key).
+    Either address goes through _throttle_ip, so an IPv6 visitor cannot walk
+    through the 2^64 addresses of its own /64 for a fresh key per guess."""
     peer = request.client.host if request.client else ""
     if peer and not _proxy_peer(peer):
-        return peer[:45]
+        return _throttle_ip(peer)
     host = (request.headers.get("host") or "").split(":")[0].lower()
     if host in PUBLIC_HOSTS:
-        return (request.headers.get("cf-connecting-ip") or "").strip()[:45]
+        return _throttle_ip(request.headers.get("cf-connecting-ip") or "")
     return ""
+
+def _throttle_ip(raw: str) -> str:
+    """The backoff key for one address.
+
+    An IPv6 visitor normally holds a whole /64 — home broadband and phones get
+    one each — and can pick a new address in it for every request, so keying
+    the full address handed them a fresh set of free guesses every time. A
+    public IPv6 address is therefore keyed by its /64, an IPv4-mapped one by
+    its IPv4 address. IPv4, tailnet (fd7a:…) and other private addresses are
+    keyed exactly as they are."""
+    raw = (raw or "").strip()[:45]
+    try:
+        ip = ipaddress.ip_address(raw.strip("[]"))
+    except ValueError:
+        return raw
+    if ip.version == 6:
+        if ip.ipv4_mapped:
+            return str(ip.ipv4_mapped)
+        if ip.is_global:
+            return str(ipaddress.ip_network(f"{ip}/64", strict=False))
+    return str(ip)
 
 def device_sign(did: str) -> str:
     return hmac.new(ACCESS_SECRET.encode(), f"dev:{did}".encode(),
