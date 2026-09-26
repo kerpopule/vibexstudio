@@ -342,8 +342,15 @@ def maintenance(cfg: dict, now: float, host_markers: dict) -> tuple:
 def collect(cfg: dict, st: dict, now: float, *, probe=run_probe, fetch=http) -> dict:
     """Probe every host and local check; return {hosts: {...}, findings: [...]}."""
     hosts, findings, host_markers = {}, [], {}
-    for name, h in cfg.get("hosts", {}).items():
-        doc = probe(h["ssh"], h["role"], h.get("probe_args"), h.get("ssh_options"))
+    # Probe the hosts in parallel so one slow host cannot push the run past
+    # the scheduler's script timeout.
+    from concurrent.futures import ThreadPoolExecutor
+    items = list(cfg.get("hosts", {}).items())
+    with ThreadPoolExecutor(max_workers=max(1, len(items))) as pool:
+        futures = {name: pool.submit(probe, h["ssh"], h["role"], h.get("probe_args"),
+                                     h.get("ssh_options")) for name, h in items}
+    for name, h in items:
+        doc = futures[name].result()
         hosts[name] = {"role": h["role"], "label": h.get("label", name), "probe": doc}
         if doc is None:
             findings.append(Finding("unreachable", name, "action",
@@ -386,7 +393,7 @@ def collect(cfg: dict, st: dict, now: float, *, probe=run_probe, fetch=http) -> 
             if now - last >= COMPLETION_EVERY_S - 30:
                 payload = json.dumps({"model": "media-lab-text", "max_tokens": 4,
                                       "messages": [{"role": "user", "content": "Say OK."}]}).encode()
-                code, body = fetch(h["text_url"].rstrip("/") + "/v1/chat/completions", timeout=60,
+                code, body = fetch(h["text_url"].rstrip("/") + "/v1/chat/completions", timeout=30,
                                    data=payload, headers={"Content-Type": "application/json"})
                 ok = code == 200 and isinstance(body, dict) and bool(body.get("choices"))
                 st.setdefault("last_completion", {})[name] = now

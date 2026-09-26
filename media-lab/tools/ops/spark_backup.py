@@ -51,7 +51,7 @@ REMOTE_RSYNC = "nice -n 19 ionice -c3 rsync"
 STAGE_DIR = ".cache/spark-backup-stage"
 
 STAGE_SCRIPT = r'''
-import json, os, shutil, sqlite3, subprocess, sys
+import fnmatch, json, os, shutil, sqlite3, subprocess, sys
 from pathlib import Path
 spec = PAYLOAD
 home = Path.home()
@@ -61,14 +61,18 @@ if stage.exists():
 stage.mkdir(parents=True)
 os.chmod(stage, 0o700)
 out = {"copied": [], "sqlite": [], "commands": [], "missing": []}
-for rel in spec.get("files", []):
-    src = home / rel
-    if not src.is_file():
-        out["missing"].append(rel); continue
-    dst = stage / "files" / rel
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dst)
-    out["copied"].append(rel)
+for pattern in spec.get("files", []):
+    matches = sorted(home.glob(pattern)) if any(c in pattern for c in "*?[") else [home / pattern]
+    matches = [m for m in matches if m.is_file() and m.stat().st_size <= 64 * 1024 * 1024
+               and not any(fnmatch.fnmatch(m.name, pat) for pat in spec.get("never", []))]
+    if not matches:
+        out["missing"].append(pattern); continue
+    for src in matches:
+        rel = str(src.relative_to(home))
+        dst = stage / "files" / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        out["copied"].append(rel)
 for rel in spec.get("sqlite", []):
     src = home / rel
     if not src.is_file():
@@ -254,7 +258,7 @@ def back_up(name: str, spec: dict, cfg: dict, *, today: str | None = None) -> di
     stage_rel = f"{STAGE_DIR}/{name}"
     if spec.get("stage_files") or spec.get("stage_sqlite") or spec.get("commands"):
         staged = remote_python(spec, STAGE_SCRIPT, {
-            "stage": stage_rel, "files": spec.get("stage_files", []),
+            "stage": stage_rel, "files": spec.get("stage_files", []), "never": NEVER,
             "sqlite": spec.get("stage_sqlite", []), "commands": spec.get("commands", {})})
         rsync_pull(spec, stage_rel + "/", partial / "_staged", None)
         # --link-dest for the staged tree too
