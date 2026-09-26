@@ -26,6 +26,11 @@ and charge for generation. Engine support and licenses vary; see the
 - **Characters** — reusable identities with consistent look and voice
   (Voicebox voice cloning included).
 - **Sparky** — a chat director that plans, queues, and narrates the work.
+- **Director school** — storyboards carry a continuity bible, shot sizes, screen
+  sides and a transition per cut; the plan is graded before any GPU time; Assemble
+  trims dead frames, matches colour and loudness, crossfades every seam (J/L cuts),
+  cuts on the beat and encodes once; a critic checks every seam and names the shots
+  to re-film. See [docs/DIRECTOR-SCHOOL.md](docs/DIRECTOR-SCHOOL.md).
 - **Automatic Storyboards** — every completed Media Lab production with more
   than one scene is persisted as an editable Storyboard and linked from its
   queue/gallery record. This is enforced by the shared backend for paired
