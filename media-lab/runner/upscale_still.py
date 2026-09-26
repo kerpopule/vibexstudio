@@ -2,7 +2,7 @@
 """Sharpen a small likeness crop before it is used as a start frame.
 
 Why: the vision picker takes ONE panel out of a contact sheet, and a busy sheet
-gives a small panel — Heather's came out 241x352 from a 1536x1024 sheet. Blown
+gives a small panel — one came out 241x352 from a 1536x1024 sheet. Blown
 up to fill a 704x1280 frame that is very soft, and a soft face gives both the
 edit model (which redraws the person smaller) and the video model (which has no
 mouth detail to animate) nothing to hold on to.

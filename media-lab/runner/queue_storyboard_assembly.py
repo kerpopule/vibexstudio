@@ -36,6 +36,13 @@ DEFAULT_API = local_config.studio_url()
 REMOTE_INBOX = "media-lab-simple/inbox"
 
 
+def _candidate_until_approved(board: dict) -> bool:
+    """Same rule as media_lab_core.cut.candidate_until_approved (older boards
+    carry the flag under an owner-named key)."""
+    return any(isinstance(k, str) and k.startswith("candidate_not_final_until_")
+               and k.endswith("_approves") and v is True for k, v in board.items())
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -88,7 +95,7 @@ def main() -> None:
         "sha256": digest,
         "title": (args.title.strip() or str(board.get("title") or "Storyboard film"))[:120],
         "private_internal_only": True,
-        "candidate_not_final_until_steve_approves": True,
+        "candidate_not_final_until_owner_approves": True,
         "publication_authorized": False,
         "external_sharing_authorized": False,
     }
@@ -131,7 +138,7 @@ def main() -> None:
             "job_storyboard_registered": job.get("storyboard_registered") is True,
             "job_url_matches_board": job.get("url") == live.get("final_url"),
             "board_private": live.get("private_internal_only") is True,
-            "board_not_final": live.get("candidate_not_final_until_steve_approves") is True,
+            "board_not_final": _candidate_until_approved(live),
             "board_not_public": live.get("publication_authorized") is False,
         }
         if all(checks.values()):

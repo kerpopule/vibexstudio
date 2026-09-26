@@ -38,7 +38,7 @@ def storyboard_file(tmp_path: Path, *, scenes: int = 8) -> Path:
                 "project": "fixture-project",
                 "title": "Fixture project",
                 "private_internal_only": True,
-                "candidate_not_final_until_steve_approves": True,
+                "candidate_not_final_until_owner_approves": True,
                 "publication_authorized": False,
                 "format": {
                     "resolution": "640x360",

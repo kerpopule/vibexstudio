@@ -79,6 +79,18 @@ DEFAULTS: dict[str, str] = {
     # <root>/.venv/bin/melband-roformer-infer and <root>/models/<model>.
     "MELBAND_ROFORMER_ROOT": "~/runtime/melband-roformer-0.1.5",
     "MELBAND_ROFORMER_MODEL": "melband-roformer-kim-vocals",
+    # Engines whose model licence is personal / non-commercial / restricted
+    # (see media_lab_core/engine_licences.py and docs/ENGINE-LICENCES.md) stay
+    # OFF until this host names them: a comma list of engine ids, or "all".
+    # Only enable one if your use fits its licence.
+    "MEDIA_LAB_PERSONAL_ENGINES": "",
+    # Web-push contact (the VAPID "sub" claim): mailto:you@example.com or an
+    # https:// URL. Empty = the project's public URL, never a person's inbox.
+    "MEDIA_LAB_VAPID_SUBJECT": "",
+    # Character names whose cast jobs get the likeness-qualification framing
+    # guard from the director (large faces, restrained expression). Comma
+    # separated, case-insensitive. Empty = no named qualification cast.
+    "MEDIA_LAB_QUALIFICATION_CAST": "",
 }
 
 _PATH_KEYS = {"MEDIA_LAB_HOME", "MEDIA_LAB_MODELS_ROOT", "MEDIA_LAB_RUNTIME_ROOT",
@@ -289,6 +301,43 @@ def melband() -> dict[str, str]:
     """The MELBAND_ROFORMER_* keys, resolved, for the stem separator."""
     values = load()
     return {k: values[k] for k in values if k.startswith("MELBAND_ROFORMER_")}
+
+
+def personal_engines() -> set[str]:
+    """Engine ids this host has opted into despite a personal / non-commercial
+    licence (MEDIA_LAB_PERSONAL_ENGINES). "all" enables every such engine."""
+    raw = get("MEDIA_LAB_PERSONAL_ENGINES")
+    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+
+# The VAPID "sub" claim push services may use to reach the server's operator.
+# A public install must never announce a person's inbox, so the default is the
+# project's own page; set MEDIA_LAB_VAPID_SUBJECT for a real contact.
+DEFAULT_VAPID_SUBJECT = "https://github.com/kerpopule/vibexstudio"
+
+
+def vapid_subject() -> str:
+    value = get("MEDIA_LAB_VAPID_SUBJECT").strip()
+    if value.startswith("mailto:") and "@" in value or value.startswith("https://"):
+        return value
+    return DEFAULT_VAPID_SUBJECT
+
+
+def qualification_cast() -> set[str]:
+    raw = get("MEDIA_LAB_QUALIFICATION_CAST")
+    return {n.strip().casefold() for n in raw.split(",") if n.strip()}
+
+
+def overlay_dirs() -> list[Path]:
+    """The per-studio overlay folders (gitignored config/local/), highest
+    precedence first: the data root's, then the checkout's. Existing ones only.
+    See docs/LOCAL-OVERLAY.md for what may live there."""
+    out: list[Path] = []
+    for base in (home(), SOURCE_ROOT):
+        d = base / "config" / "local"
+        if d.is_dir() and d.resolve() not in [o.resolve() for o in out]:
+            out.append(d)
+    return out
 
 
 def subprocess_env(base: dict[str, str] | None = None) -> dict[str, str]:

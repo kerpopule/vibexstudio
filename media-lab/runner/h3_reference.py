@@ -95,7 +95,7 @@ def _decodable_image_bytes(ref):
 def normalize_references(references):
     """Return only reference items that actually carry a usable base64 image
     (decodable AND matching a png/jpeg/webp magic prefix). Role fields are
-    preserved verbatim so the app can pass separate Steve/Heather/DGX/style
+    preserved verbatim so the app can pass separate person/product/style
     tagged subjects through to the engine manifest."""
     out = []
     for ref in (references or []):
@@ -118,7 +118,7 @@ def normalize_video_references(references):
     Video pixels remain on disk; jobs store only a bounded /media URL, role,
     timeline offset, and a pinned no-audio contract. Source-video audio is never
     conditioning in this path: instruments/percussion made mouths move in the
-    Heather qualification takes. The worker performs a real decode before the
+    likeness qualification takes. The worker performs a real decode before the
     GPU is touched.
     """
     out = []

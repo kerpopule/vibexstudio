@@ -43,7 +43,7 @@ def _load_app(tmp_path_factory, name, seed=None):
     home = tmp_path_factory.mktemp(name)
     root = home / "media-lab-simple"
     root.mkdir()
-    for item in ("static", "config", "prompt-templates"):
+    for item in ("static", "config"):
         (root / item).symlink_to(REPO / item)
     if seed:
         seed(root)
@@ -390,7 +390,7 @@ def test_local_token_file_is_private_and_only_sent_to_this_machine(tmp_path, mon
 
 def test_runners_that_call_the_studio_carry_the_token_not_a_host_header():
     for rel in ("runner/queue_watchdog.py", "runner/verify_companion_snapshot.py",
-                "runner/overnight_refinement.py", "runner/verify_pplx_ltx_parallel.py",
+                "runner/verify_pplx_ltx_parallel.py",
                 "runner/queue_storyboard_assembly.py", "media_lab_core/cut_cli.py"):
         text = (REPO / rel).read_text(encoding="utf-8")
         assert "local_token" in text, rel

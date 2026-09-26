@@ -17,9 +17,10 @@
   var t=localStorage.getItem('lab-theme');
   if(t===null||t===undefined)t='coagent';
   if(t)document.documentElement.dataset.theme=t;
-  var ink={'':'#0B0806','coagent':'#0B0806','autoedu':'#0F0F11','source4ai':'#FFF8E7','mr-dark':'#15121C',
-           'mr-rose':'#F7F2E9','ocean':'#071019','emerald':'#06120C','violet':'#0D0814',
-           'paper':'#F7F7F8'}[t]||'#0B0806';
+  var ink={'':'#0B0806','coagent':'#0B0806','ocean':'#071019','emerald':'#06120C','violet':'#0D0814',
+           'paper':'#F7F7F8'}[t];
+  /* a look from the studio's local overlay: the ground it last painted */
+  if(!ink){var li=localStorage.getItem('lab-theme-ink');ink=/^#[0-9A-Fa-f]{3,8}$/.test(li||'')?li:'#0B0806';}
   document.documentElement.style.background=ink;
   var m=document.querySelector('meta[name="theme-color"]');
   if(m)m.setAttribute('content',ink);
@@ -31,7 +32,9 @@
 <link rel="icon" type="image/png" href="/static/icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/cut.css?v=1">
+<link rel="stylesheet" href="/static/cut.css?v=2">
+<!-- the studio's own looks (gitignored config/local/themes.json); empty when none -->
+<link rel="stylesheet" href="/local/themes.css">
 </head>
 <body>
 <div id="app" class="app" data-view="loading">

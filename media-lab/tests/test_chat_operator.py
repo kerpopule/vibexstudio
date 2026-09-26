@@ -14,8 +14,8 @@ from chat_operator import (
 class FakeStudio:
     def __init__(self):
         self.characters = [
-            {"id": "steve-id", "name": "Steve", "sheet_url": "/media/char_steve.png"},
-            {"id": "heather-id", "name": "Heather", "sheet_url": "/media/char_heather.png"},
+            {"id": "ava-id", "name": "Ava", "sheet_url": "/media/char_ava.png"},
+            {"id": "mia-id", "name": "Mia", "sheet_url": "/media/char_mia.png"},
         ]
         self.jobs = {
             "song-ok": {
@@ -25,9 +25,9 @@ class FakeStudio:
             "video-old": {
                 "id": "video-old", "kind": "video", "status": "done",
                 "request": {
-                    "prompt": "Steve looks at camera", "model": "ltx25",
+                    "prompt": "Ava looks at camera", "model": "ltx25",
                     "orientation": "landscape", "duration": "5", "style": "cinematic",
-                    "cast": ["steve-id"], "source": "/media/anchor.png", "seed": 77,
+                    "cast": ["ava-id"], "source": "/media/anchor.png", "seed": 77,
                 },
                 "url": "/media/video-old.mp4",
             },
@@ -35,8 +35,8 @@ class FakeStudio:
         self.queue = []
         self.created = []
         self.media = {
-            "/media/song-ok.mp3", "/media/anchor.png", "/media/char_steve.png",
-            "/media/char_heather.png",
+            "/media/song-ok.mp3", "/media/anchor.png", "/media/char_ava.png",
+            "/media/char_mia.png",
         }
 
     def create_job(self, kind, request):
@@ -72,7 +72,7 @@ class AuthorizationTests(unittest.TestCase):
         self.assertFalse(signed_session_authorized("127.0.0.1", verifier))
 
     def test_explicit_action_language_is_required_for_mutation(self):
-        self.assertTrue(action_authorized("Queue a 12 second test with Steve."))
+        self.assertTrue(action_authorized("Queue a 12 second test with Ava."))
         self.assertTrue(action_authorized("Iterate the last take and change orientation."))
         self.assertFalse(action_authorized("Help me improve this prompt."))
         self.assertFalse(action_authorized("What can the studio do?"))
@@ -102,7 +102,7 @@ class OperatorToolTests(unittest.TestCase):
     def test_lists_canonical_characters_songs_jobs_and_queue(self):
         chars = self.op.execute("list_characters", {}, action_ok=False)
         self.assertTrue(chars["accepted"])
-        self.assertEqual(["Steve", "Heather"], [c["name"] for c in chars["result"]["characters"]])
+        self.assertEqual(["Ava", "Mia"], [c["name"] for c in chars["result"]["characters"]])
         songs = self.op.execute("list_songs", {}, action_ok=False)
         self.assertEqual("song-ok", songs["result"]["songs"][0]["id"])
         recent = self.op.execute("list_recent_jobs", {"limit": 5}, action_ok=False)
@@ -123,14 +123,14 @@ class OperatorToolTests(unittest.TestCase):
         with self.assertRaisesRegex(ToolError, "unknown argument"):
             self.op.execute("queue_video", {
                 "prompt": "safe", "model": "ltx25", "orientation": "landscape",
-                "duration": "5", "cast": ["Steve"], "path": "../../etc/passwd",
+                "duration": "5", "cast": ["Ava"], "path": "../../etc/passwd",
             }, action_ok=True)
 
     def test_mutation_requires_explicit_user_action(self):
         with self.assertRaisesRegex(ToolError, "explicit"):
             self.op.execute("queue_video", {
-                "prompt": "Steve waves", "model": "ltx25", "orientation": "landscape",
-                "duration": "5", "cast": ["Steve"],
+                "prompt": "Ava waves", "model": "ltx25", "orientation": "landscape",
+                "duration": "5", "cast": ["Ava"],
             }, action_ok=False)
         self.assertEqual([], self.fake.created)
 
@@ -138,75 +138,75 @@ class OperatorToolTests(unittest.TestCase):
         with self.assertRaisesRegex(ToolError, "unknown character"):
             self.op.execute("queue_video", {
                 "prompt": "test", "model": "ltx25", "orientation": "landscape",
-                "duration": "5", "cast": ["Not Steve"],
+                "duration": "5", "cast": ["Not Ava"],
             }, action_ok=True)
         with self.assertRaisesRegex(ToolError, "unknown song"):
             self.op.execute("queue_musicvideo", {
                 "song_id": "missing", "concept": "close-up performance", "engine": "ltx25",
-                "orientation": "landscape", "length": "12", "cast": ["Steve"],
+                "orientation": "landscape", "length": "12", "cast": ["Ava"],
             }, action_ok=True)
         with self.assertRaisesRegex(ToolError, "studio media"):
             self.op.execute("queue_image", {
                 "prompt": "anchor", "source": "../../etc/passwd", "orientation": "landscape",
-                "engine": "auto", "cast": ["Steve"],
+                "engine": "auto", "cast": ["Ava"],
             }, action_ok=True)
 
     def test_identity_sheet_can_make_anchor_image_but_cannot_directly_drive_video(self):
         image = self.op.execute("queue_image", {
-            "prompt": "Place Steve in a large-face neutral-expression performance close-up",
-            "source": "/media/char_steve.png", "orientation": "landscape",
-            "engine": "auto", "cast": ["Steve"], "seed": 88,
+            "prompt": "Place Ava in a large-face neutral-expression performance close-up",
+            "source": "/media/char_ava.png", "orientation": "landscape",
+            "engine": "auto", "cast": ["Ava"], "seed": 88,
         }, action_ok=True)
         self.assertTrue(image["accepted"])
         with self.assertRaisesRegex(ToolError, "identity sheet"):
             self.op.execute("queue_video", {
-                "prompt": "Steve sings", "source": "/media/char_steve.png",
+                "prompt": "Ava sings", "source": "/media/char_ava.png",
                 "model": "ltx25", "orientation": "landscape", "duration": "5",
-                "cast": ["Steve"], "seed": 88,
+                "cast": ["Ava"], "seed": 88,
             }, action_ok=True)
 
     def test_explicit_queue_action_returns_truthful_receipt(self):
         rec = self.op.execute("queue_video", {
-            "prompt": "Steve holds a restrained expression in a large-face close-up",
+            "prompt": "Ava holds a restrained expression in a large-face close-up",
             "source": "/media/anchor.png", "model": "ltx25",
             "orientation": "portrait", "duration": "5", "style": "cinematic",
-            "cast": ["Steve"], "seed": 77,
+            "cast": ["Ava"], "seed": 77,
         }, action_ok=True)
         self.assertEqual("new-1", rec["job_id"])
         self.assertEqual("queued", rec["status"])
         self.assertNotEqual("done", rec["status"])
         self.assertEqual("ltx25", rec["model"])
-        self.assertEqual(["Steve"], rec["cast_names"])
+        self.assertEqual(["Ava"], rec["cast_names"])
         self.assertEqual("/api/jobs/new-1", rec["queue_url"])
 
     def test_musicvideo_is_bounded_to_qualification_and_has_explicit_engine_song_cast_seed(self):
         rec = self.op.execute("queue_musicvideo", {
             "song_id": "song-ok", "concept": "Large faces, restrained expression, warm stage light",
             "engine": "h3", "orientation": "portrait", "length": "12",
-            "cast": ["Steve", "Heather"], "style": "musicvideo", "seed": 991,
+            "cast": ["Ava", "Mia"], "style": "musicvideo", "seed": 991,
         }, action_ok=True)
         req = self.fake.created[-1]["request"]
         self.assertEqual("song-ok", req["song_id"])
         self.assertEqual("h3", req["engine"])
         self.assertEqual("portrait", req["orientation"])
-        self.assertEqual(["steve-id", "heather-id"], req["cast"])
+        self.assertEqual(["ava-id", "mia-id"], req["cast"])
         self.assertEqual(991, req["seed"])
         with self.assertRaisesRegex(ToolError, "12-second qualification"):
             self.op.execute("queue_musicvideo", {
                 "song_id": "song-ok", "concept": "full", "engine": "ltx25",
-                "orientation": "landscape", "length": "full", "cast": ["Steve"],
+                "orientation": "landscape", "length": "full", "cast": ["Ava"],
             }, action_ok=True)
 
     def test_no_silent_engine_or_orientation_fallback(self):
         with self.assertRaisesRegex(ToolError, "model"):
             self.op.execute("queue_video", {
                 "prompt": "test", "model": "auto", "orientation": "landscape",
-                "duration": "5", "cast": ["Steve"],
+                "duration": "5", "cast": ["Ava"],
             }, action_ok=True)
         with self.assertRaisesRegex(ToolError, "orientation"):
             self.op.execute("queue_musicvideo", {
                 "song_id": "song-ok", "concept": "test", "engine": "h3",
-                "orientation": "auto", "length": "12", "cast": ["Steve"],
+                "orientation": "auto", "length": "12", "cast": ["Ava"],
             }, action_ok=True)
 
     def test_iteration_changes_exactly_one_declared_variable(self):

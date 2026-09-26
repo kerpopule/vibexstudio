@@ -3,7 +3,7 @@
 
 Chatterbox cloned-voice generations run away past the line into re-phrasings
 (the alignment force-EOS is bypassed for cloned conds). Silence-gap trimming
-misses it — the repeats flow without pauses. The founder film's fix: transcribe
+misses it — the repeats flow without pauses. The production fix: transcribe
 with faster-whisper, find where the TARGET text ends, cut there.
 
 Usage: whisper_trim.py <in.wav> <line.txt> <out.wav>

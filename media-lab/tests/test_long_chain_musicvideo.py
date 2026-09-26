@@ -30,7 +30,7 @@ def test_chain_mode_requires_first_frame(tmp_path, monkeypatch):
     (tmp_path / "song.mp3").write_bytes(b"music")
     monkeypatch.setattr(media_app, "MEDIA", tmp_path)
     response = media_app.musicvideo(media_app.MVReq(
-        song_id="song", concept="Heather drives in rain", chain=True,
+        song_id="song", concept="Mia drives in rain", chain=True,
         source="/media/missing.png",
     ))
     assert response.status_code == 400
@@ -41,7 +41,7 @@ def test_h3_turbo_is_rejected_for_ltx(tmp_path, monkeypatch):
     (tmp_path / "song.mp3").write_bytes(b"music")
     monkeypatch.setattr(media_app, "MEDIA", tmp_path)
     response = media_app.musicvideo(media_app.MVReq(
-        song_id="song", concept="Heather drives in rain",
+        song_id="song", concept="Mia drives in rain",
         engine="ltx25", h3_turbo="v4-8step",
     ))
     assert response.status_code == 400
@@ -63,7 +63,7 @@ def test_h3_chain_forwards_managed_turbo_and_source(tmp_path, monkeypatch):
     monkeypatch.setattr(media_app, "media_duration", lambda _path: 113.557)
     monkeypatch.setattr(media_app, "eta_estimate", lambda _job: 1)
     response = media_app.musicvideo(media_app.MVReq(
-        song_id="song", concept="Heather drives in rain", engine="h3",
+        song_id="song", concept="Mia drives in rain", engine="h3",
         length="full", chain=True, source="/media/start.png",
         segment_seconds=10.0, seed=2026082301, h3_turbo="v4-8step",
         scene_plan_job_id="completed-ltx-job",
@@ -81,7 +81,7 @@ def test_completed_scene_plan_job_bypasses_qwen_and_is_copied_verbatim(monkeypat
         "id": "ltx-source",
         "kind": "musicvideo",
         "status": "done",
-        "identity": "Exact Heather identity",
+        "identity": "Exact Mia identity",
         "scenes": [{"text": text} for text in exact_scenes],
     }
     monkeypatch.setitem(media_app.jobs, "ltx-source", source_job)
@@ -94,14 +94,14 @@ def test_completed_scene_plan_job_bypasses_qwen_and_is_copied_verbatim(monkeypat
         {"scene_plan_job_id": "ltx-source"}, 12, "ignored director prompt", 9999,
     )
 
-    assert identity == "Exact Heather identity"
+    assert identity == "Exact Mia identity"
     assert scenes == exact_scenes
     assert data == {"scene_plan_job_id": "ltx-source"}
 
 
 def test_incomplete_scene_plan_job_fails_loudly(monkeypatch):
     monkeypatch.setitem(media_app.jobs, "unfinished", {
-        "kind": "musicvideo", "status": "running", "identity": "Heather", "scenes": [],
+        "kind": "musicvideo", "status": "running", "identity": "Mia", "scenes": [],
     })
 
     try:

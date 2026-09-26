@@ -18,7 +18,7 @@ const job = (over: Partial<PendingMediaJob> = {}): PendingMediaJob => ({
   projectId: 'p1',
   targetPath: 'assets/intro.mp4',
   kind: 'video',
-  prompt: 'Steve gives an intro',
+  prompt: 'Ava gives an intro',
   createdAt: Date.now(),
   ...over,
 });
@@ -40,22 +40,22 @@ describe('media targets', () => {
 });
 
 describe('server job bodies', () => {
-  const video = { kind: 'video' as const, file: 'assets/intro.mp4', prompt: 'Steve gives an intro' };
-  const image = { kind: 'image' as const, file: 'assets/hero.png', prompt: 'Steve gives an intro' };
+  const video = { kind: 'video' as const, file: 'assets/intro.mp4', prompt: 'Ava gives an intro' };
+  const image = { kind: 'image' as const, file: 'assets/hero.png', prompt: 'Ava gives an intro' };
 
   it('video: prompt + engine, cast only when a character was named', () => {
-    expect(buildVideoJobBody(video)).toEqual({ prompt: 'Steve gives an intro', model: 'ltx25' });
-    expect(buildVideoJobBody({ ...video, character: 'steve1' })).toEqual({
-      prompt: 'Steve gives an intro',
+    expect(buildVideoJobBody(video)).toEqual({ prompt: 'Ava gives an intro', model: 'ltx25' });
+    expect(buildVideoJobBody({ ...video, character: 'ava1' })).toEqual({
+      prompt: 'Ava gives an intro',
       model: 'ltx25',
-      cast: ['steve1'],
+      cast: ['ava1'],
     });
   });
 
   it('image: minimal prompt body with optional cast', () => {
-    expect(buildImageJobBody(image)).toEqual({ prompt: 'Steve gives an intro' });
+    expect(buildImageJobBody(image)).toEqual({ prompt: 'Ava gives an intro' });
     expect(buildImageJobBody({ ...image, character: 'c9' })).toEqual({
-      prompt: 'Steve gives an intro',
+      prompt: 'Ava gives an intro',
       cast: ['c9'],
     });
   });

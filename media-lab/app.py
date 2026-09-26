@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from media_lab_core import studio_library, studio_jobs, studio_inputs, background_host, background_setup
 from media_lab_core import local_config
+from media_lab_core import engine_licences, local_overlay
 from media_lab_core import embed_gate
 from media_lab_core import family_code, local_token, secret_files
 from media_lab_core.job_store import JobStore
@@ -64,11 +65,12 @@ for d in (JOBS_DIR, MEDIA, SCREENSHOT_SONGS_DIR):
 JOBS_FILE = ROOT / "jobs.json"
 ETA_FILE = ROOT / "eta-stats.json"
 CHARS_FILE = ROOT / "characters.json"
-KNOWN_CHARS_FILE = ROOT / "config/h3-known-characters.json"
-
-def _known_chars_file() -> Path:
-    """A data root that only holds state has no registry: use the checkout's."""
-    return KNOWN_CHARS_FILE if KNOWN_CHARS_FILE.exists() else SOURCE_DIR / "config/h3-known-characters.json"
+def _known_chars_file() -> Optional[Path]:
+    """The studio's own prompt-only known-character catalog, if it keeps one in
+    the local overlay (config/local/known-characters.json, docs/LOCAL-OVERLAY.md).
+    The public tree ships none: a list of franchise characters and the actors who
+    play them is each studio owner's own call, never a default."""
+    return local_overlay.known_characters_file()
 BOARDS_FILE = ROOT / "storyboards.json"
 PIN_FILE = ROOT / "admin-pin.txt"
 # Chat completions endpoint for Sparky (thinking-off shim by default; MEDIA_LAB_CHAT_URL overrides).
@@ -211,28 +213,24 @@ for _grp, _entries in STYLE_LIB:
         STYLES[_sid] = {"prefix": _prefix, "emoji": _emoji, "label": _label, "group": _grp}
 
 # ---------- the H3 visual template registry ----------
-# MiniMax H3 ships style-specific "skills" on GitHub, each with its own
-# animated example GIF in the repo's assets/. Community/source-captured entries
-# keep their full attributed prompt in prompt-templates instead of duplicating
-# thousands of characters here. The app fails closed at startup if an expected
-# prompt artifact is missing or malformed.
-# Each entry: (id, emoji, label, prompt_prefix, gif_path, blurb).
+# MiniMax H3 ships style-specific "skills" on GitHub; the entries below carry our
+# own short prompt prefixes for those styles. Their example GIFs belong to their
+# authors and are not redistributed here: a studio that has them locally (in
+# static/templates/ or its config/local/templates/) shows them, others show the
+# emoji tile. A studio's own templates -- including long attributed prompts kept
+# as config/local/prompt-templates/<id>.json -- come from the gitignored overlay
+# (config/local/templates.json, docs/LOCAL-OVERLAY.md) and are appended below.
+# Each entry: (id, emoji, label, prompt_prefix, gif_name, blurb).
 def _load_prompt_template(template_id):
-    path = ROOT / "prompt-templates" / f"{template_id}.json"
-    if not path.exists():
-        path = SOURCE_DIR / "prompt-templates" / f"{template_id}.json"
+    """A long prompt kept in the local overlay's prompt-templates/<id>.json."""
+    path = local_overlay.prompt_template_path(template_id)
+    if path is None:
+        raise RuntimeError(f"Missing prompt template: {template_id}")
     spec = json.loads(path.read_text(encoding="utf-8"))
     if spec.get("template_id") != template_id or not isinstance(spec.get("prompt"), str):
         raise RuntimeError(f"Malformed prompt template: {path}")
     return spec["prompt"].rstrip() + "\n"
 
-
-_H3_EXPLOSIVE_MOTION_PROMPT = _load_prompt_template("h3-explosive-flat-motion-graphics")
-_H3_SURREAL_HANDDRAWN_OR_PROMPT = _load_prompt_template("h3-surreal-hand-drawn-operating-room")
-_H3_FOUR_COLOR_SHERLOCK_PROMPT = _load_prompt_template("h3-four-color-sherlock-motion-design")
-_H3_ALCATRAZ_STICKMAN_PROMPT = _load_prompt_template("h3-alcatraz-stickman-doodle-history")
-_H3_FLOORPLAN_BUILD_PROMPT = _load_prompt_template("h3-floorplan-to-building-timelapse")
-_AAS_PAPER_MOTION_PROMPT = _load_prompt_template("aas-tactile-paper-motion-brand-explainer")
 
 TEMPLATE_LIB = [
  ("Official H3 templates", [
@@ -283,39 +281,7 @@ TEMPLATE_LIB = [
    "h3-storyboard-sequence.gif",
    "H3 Ref2VA workflow: one storyboard reference becomes ordered beats while a separate reference locks identity."),
  ]),
- ("Proven Media Lab templates", [
-  ("aas-tactile-paper-motion-brand-explainer", "✂️", "Full paper-motion brand explainer",
-   _AAS_PAPER_MOTION_PROMPT,
-   "aas-tactile-paper-motion-brand-explainer.gif",
-   "Repeatable 32-beat tactile paper-collage system: LTX for the fast production lane, selective H3 upgrades for premium hero beats, and deterministic text, audio, Foley, and final assembly."),
- ]),
- ("Community H3 templates", [
-  ("h3-floorplan-to-building-timelapse", "🏗️", "Floor plan → finished building",
-    _H3_FLOORPLAN_BUILD_PROMPT,
-    "h3-floorplan-to-building-timelapse.gif",
-    "Attributed H3 F2VA workflow: an uploaded floor plan stays geometrically authoritative while a matched-view timelapse builds it into a photoreal finished house or building."),
-  ("h3-alcatraz-stickman-doodle-history", "🏝️", "Alcatraz stickman escape",
-    _H3_ALCATRAZ_STICKMAN_PROMPT,
-    "h3-alcatraz-stickman-doodle-history.gif",
-    "Attributed 15-second H3 whiteboard-history recipe: seven escalating stickman escape beats, two exact text stamps, tense synchronized audio, and an unresolved raft-in-fog freeze."),
-  ("h3-surreal-hand-drawn-operating-room", "🖍️", "Surreal hand-drawn operating room",
-    _H3_SURREAL_HANDDRAWN_OR_PROMPT,
-    "h3-surreal-hand-drawn-operating-room.gif",
-    "Attributed 15-second H3 one-take recipe: rough hand-drawn creatures continuously reshape across a live-action operating room while the handheld camera reacts slightly late."),
-   ("h3-four-color-sherlock-motion-design", "🔎", "Four-color Sherlock mystery",
-    _H3_FOUR_COLOR_SHERLOCK_PROMPT,
-    "h3-four-color-sherlock-motion-design.gif",
-    "Attributed 15-second H3 graphic-motion recipe: nine precisely timed Victorian mystery beats in deep black, warm white, cobalt blue, and acid yellow."),
-  ("h3-explosive-flat-motion-graphics", "💥", "Explosive flat motion graphics",
-   _H3_EXPLOSIVE_MOTION_PROMPT,
-   "h3-explosive-flat-motion-graphics.gif",
-   "Attributed 15-second H3 text-only kinetic-typography recipe: nine distinct cuts, three moving layers, black/white inversions, and orange impact accents."),
- ]),
  ( "Music video", [
-   ( "heather-woman-in-red-cinematic-mv", "🌧️", "Woman in Red — cinematic narrative",
-    "Heather woman-in-red cinematic music video, not a talking-head video. Dark smoky late-night nightclub and lonely wet-road world, deep-red wardrobe and lipstick, vintage microphone, warm amber haze and bokeh, rain-softened blue night exteriors, subtle 35mm grain. Build a dynamic sequence dominated by narrative and environmental shots: rain-streaked car glass and empty highway; restrained synchronized stage performance; passenger-side profile and reflection through the wet window; wide chorus push-in; Heather dancing alone as a backlit silhouette through spotlight smoke; mirror and dark-window reflections; one small car alone on a broad rain-slick road; interior driving shot with real background parallax; controlled orbital final chorus; taillights receding into darkness. Keep frontal singing close-ups short and purposeful, never the whole video. Preserve Heather's exact actual mature identity, natural skin texture, softly rounded face, blue eyes and warm-blonde hair from separate QA-approved references. Small believable mouth and eye movement, no beauty smoothing, no age drift, no camera rush, no text, no religious imagery. ",
-    "woman-in-red-cinematic-mv.gif",
-    "Heather's promoted dynamic smoky-nightclub, reflection, rain-window and lone-car narrative music-video grammar."),
    ( "mv-subtitles", "🎤", "MV lyric typography",
     "music video, beat-reactive spatial lyric typography, glowing text over footage, "
     "stage lighting haze, warm bokeh, stylish. ",
@@ -340,6 +306,7 @@ TEMPLATE_LIB = [
     "Cinematic FPV drone movement: swooping, parallax, height, speed, real-scene aerial energy."),
   ]),
  ]
+TEMPLATE_LIB.extend(local_overlay.template_groups(_load_prompt_template))
 TEMPLATES = {}
 for _grp, _entries in TEMPLATE_LIB:
     for _tid, _emoji, _label, _prefix, _gif, _desc in _entries:
@@ -928,7 +895,7 @@ cv = threading.Condition()
 online_cv = threading.Condition()
 _state = _load(JOBS_FILE, {})
 jobs: dict = _state.get("jobs", {})
-# A take interrupted by a restart is RESUMED, not abandoned. Steve's rule for a
+# A take interrupted by a restart is RESUMED, not abandoned. The owner's rule for a
 # production box: if something catastrophic happens, get it working and kick the
 # queue back off — nobody should have to find the failures and press Retry.
 _resumed = []
@@ -1201,7 +1168,7 @@ def gate_exempt(p: str) -> bool:
 #   3. global SOFT throttle. The old third layer was a hard ceiling on guesses
 #      the whole server would evaluate per minute, and it was a denial of service:
 #      a stranger could keep the window permanently full and nobody — including
-#      Steve, with the right code — could get in. The global layer now REFUSES
+#      the owner, with the right code — could get in. The global layer now REFUSES
 #      NOTHING. When the server-wide failure rate is hot it only (a) delays the
 #      responses to attempts that already turned out to be WRONG, and (b) adds a
 #      bonus to the failing key's own next wait. A correct code is never delayed
@@ -1344,7 +1311,7 @@ def issue_allowed(ip: str) -> bool:
 def device_block(ns, key):
     """(seconds, scope) this caller must wait before their next guess is even
     EVALUATED. Per-key ONLY — the global layer refuses nothing, which is what
-    makes it impossible for a stranger to hold the door shut against Steve.
+    makes it impossible for a stranger to hold the door shut against the owner.
 
     The block still gates evaluation rather than just delaying the answer: a
     guesser who gets told "wrong" at full speed and only then gets throttled has
@@ -1610,7 +1577,7 @@ def admin_guard(request: Request, pin: Optional[str]):
     """The STUDIO-MANAGER check: None when the caller may manage the studio's
     work (queue order, cancel, retry, archive, delete, import), else the
     JSONResponse to return.
-    Steve's directive 2026-08-16, kept by the one-family-login change: EVERYONE
+    Studio policy (2026-08-16), kept by the one-family-login change: EVERYONE
     signed in is a studio manager — the family code opens all of it. Server
     SETTINGS are different; they go through owner_guard. Scripted callers can
     still use X-Lab-Pin with the admin code."""
@@ -1825,6 +1792,8 @@ def make_video_job(request):
         raise ValueError("fal.ai isn't set up — add your API key in Cloud providers.")
     engine = request.get("model") if request.get("model") in ("ltx25", "h3", "h3-ltx25", "fal-video") else "ltx25"
     uses_h3 = engine in ("h3", "h3-ltx25")
+    if uses_h3 and not engine_licences.enabled("h3"):
+        raise ValueError(engine_licences.refusal("h3"))
     turbo_preset = _h3ref.required_turbo_preset(request)
     if turbo_preset and not uses_h3:
         raise ValueError("the managed H3 Turbo preset requires model 'h3'")
@@ -1851,7 +1820,7 @@ def make_video_job(request):
         # refuse contact-sheet concatenation of people if too many pictures
         _h3ref.assert_ref_count_ok(len(usable))
         # Keep only the validated references so garbage b64 never reaches the
-        # engine. Roles (Steve/Heather/DGX/style) are preserved verbatim.
+        # engine. Roles (e.g. person/product/style) are preserved verbatim.
         request["references"] = usable
         request["reference_detail"] = _h3ref.resolve_reference_detail(reference_detail)
     video_requested = request.get("video_references") or []
@@ -1990,8 +1959,8 @@ def fail(j, message, detail=""):
     j["retryable"] = not j.get("recovery_required") and any(m in low for m in INFRA_FAILURE_MARKS)
 
 # ---------- warm model pool ----------
-# DSV4 POLICY — Steve's directive 2026-08-15: all media models get priority over
-# dsv4 until he reverses it. ds4-sparky.service stays DOWN by default (it is
+# DSV4 POLICY — owner's directive 2026-08-15: all media models get priority over
+# dsv4 until it is reversed. ds4-sparky.service stays DOWN by default (it is
 # RefuseManualStart=yes). The flag file below (absent = off) records the policy
 # switch; NOTHING in this app ever starts dsv4.
 DSV4_FLAG = ROOT / "dsv4-default-on"
@@ -2456,8 +2425,9 @@ def clear_gpu_recovery_hold(*, proof):
     _gpu_recovery_blocked = False
 
 # ---------- music engines ----------
-# YuE2 is the PRIMARY music engine (Steve, 2026-09-14): the default for every
-# new song. MiniMax Music 3 (ComfyUI, ENGINES["music"]) stays as a secondary
+# YuE2 is the PRIMARY music engine where the host has opted into it (its weights
+# are CC BY-NC 4.0, see media_lab_core/engine_licences.py): the default for every
+# new song there. Everywhere else Music 3 is the default. MiniMax Music 3 (ComfyUI, ENGINES["music"]) stays as a secondary
 # choice and remains the engine behind screenshot songs, whose Director QA
 # contract was measured against it. Request-level names are "yue2" | "music3";
 # MUSIC_ENGINE_UNITS maps them to the ENGINES residency slots.
@@ -2502,7 +2472,7 @@ ENGINES = {
     "yue2":  {"port": YUE2_PORT, "kind": "unit", "unit": "media-lab-yue2.service",
               "cmd": _yue2_command(), "health": "/health", "gb": 18, "boot_wait": 240},
 }
-# Steve's promoted Spark contract: PPLX-27B is the protected primary and exactly
+# The promoted studio-host contract: PPLX-27B is the protected primary and exactly
 # one heavyweight companion owns the remaining unified-memory slot.  The
 # Voicebox service shell may stay up while its model is unloaded; loaded TTS
 # weights count as the `voice` companion and are handled below through its API.
@@ -2982,6 +2952,12 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None, task=None):
     settle = None
     if gpu_recovery_pending():
         return False
+    # Personal / non-commercial engines never load on a host that has not opted
+    # in (MEDIA_LAB_PERSONAL_ENGINES), whichever route queued the work.
+    if not engine_licences.enabled(name):
+        if j is not None:
+            j["detail"] = engine_licences.refusal(name)
+        return False
     # Stop is cooperative even while a heavyweight container is warming. Before
     # this check, a queued job cancelled during the worker handoff could spend the
     # entire boot timeout in "warming up" after its exact engine had been removed.
@@ -3315,7 +3291,7 @@ def _ensure_engine_under_lease(name, j=None):
             return "fail"
         need = ENGINES.get(name, {}).get("gb", 20) + MEM_FLOOR_GB
         if _mem_available_gb() < need:
-            # Music/image get the box to themselves (Steve 2026-08-20):
+            # Music/image get the box to themselves (2026-08-20):
             # stand down resident VIDEO engines first so music never stalls
             # on the memory floor while Qwen stays up. LTX/H3 go first; the
             # FL2VA canary (long-lived container outside ENGINES) also stands
@@ -4020,7 +3996,8 @@ def media_path(ref: str):
 
 def known_characters():
     """Return prompt-only H3 catalog identities as safe virtual cast records."""
-    payload = _load(_known_chars_file(), {})
+    catalog = _known_chars_file()
+    payload = _load(catalog, {}) if catalog is not None else {}
     records = payload.get("characters", []) if isinstance(payload, dict) else []
     out = []
     for row in records:
@@ -4044,7 +4021,7 @@ def known_characters():
         rec = {"id": cid, "name": name, "actor": actor, "franchise": franchise,
                "known_status": status, "known": True, "prompt_only": True,
                "appearance": identity}
-        # harvested face thumbs (runner/known_char_thumbs.py) — one frame from
+        # harvested face thumbs (a studio's own, under media/known-thumbs/) — one frame from
         # the catalog's own test clip, keyed by the id hash
         thumb = MEDIA / "known-thumbs" / f"{cid.split(':', 1)[-1]}.jpg"
         if thumb.is_file():
@@ -4390,7 +4367,7 @@ def _h3_v2v_prepare_first_frame(j, first_frame, identity_ref):
 
     This is deliberately before ensure_engine('h3'). If segmentation, image
     recovery, or editing fails, the job fails; the original frame is never used
-    as a silent substitute (the Heather grey-canvas lesson).
+    as a silent substitute (the grey-canvas lesson).
     """
     req = j.get("request") or {}
     release_video_engines("H3 video-to-video first-frame preparation")
@@ -4830,13 +4807,14 @@ def run_video(j):
                    "engine is healthy.")
 
 def _music_engine_for(j) -> str:
-    """'yue2' | 'music3' for a music-family job. New songs default to YuE2;
-    screenshot songs stay on Music 3 unless the request names an engine."""
+    """'yue2' | 'music3' for a music-family job. New songs default to the host's
+    default (YuE2 where its licence was opted into, else Music 3); screenshot
+    songs stay on Music 3 unless the request names an engine."""
     r = j.get("request") or {}
     engine = str(r.get("engine") or "").strip().lower()
     if engine in MUSIC_ENGINES:
         return engine
-    return "yue2" if j.get("kind") == "music" else "music3"
+    return default_music_engine() if j.get("kind") == "music" else "music3"
 
 
 def _style_line_from_caption(caption: str) -> str:
@@ -5421,6 +5399,10 @@ KONTEXT_CLIP = COMFY_IMAGE_DIR / "models/text_encoders/clip_l.safetensors"
 KONTEXT_VAE = COMFY_IMAGE_DIR / "models/vae/ae.safetensors"
 
 def kontext_ready():
+    # FLUX.1 Kontext [dev] is non-commercial: installed is not enough, the host
+    # must also have opted in (MEDIA_LAB_PERSONAL_ENGINES).
+    if not engine_licences.enabled("kontext"):
+        return False
     return all(p.exists() for p in (KONTEXT_UNET, KONTEXT_T5, KONTEXT_CLIP, KONTEXT_VAE))
 
 def kontext_graph(prompt, prefix, seed, edit_image=None, w=1024, h=1024):
@@ -5547,7 +5529,14 @@ def image_via_service(j, r, prompt, iw, ih):
     """Render through the warm image engine on :8295.
     -> "done" | "failed" (already reported on the job). Infrastructure failure
     never falls through to an uncoordinated local Comfy request."""
-    body = {"prompt": prompt, "model": r.get("engine") or "auto",
+    model = r.get("engine") or "auto"
+    if not engine_licences.enabled("kontext"):
+        if model == "kontext":
+            fail(j, engine_licences.refusal("kontext"))
+            return "failed"
+        if model == "auto":
+            model = "qwen"   # the service's "auto" may pick Kontext for likeness work
+    body = {"prompt": prompt, "model": model,
             "seed": int(r["seed"]) if r.get("seed") is not None
                     else int(j["id"][:8], 16) % (2 ** 31)}
     if r.get("quality"):
@@ -6061,7 +6050,7 @@ def char_likeness(rec, chars=None, role="closeup"):
         return _sharpen(out) if _nonempty(out) else None
 
     def _sharpen(p: Path):
-        """A picked panel can be small (Heather's was 241x352 out of a whole
+        """A picked panel can be small (one was 241x352 out of a whole
         sheet). Blown up to fill a frame it is soft, and a soft face makes the
         edit model redraw the person and leaves the video model no mouth detail
         to animate. Real-ESRGAN it back up before anyone uses it."""
@@ -6359,7 +6348,7 @@ def compose_beat_prompt(board, beat, chars=None):
     for c in bchars:
         if _norm_name(c.get("name")) in wanted:
             add(_look_line(c.get("name"), c.get("look")))
-    # Cast scoping (the "Heather in every shot" fix, 2026-08-16):
+    # Cast scoping (the "same performer in every shot" fix, 2026-08-16):
     #   beat-level cast  -> explicit, always attaches (the user tapped it).
     #   board-level cast -> attaches ONLY to beats that actually show the
     #     character (named in beat.characters, or named in the shot text).
@@ -6812,7 +6801,7 @@ def _commit_storyboard_assembly(board: dict, boards: list, j: dict, final: Path,
     board["final_sha256"] = digest
     board["last_assembly_job_id"] = j["id"]
     board["assembly_registered_at"] = time.time()
-    board["candidate_not_final_until_steve_approves"] = True
+    board[cut_core.CANDIDATE_KEY] = True
     board["private_internal_only"] = True
     board["publication_authorized"] = False
     board["external_sharing_authorized"] = False
@@ -7251,7 +7240,7 @@ def run_musicvideo(j):
             _sp = f"{style_prefix}{identity} {scenes[i]}".strip()
             if chain and i > 0:
                 _sp = ("Continue seamlessly from the supplied first frame. Preserve the same "
-                       "Heather, wardrobe, car, rainy road, camera side, lighting, direction of "
+                       "performer, wardrobe, vehicle, road, camera side, lighting, direction of "
                        "travel, and performance energy. No reset, no fade, no new person. " + _sp)
             if eng == "h3":
                 # song rides in as audio conditioning + is muxed after — the
@@ -7656,8 +7645,8 @@ FACE_MIN = 0.22
 # 32x32 block of output pixels. At the 864x480 canvas every judged take used, a
 # face at 0.36 was ~5 tokens tall and the MOUTH under 3 tokens wide — there is no
 # room to draw an eyelid or a lip closing, which is the "mangled eyes / mushy
-# mouth" complaint exactly. Steve's approved take measured 0.40; his "horrible"
-# one 0.12. Reframing is the cheapest lever we have: +33% face tokens for free.
+# mouth" complaint exactly. An approved take measured 0.40; a rejected
+# ("horrible") one 0.12. Reframing is the cheapest lever we have: +33% face tokens for free.
 # These numbers are OURS (MiniMax publishes nothing about faces) — a hypothesis
 # to measure, not a spec.
 FACE_TARGET_H3 = 0.48
@@ -7976,7 +7965,7 @@ def run_say(j):
         framing = ("Medium shot, the person's whole head fully in frame with "
                    "comfortable headroom, upper body visible. ")
     # EXPRESSION RESTRAINT. "natural expressions" reads to LTX as permission to
-    # perform: Steve's workshop take (9eee3c19c7e4) starts from a calm start frame
+    # perform: a workshop take starts from a calm start frame
     # and drifts into raised, surprised eyebrows for the whole clip. The face is
     # already correct at frame 0 — what it needs is instruction to LEAVE IT ALONE
     # and move only the mouth. Name the brow explicitly; a generic "no exaggerated
@@ -8039,7 +8028,7 @@ def run_say(j):
         else int(j["id"][:8], 16) % 1_000_000_007
     # audio_scale scales the audio conditioning strength on LTX's DISTILLED
     # pipeline — engine_server calls it "THE lip-sync lever" and app.py has never
-    # sent it, so every take Steve has judged ran at the engine's own default.
+    # sent it, so every take judged so far ran at the engine's own default.
     # H3 ignores it (it takes audio_prompt_type instead), so only send it to LTX.
     try:
         _as = float(r.get("audio_scale") or 0)
@@ -8072,7 +8061,7 @@ def run_say(j):
     # headshots on flat grey with the shoulders smeared downward — went to the
     # engine as frame zero. The requested scene was silently dropped and LTX
     # animated two photographs on a wall (jobs 4dcb0bab / 1fd0ff94 / f0976f0e,
-    # 2026-08-18). Steve's verdict was "horrible", and he was right.
+    # 2026-08-18). The verdict was "horrible", and it was right.
     #
     # So: honour a supplied frame as-is only when no scene was asked for (the
     # "animate this picture" case). If a scene WAS asked for, the caller is saying
@@ -8178,7 +8167,7 @@ def run_say(j):
                 res = image_via_service(jj, {"source": src_ref, "engine": "auto"},
                                         place_prompt, w, h)
                 # "fallback" means the image engine was UNREACHABLE — it OOM'd and
-                # systemd restarted it under us (Heather's 16:02 take died exactly as
+                # systemd restarted it under us (one take died exactly as
                 # media-lab-image came back up). That is an infrastructure hiccup, not
                 # a decision about framing, so wait for it and try once more rather
                 # than treating a missing scene as a result.
@@ -8207,7 +8196,7 @@ def run_say(j):
                 ff = _face_frac(placed) if (res == "done" and _nonempty(placed)) else 0.0
                 if 0 < ff < face_m and _scene_canvas(lik, w, h, canvas, face=face_t * 1.5):
                     # The edit model sometimes redraws the person smaller than we
-                    # placed them (Heather came back at 0.16). Give it one more
+                    # placed them (one came back at 0.16). Give it one more
                     # go from a deliberately tighter canvas before falling back
                     # to the plain portrait — the scene is worth one retry.
                     print(f"[say] {j['id']} placement shrank the face to {ff:.2f} — "
@@ -8218,13 +8207,13 @@ def run_say(j):
                 if ff >= face_m:
                     start = placed
                 else:
-                    # A small face films as mush — Steve's "lip sync is horrible"
+                    # A small face films as mush — the "lip sync is horrible"
                     # take measured 0.12. The plain portrait syncs; use it and let
                     # the video prompt argue for the scene.
                     if res == "fallback":
                         # Still down after a retry. Filming the grey canvas here is
-                        # what produced Steve's "horrible" takes twice today: he asks
-                        # for a kitchen, gets a person on a blank wall, and nothing
+                        # what produced the "horrible" takes twice in one day: asking
+                        # for a kitchen gets a person on a blank wall, and nothing
                         # anywhere says the scene step never ran. Fail it instead —
                         # auto_requeue re-runs studio-broke takes when the box is
                         # healthy, which is exactly what this is.
@@ -8238,7 +8227,7 @@ def run_say(j):
                     # already has the face at the right size for THIS frame
                     # shape; a tall portrait dropped into H3's landscape frame
                     # renders the face at ~13% and will not lip-sync (measured
-                    # on Heather's H3 take). Grey around a correctly framed face
+                    # on an H3 take). Grey around a correctly framed face
                     # beats a correctly coloured backdrop around a tiny one.
                     if framed_fallback is not None:
                         start = framed_fallback
@@ -8372,6 +8361,8 @@ def latentsync_ready():
     return all(_nonempty(p) for p in required)
 
 def hunyuan_avatar_ready():
+    if not engine_licences.enabled("hunyuan-avatar"):
+        return False   # territory-restricted licence: opt-in per host
     if not all(_nonempty(p) for p in (HVA_SCRIPT, HVA_RUNNER, HVA_MANIFEST)):
         return False
     try:
@@ -8525,7 +8516,7 @@ def _run_topaz_master(j, src, out):
     """Hand the clip to the Mac's Topaz worker via the pool and wait.
 
     The Spark is arm64 and Topaz ships no arm64 Linux build, so mastering runs
-    on Steve's Mac under his subscription login. Fail-closed and honest: if the
+    on the owner's Mac under their own subscription login. Fail-closed and honest: if the
     worker is absent, expired, or slow, the take is left untouched and the job
     says exactly why.
     """
@@ -9091,7 +9082,7 @@ def job_engine(j):
 def pick_next_job():
     """Group the queue by engine instead of taking it strictly in order.
 
-    Steve's rule: LTX is the default; when H3 comes up, stand LTX down, run
+    Studio rule: LTX is the default; when H3 comes up, stand LTX down, run
     EVERY queued H3 job, then go back to LTX. Taking the queue in raw order
     would swap 40 GB of weights between every alternating job.
 
@@ -9229,7 +9220,7 @@ def restore_warm_ltx_idle():
 def settle_video_transaction():
     """Restore the safe warm-idle state after a heavyweight media batch.
 
-    Steve's promoted runtime policy is Qwen + LTX warm by default.  H3 replaces
+    The promoted runtime policy is Qwen + LTX warm by default.  H3 replaces
     the active video slot only for its bounded batch unless a persistent profile
     says otherwise. Residency does not grant concurrent inference: heavyweight
     compute remains serialized by the inference transaction lock.
@@ -9531,7 +9522,7 @@ def inbox_watcher():
                             "sha256": str(sc.get("sha256") or "").lower().strip(),
                             "title": str(sc.get("title") or (board or {}).get("title") or "Storyboard film"),
                             "source": f"inbox:{f.name}", "private_internal_only": True,
-                            "candidate_not_final_until_steve_approves": True,
+                            cut_core.CANDIDATE_KEY: True,
                         }, extra={"board_id": board_id,
                                   "board_title": str((board or {}).get("title") or "")[:90],
                                   "prompt_label": f"🎞 Register assembly — {str((board or {}).get('title') or 'film')}"[:90]})
@@ -9575,7 +9566,7 @@ class GenReq(BaseModel):
     source: str = ""          # a picture to animate (LTX start-frame conditioning)
     seed: Optional[int] = None
     # H3 Ref2VA actor cloning: a list of separate reference PICTURES of the
-    # people who must appear, each {b64, role} (role = Steve/Heather/DGX/style).
+    # people who must appear, each {b64, role} (role = a name, e.g. person/product/style).
     # Present + engine h3 selects the ref2va actor-cloning variant (never fl2va);
     # carrying them in the typed request prevents the fl2va downgrade history
     # this model previously silently routed through.
@@ -9590,7 +9581,7 @@ class MusicReq(BaseModel):
     lyrics: str = ""
     length: str = "auto"
     duration_seconds: Optional[int] = None
-    engine: str = "yue2"            # "yue2" (primary, CC BY-NC 4.0 weights) | "music3"
+    engine: str = ""                # "" = default_music_engine() | "yue2" (CC BY-NC 4.0, opt-in) | "music3"
     style: str = ""                 # one-line genre/mood/instruments; empty = from the songwriter
     cot: str = "full"               # YuE2 chain-of-thought: full | melody | off
     abc: str = ""                   # an edited ABC score to record from
@@ -9716,9 +9707,23 @@ def maestro_model(r: MaestroModelReq):
     return {"id": j["id"], "eta_min": 15,
             "model": r.model_id, "lazy_download": bool(model.get("lazy_download"))}
 
+def default_music_engine() -> str:
+    """YuE2 where the host has opted into its non-commercial licence, else Music 3."""
+    return "yue2" if engine_licences.enabled("yue2") else "music3"
+
+
+def _licence_refusal(engine: str):
+    """None when the engine may run here, else the 403 to return: engines with a
+    personal / non-commercial licence are off until the host opts in."""
+    if engine_licences.enabled(engine):
+        return None
+    return JSONResponse({"error": engine_licences.refusal(engine), "licence": "personal"},
+                        status_code=403)
+
+
 def _validate_music_request(request: dict):
     """Normalise the engine-specific fields of a music request; str = the error."""
-    engine = str(request.get("engine") or "yue2").strip().lower()
+    engine = str(request.get("engine") or default_music_engine()).strip().lower()
     if engine not in MUSIC_ENGINES:
         return f"unknown music engine {engine!r}: choose yue2 or music3"
     request["engine"] = engine
@@ -9755,6 +9760,9 @@ def music(r: MusicReq):
     bad = _validate_music_request(request)
     if bad:
         return JSONResponse({"error": bad}, status_code=400)
+    refused = _licence_refusal(request["engine"])
+    if refused:
+        return refused
     try:
         request["duration_seconds"] = _music_seconds(request)
     except ValueError as exc:
@@ -9767,13 +9775,17 @@ def music(r: MusicReq):
 
 @app.get("/api/music/engines")
 def music_engines():
-    """What the music card offers: YuE2 first (default), Music 3 second."""
-    return {"default": "yue2",
+    """What the music card offers: YuE2 first, Music 3 second. YuE2 is the default
+    only where the host opted into its non-commercial licence."""
+    music3 = engine_licences.licence("music3")
+    return {"default": default_music_engine(),
             "engines": [
                 {"id": "yue2", "name": "YuE2", "license": YUE2_LICENSE,
                  "notice": YUE2_LICENSE_NOTICE, "installed": bool(local_config.yue2().get("YUE2_KIT")),
+                 "enabled": engine_licences.enabled("yue2"), "personal": True,
                  "warm": engine_up("yue2"), "edit_tools": True},
-                {"id": "music3", "name": "Music 3", "license": "", "notice": "",
+                {"id": "music3", "name": "MiniMax Music 3", "license": music3.licence,
+                 "notice": music3.notice, "enabled": True, "personal": False,
                  "installed": COMFY_MUSIC_DIR.is_dir(), "warm": engine_up("music"),
                  "edit_tools": False}],
             "stems": _melband_cli() is not None}
@@ -9783,6 +9795,9 @@ def music_engines():
 def music_plan(r: MusicPlanReq):
     """Ask YuE2 for a score (ABC) without recording: the score can be edited
     and handed back through /api/music {abc}. Synchronous; needs the engine."""
+    refused = _licence_refusal("yue2")
+    if refused:
+        return refused
     style = r.style.strip()[:300]
     if not style:
         return JSONResponse({"error": "style required"}, status_code=400)
@@ -9828,6 +9843,9 @@ def music_abc(song_id: str):
 @app.post("/api/music/{song_id}/rearrange")
 def music_rearrange(song_id: str, r: MusicRearrangeReq):
     """Record the same score again under a new style / lyrics (or an edited score)."""
+    refused = _licence_refusal("yue2")
+    if refused:
+        return refused
     sid = Path(song_id).name
     src = jobs.get(sid) or {}
     abc = r.abc.strip() or _music_song_abc(sid)
@@ -9867,6 +9885,9 @@ def music_rearrange(song_id: str, r: MusicRearrangeReq):
 def music_cover(song_id: str, r: MusicCoverReq):
     """A cover of any library song (uploads too): transcribe, keep the melody,
     record it under a new style."""
+    refused = _licence_refusal("yue2")
+    if refused:
+        return refused
     sid = Path(song_id).name
     song = _music_song_file(sid)
     if song is None:
@@ -10103,6 +10124,10 @@ def image(r: ImageReq):
     if r.engine == "fal-image" and not fal_ready():
         return JSONResponse({"error": "fal.ai isn't set up — add your API key in Cloud providers."},
                             status_code=400)
+    if r.engine == "kontext":
+        refused = _licence_refusal("kontext")
+        if refused:
+            return refused
     req = r.dict()
     if req.get("reference_source") and not req.get("source"):
         return JSONResponse({"error": "a separate identity reference needs a composition picture to edit"},
@@ -10181,14 +10206,17 @@ def image_models():
         return {"ok": False, "default": "auto", "models": []}
     out = []
     for m in d["models"]:
-        if not m.get("installed"):
+        if not m.get("installed") or not engine_licences.enabled(m["id"]):
             continue
         ui = IMG_MODEL_UI.get(m["id"], {})
         out.append({"id": m["id"],
                     "label": f"{ui.get('emoji','🖌')} {ui.get('short') or m.get('label') or m['id']}",
                     "plain": ui.get("plain") or m.get("note") or "",
                     "steps": m.get("steps")})
-    return {"ok": True, "default": d.get("default", "qwen"), "models": out}
+    default = d.get("default", "qwen")
+    if out and not any(m["id"] == default for m in out):
+        default = out[0]["id"]   # the service's default is a painter this host has not enabled
+    return {"ok": True, "default": default, "models": out}
 
 @app.get("/api/image/health")
 def image_health():
@@ -10344,7 +10372,7 @@ def character_edit(cid: str, r: CharEditReq):
 
 @app.post("/api/characters/{cid}/delete")
 def character_delete(cid: str):
-    """Deletion is deliberately OPEN TO EVERYONE (Steve's explicit call,
+    """Deletion is deliberately OPEN TO EVERYONE (the owner's explicit call,
     2026-08-15): sheets are public, anyone may remove one. Artifacts are
     archived, never destroyed."""
     chars = _load(CHARS_FILE, [])
@@ -10764,6 +10792,10 @@ def character_say(cid: str, r: SayReq):
     if not r.line.strip():
         return JSONResponse({"error": "empty"}, status_code=400)
     eng = "h3" if r.engine == "h3" else "ltx"
+    if eng == "h3":
+        refused = _licence_refusal("h3")
+        if refused:
+            return refused
     if r.drive_audio_source and eng != "h3":
         return JSONResponse({"error": "a separate face-drive stem currently requires engine 'h3'"},
                             status_code=400)
@@ -10911,6 +10943,10 @@ def musicvideo(r: MVReq):
     if r.h3_turbo and r.engine != "h3":
         return JSONResponse({"error": "the managed H3 Turbo preset requires engine 'h3'"},
                             status_code=400)
+    if r.engine in ("h3", "h3-ltx25"):
+        refused = _licence_refusal("h3")
+        if refused:
+            return refused
     try:
         turbo_preset = _h3ref.required_turbo_preset({"h3_turbo": r.h3_turbo}) or False
     except ValueError as exc:
@@ -11256,6 +11292,19 @@ def enhance(r: EnhanceReq):
     j = submit_job("enhance", payload)
     return {"id": j["id"], "eta_min": eta_estimate(j)}
 
+def _template_preview_url(name: str) -> str:
+    """Where a template's preview animation is served from on THIS studio:
+    static/templates/ (the repo's own previews, or ones a host keeps there), the
+    local overlay's templates/ folder, or nowhere ("" = the page shows the emoji)."""
+    if not name or "/" in name or name.startswith("."):
+        return ""
+    if (STATIC_DIR / "templates" / name).is_file():
+        return f"/static/templates/{name}"
+    if local_overlay.asset_path(name) is not None:
+        return f"/local/templates/{name}"
+    return ""
+
+
 @app.get("/api/styles")
 def styles_catalog():
     """Everything the style shelves need, in one call."""
@@ -11268,7 +11317,7 @@ def styles_catalog():
         # each carries an animated example GIF (served from /static/templates) +
         # a one-line "what you get" description, so a person picks by seeing it.
         "templates": [{"group": g, "templates": [
-            {"id": tid, "emoji": e, "label": l, "gif": f"/static/templates/{gf}",
+            {"id": tid, "emoji": e, "label": l, "gif": _template_preview_url(gf),
              "prefix": prefix, "description": desc} for tid, e, l, prefix, gf, desc in entries]}
                       for g, entries in TEMPLATE_LIB],
         "char_engines": [{"id": "auto", "label": "Auto (best pick)"},
@@ -12255,6 +12304,11 @@ def chat(r: ChatReq, request: Request):
         sysp = CHAT_PROMPT_FILE.read_text()
     except Exception:
         sysp = "You are the Media Lab guide and operative producer for this private local studio."
+    # The studio owner's private notes (config/local/sparky.md): who the regular
+    # performers are, house rules, the hardware. Never shipped in the repo.
+    notes = local_overlay.sparky_notes()
+    if notes:
+        sysp += "\n\n## THIS STUDIO (notes from its owner)\n" + notes[:8000]
     msgs = [{"role": "system", "content": sysp + "\n\n" + tool_instructions()}]
     clean = []
     for m in r.messages[-20:]:
@@ -12313,8 +12367,8 @@ def chat(r: ChatReq, request: Request):
                     if call is None:
                         message = envelope["message"].strip() or "No studio action was taken."
                         # No prefix here: "No queue action was accepted in this
-                        # reply" read as noise on every plain answer (Steve,
-                        # 2026-08-23). The receipt frames already say when an
+                        # reply" read as noise on every plain answer
+                        # (2026-08-23). The receipt frames already say when an
                         # action WAS taken; silence is the right signal when not.
                         yield _sse({"delta": message})
                         yield _sse({"done": True})
@@ -12434,7 +12488,7 @@ def _cut_gallery_item(job_id: str):
     return info
 
 def _cut_session_required(request: Request):
-    """Everyone signed in is a studio manager (Steve, 2026-08-16): the family code
+    """Everyone signed in is a studio manager (policy of 2026-08-16): the family code
     (or a local tool) may cut. Only NO role is refused."""
     if getattr(request.state, "role", "") in ("admin", "user") or request_role(request) in ("admin", "user"):
         return None
@@ -12807,7 +12861,7 @@ app.include_router(embed_gate.router(
 @app.get("/api/me")
 def me(request: Request):
     """What the UI asks before it decides whether to draw the queue controls.
-    Everyone signed in is a studio manager (Steve, 2026-08-16), so any valid
+    Everyone signed in is a studio manager (policy of 2026-08-16), so any valid
     session reports "admin" and gets the controls. ``owner`` is the real
     distinction: true only for the admin code, the one that may change server
     settings."""
@@ -12876,7 +12930,9 @@ def push_all(title, body, url="/?queue=1"):
             webpush(subscription_info=s,
                     data=json.dumps({"title": title, "body": body, "url": url}),
                     vapid_private_key=str(VAPID_KEY_FILE),
-                    vapid_claims={"sub": "mailto:steve.darlow@gmail.com"},
+                    # contact for the push services: MEDIA_LAB_VAPID_SUBJECT in
+                    # config/local.env, else the project's page (never a person)
+                    vapid_claims={"sub": local_config.vapid_subject()},
                     timeout=15)
             keep.append(s)
         except WebPushException as e:
@@ -12941,14 +12997,14 @@ def push_unsubscribe(r: UnsubReq):
 # from the manifest, so the manifest has to change with the theme (the front end
 # re-points the <link rel=manifest> and relaunches). Keep in sync with THEMES in
 # index.html.
-THEME_INK = {"": "#0B0806", "coagent": "#0B0806", "autoedu": "#0F0F11", "source4ai": "#FFF8E7",
-             "mr-dark": "#15121C", "mr-rose": "#F7F2E9", "ocean": "#071019",
+THEME_INK = {"": "#0B0806", "coagent": "#0B0806", "ocean": "#071019",
              "emerald": "#06120C", "violet": "#0D0814", "paper": "#F7F7F8"}
 
 @app.get("/manifest.json")
 def manifest(theme: str = ""):
     data = json.loads((STATIC_DIR / "manifest.json").read_text())
-    ink = THEME_INK.get(theme, THEME_INK[""])
+    # a studio's own looks live in its local overlay (config/local/themes.json)
+    ink = THEME_INK.get(theme) or local_overlay.theme_ink(theme) or THEME_INK[""]
     # id/start_url stay fixed — changing them would orphan the installed app
     data["background_color"] = data["theme_color"] = ink
     # Tells the VibeX Studio app this studio can be shown inside it (/embed).
@@ -12964,6 +13020,34 @@ def service_worker():
     return FileResponse(str(STATIC_DIR / "sw.js"),
                         media_type="application/javascript",
                         headers={"Cache-Control": "no-cache"})
+
+# ---------- the studio's local overlay (gitignored config/local/) ----------
+@app.get("/local/themes.css")
+def local_themes_css():
+    """Extra looks from config/local/themes.json, as CSS (empty when none)."""
+    return Response(local_overlay.themes_css(), media_type="text/css",
+                    headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/api/local/themes")
+def local_themes():
+    return {"themes": [{k: t[k] for k in ("id", "label", "accent", "ink")}
+                       for t in local_overlay.themes()]}
+
+
+@app.get("/local/templates/{name}")
+def local_template_asset(name: str):
+    path = local_overlay.asset_path(name)
+    if path is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return FileResponse(str(path))
+
+
+# ---------- engine licences (personal / non-commercial engines are opt-in) ----------
+@app.get("/api/engines/licences")
+def engines_licences():
+    return engine_licences.public_view()
+
 
 app.mount("/media", StaticFiles(directory=str(MEDIA)), name="media")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
