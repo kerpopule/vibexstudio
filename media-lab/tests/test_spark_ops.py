@@ -201,8 +201,12 @@ def test_backup_freshness_is_checked(tmp_path, monkeypatch):
     (root / "lib" / "last-success.json").write_text(json.dumps({"finished": DAY - 40 * 3600, "bytes": 1}))
     cfg = _cfg(tmp_path, dry_run=False, backups={"dir": str(root), "sets": ["lib", "missing"],
                                                  "max_age_h": 36})
+    (root / "other.json").write_text(json.dumps({"epoch": DAY - 3600}))
+    cfg["backups"]["files"] = [{"name": "other", "path": str(root / "other.json"), "time_key": "epoch"},
+                               {"name": "gone", "path": str(root / "gone.json"), "time_key": "epoch"}]
     msg = watch.run(cfg, now=DAY, probe=fake_probe_ok, fetch=lambda *a, **k: (200, {}))["message"]
     assert "Backup lib is 40 h old" in msg and "Backup missing is missing" in msg
+    assert "Backup gone is missing" in msg and "Backup other" not in msg
 
 
 # ---------------------------------------------------------------- backup

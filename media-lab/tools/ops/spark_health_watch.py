@@ -436,6 +436,18 @@ def collect(cfg: dict, st: dict, now: float, *, probe=run_probe, fetch=http) -> 
             findings.append(Finding(f"backup:{set_name}", "backups", "action",
                                     f"Backup {set_name} is under 90% of the previous one",
                                     "Check the source before the next run prunes anything."))
+    # Status files written by other backup jobs: {"name", "path", "time_key"}.
+    for extra in backups.get("files", []):
+        doc = read_json(Path(os.path.expanduser(extra["path"])))
+        hosts.setdefault("backups", {"role": "backups", "label": "backups"})
+        stamp = doc.get(extra.get("time_key", "finished")) if isinstance(doc, dict) else None
+        hosts["backups"][extra["name"]] = {"finished": stamp} if stamp else None
+        age_h = (now - float(stamp)) / 3600 if stamp else None
+        if age_h is None or age_h > float(backups.get("max_age_h", 36)):
+            findings.append(Finding(f"backup:{extra['name']}", "backups", "action",
+                                    f"Backup {extra['name']} is " + ("missing" if age_h is None
+                                                                     else f"{age_h:.0f} h old"),
+                                    "Read that backup job's log on the monitor machine."))
     return {"hosts": hosts, "findings": findings, "host_markers": host_markers}
 
 
