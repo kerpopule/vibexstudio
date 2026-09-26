@@ -18,7 +18,9 @@
   if(t===null||t===undefined)t='coagent';
   if(t)document.documentElement.dataset.theme=t;
   var ink={'':'#0B0806','coagent':'#0B0806','ocean':'#071019','emerald':'#06120C','violet':'#0D0814',
-           'paper':'#F7F7F8'}[t]||'#0B0806';
+           'paper':'#F7F7F8'}[t];
+  /* a look from the studio's local overlay: the ground it last painted */
+  if(!ink){var li=localStorage.getItem('lab-theme-ink');ink=/^#[0-9A-Fa-f]{3,8}$/.test(li||'')?li:'#0B0806';}
   document.documentElement.style.background=ink;
   var m=document.querySelector('meta[name="theme-color"]');
   if(m)m.setAttribute('content',ink);

@@ -10,7 +10,7 @@ and charge for generation. Engine support and licenses vary; see the
 [capability status](../docs/CAPABILITY-STATUS.md).
 
 <p align="center">
-  <img src="docs/screenshots/media-lab-desktop.png" width="640" alt="Media Lab — a real studio: Sparky, the maker panel, and a gallery of generated talking-head films">
+  <img src="docs/screenshots/media-lab-desktop.png" width="640" alt="Media Lab — Sparky, the maker panel and a gallery of generated clips; licence-restricted engines are greyed out on a fresh install">
   &nbsp;
   <img src="docs/screenshots/media-lab-mobile.png" width="200" alt="Media Lab — phone">
 </p>

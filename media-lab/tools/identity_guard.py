@@ -72,7 +72,7 @@ PRIVATE_PATTERNS = [
 ]
 
 # Salted SHA-256 prefixes of private words and phrases, lower-cased, words
-# joined by one space ("dead sun", "100 64 1 2"). Value = what kind of thing it
+# joined by one space ("some phrase", "100 64 1 2"). Value = what kind of thing it
 # is, which is all a hit reports besides the matched text.
 HASH_SALT = b"vibexstudio-identity-guard:v1:"
 PRIVATE_HASHES = {

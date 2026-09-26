@@ -19,7 +19,9 @@
   if(t===null||t===undefined)t='coagent';   /* Studio default: the Co-Agent look */
   if(t)document.documentElement.dataset.theme=t;
   var ink={'':'#0B0806','coagent':'#0B0806','ocean':'#071019','emerald':'#06120C','violet':'#0D0814',
-           'paper':'#F7F7F8'}[t]||'#0B0806';
+           'paper':'#F7F7F8'}[t];
+  /* a look from the studio's local overlay: the ground it last painted */
+  if(!ink){var li=localStorage.getItem('lab-theme-ink');ink=/^#[0-9A-Fa-f]{3,8}$/.test(li||'')?li:'#0B0806';}
   document.documentElement.style.background=ink;
   var m=document.querySelector('meta[name="theme-color"]');   /* the static one above */
   if(m)m.setAttribute('content',ink);
@@ -2212,6 +2214,13 @@ function paintChrome(t){
   let m=document.querySelector('meta[name="theme-color"]');
   if(!m){m=document.createElement('meta');m.name='theme-color';document.head.appendChild(m);}
   m.setAttribute('content',ink);
+  /* the page ground too, remembered so the pre-render bootstrap can paint an
+     overlay look's ground (only once that look is known here: an overlay look
+     read before /api/local/themes answers must not overwrite its ink) */
+  if((t||'') in THEME_INK){
+    document.documentElement.style.background=ink;
+    try{localStorage.setItem('lab-theme-ink',ink);}catch(e){}
+  }
   const lk=document.querySelector('link[rel="manifest"]');
   if(lk)lk.href=t?`/manifest.json?theme=${encodeURIComponent(t)}`:'/manifest.json';
 }

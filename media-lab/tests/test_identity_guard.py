@@ -1,22 +1,29 @@
 """Tests for tools/identity_guard.py.
 
-The guard runs on `git ls-files`, so every case builds a throwaway repository in
-`tmp_path` and invokes the guard there as a subprocess (`repo_root()` resolves
-from cwd). Private identifiers are assembled at runtime so this test file never
-itself contains a string the guard would reject.
+The guard runs on `git ls-files`, so the file-level cases build a throwaway
+repository in `tmp_path` and invoke the guard there as a subprocess
+(`repo_root()` resolves from cwd).
+
+This file never names a real private word, not even assembled from pieces: the
+hashed-word cases load the guard in-process and swap its tables for made-up
+words, so the mechanism is tested without publishing what it keeps out. Values
+that look private to the guard's patterns (a MagicDNS name, an e-mail address)
+are made up too, and assembled at runtime because the guard scans this file.
 """
 from __future__ import annotations
 
+import importlib.util
 import pathlib
+import re
 import subprocess
 import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 GUARD = REPO_ROOT / "media-lab" / "tools" / "identity_guard.py"
 
-# Built by concatenation: the guard scans this file too.
-PRIVATE_ABS_PATH = b"/Users/" + b"vibex/proj/mod.py"
-PRIVATE_HOSTNAME = "spark-" + "d16e"
+# Made up, and built by concatenation: the guard scans this file too.
+PRIVATE_ABS_PATH = b"/Users/" + b"someone/proj/mod.py"
+PRIVATE_HOSTNAME = "box-1a2b.tail" + "0c1d2e.ts.net"
 
 
 def _git(repo: pathlib.Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -179,12 +186,31 @@ def test_clean_tree_reports_clean_and_no_remedy(tmp_path: pathlib.Path) -> None:
     assert "Remove the bytecode artifact from the repository" not in result.stderr
 
 # ------------------------------------------------ names, brands, e-mail, CSS
-# Every private word below is assembled at runtime ("a" + "b"): the guard scans
-# this file too, and a quote-plus-quote join is never read as one word.
-PERSON = "Hea" + "ther"
-BRAND = "auto" + "edu"
-CLIENT = "gs" + "gel" + "ato"
-MAIL_DOMAIN = "gm" + "ail.com"
+# Made-up words stand in for the real ones: the real list is stored only as
+# salted hashes, and this file must not spell it out either.
+FAKE_PERSON = "Zorbeth"
+FAKE_BRAND = "quuxcorp"
+FAKE_CLIENT = "zq widgets"          # a two-word phrase
+MAIL_DOMAIN = "mail" + "provider.com"
+
+
+def _load_guard():
+    spec = importlib.util.spec_from_file_location("identity_guard_under_test", GUARD)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _guard_with(monkeypatch, words: dict[str, str], allow_next: dict[str, tuple] | None = None):
+    """The guard, its hash tables replaced by these made-up words -> kinds."""
+    g = _load_guard()
+    table = {g.phrase_hash(w): kind for w, kind in words.items()}
+    firsts = {g.phrase_hash(w.split()[0]) for w in words if len(w.split()) > 1}
+    monkeypatch.setattr(g, "PRIVATE_HASHES", table)
+    monkeypatch.setattr(g, "PHRASE_FIRST_WORDS", firsts)
+    monkeypatch.setattr(g, "ALLOW_NEXT_WORD",
+                        {g.phrase_hash(w): nxt for w, nxt in (allow_next or {}).items()})
+    return g
 
 
 def _scan_text(tmp_path: pathlib.Path, name: str, text: str) -> subprocess.CompletedProcess[str]:
@@ -194,29 +220,44 @@ def _scan_text(tmp_path: pathlib.Path, name: str, text: str) -> subprocess.Compl
     return _run_guard(tmp_path)
 
 
-def test_personal_name_is_rejected(tmp_path: pathlib.Path) -> None:
-    result = _scan_text(tmp_path, "notes.md", f"# {PERSON}'s rule for the studio\n")
-    assert result.returncode == 1
-    assert "notes.md:1:" in result.stderr and "personal name" in result.stderr
+def test_personal_name_is_rejected(monkeypatch, tmp_path: pathlib.Path) -> None:
+    g = _guard_with(monkeypatch, {FAKE_PERSON.lower(): "a maintainer's personal name"})
+    hit = g.line_hit(f"# {FAKE_PERSON}'s rule for the studio")
+    assert hit and FAKE_PERSON in hit and "personal name" in hit
+    notes = tmp_path / "notes.md"
+    notes.write_text(f"ok line\nasked by {FAKE_PERSON.upper()}\n")
+    hits = g.scan([notes], tmp_path)
+    assert len(hits) == 1 and hits[0].startswith("notes.md:2:")
+    assert g.line_hit("an ordinary line about the studio") is None
 
 
-def test_lower_case_knit_colour_is_not_a_name(tmp_path: pathlib.Path) -> None:
-    result = _scan_text(tmp_path, "prompt.txt", f"a fitted {PERSON.lower()}-gray tee\n")
-    assert result.returncode == 0, result.stderr
-    result = _scan_text(tmp_path / "b", "prompt.txt", f"the {PERSON} grey-canvas lesson\n")
-    assert result.returncode == 1
+def test_lower_case_colour_exception_keeps_the_capitalised_name(monkeypatch) -> None:
+    g = _guard_with(monkeypatch, {FAKE_PERSON.lower(): "a maintainer's personal name"},
+                    allow_next={FAKE_PERSON.lower(): ("gray", "grey")})
+    assert g.line_hit(f"a fitted {FAKE_PERSON.lower()}-gray tee") is None
+    assert g.line_hit(f"the {FAKE_PERSON} grey-canvas lesson")
+    assert g.line_hit(f"{FAKE_PERSON.lower()} said so")
 
 
-def test_private_brand_in_a_hostname_is_rejected(tmp_path: pathlib.Path) -> None:
-    result = _scan_text(tmp_path, "cfg.env", f"URL=https://media.{BRAND}.ai/x\n")
-    assert result.returncode == 1 and "private brand" in result.stderr
+def test_private_brand_in_a_hostname_is_rejected(monkeypatch) -> None:
+    g = _guard_with(monkeypatch, {FAKE_BRAND: "a private brand"})
+    hit = g.line_hit(f"URL=https://media.{FAKE_BRAND}.ai/x")
+    assert hit and "private brand" in hit
+    # a word that merely contains it is a different word
+    assert g.line_hit(f"URL=https://media.{FAKE_BRAND}ish.ai/x") is None
 
 
-def test_client_brand_and_copied_css_are_rejected(tmp_path: pathlib.Path) -> None:
-    result = _scan_text(tmp_path, "a.css", f"/* from {CLIENT} */\n")
-    assert result.returncode == 1 and "client brand" in result.stderr
+def test_multi_word_client_phrase_is_rejected(monkeypatch) -> None:
+    g = _guard_with(monkeypatch, {FAKE_CLIENT: "a client brand"})
+    hit = g.line_hit("/* colours from ZQ  Widgets, verbatim */")
+    assert hit and "client brand" in hit
+    assert g.line_hit("zq-widgets.css") and g.line_hit("zq_widgets")
+    assert g.line_hit("zq alone is fine; widgets too") is None
+
+
+def test_copied_client_css_is_rejected(tmp_path: pathlib.Path) -> None:
     rim = ("rgba(255,255,255," + ".50) 0%,\n  rgba(255,255,255," + ".16) 22%")
-    result = _scan_text(tmp_path / "b", "b.css", f".x{{background:linear-gradient(180deg,\n  {rim})}}\n")
+    result = _scan_text(tmp_path, "b.css", f".x{{background:linear-gradient(180deg,\n  {rim})}}\n")
     assert result.returncode == 1 and "copied CSS" in result.stderr
 
 
@@ -233,9 +274,30 @@ def test_personal_email_is_rejected_and_reserved_domains_pass(tmp_path: pathlib.
 
 
 def test_guard_source_never_spells_the_words_it_blocks() -> None:
-    source = GUARD.read_text(encoding="utf-8").lower()
-    for word in (PERSON, BRAND, CLIENT, MAIL_DOMAIN, PRIVATE_HOSTNAME):
-        assert word.lower() not in source, word
+    """Every hashed word or phrase stays out of the guard's own source."""
+    g = _load_guard()
+    for n, line in enumerate(GUARD.read_text(encoding="utf-8").splitlines(), 1):
+        assert g.private_phrase(line) is None, f"identity_guard.py:{n}"
+
+
+def test_this_test_file_never_spells_a_blocked_word() -> None:
+    """Not even assembled from pieces: join the string literals on each line."""
+    g = _load_guard()
+    literal = re.compile(r'''b?(["'])((?:\\.|(?!\1).)*?)\1''')
+    for n, line in enumerate(pathlib.Path(__file__).read_text(encoding="utf-8").splitlines(), 1):
+        joined = "".join(m.group(2) for m in literal.finditer(line))
+        assert g.private_phrase(joined) is None, f"line {n}"
+        assert g.private_phrase(line) is None, f"line {n}"
+
+
+def test_hash_table_is_well_formed_and_covers_each_kind() -> None:
+    g = _load_guard()
+    assert all(re.fullmatch(r"[0-9a-f]{16}", h) for h in g.PRIVATE_HASHES)
+    assert all(re.fullmatch(r"[0-9a-f]{16}", h) for h in g.PHRASE_FIRST_WORDS)
+    kinds = set(g.PRIVATE_HASHES.values())
+    for kind in ("a maintainer's personal name", "a private brand", "a client brand",
+                 "a private production", "a private machine identity"):
+        assert kind in kinds, kind
 
 
 def test_hash_helper_prints_an_entry_to_paste() -> None:
