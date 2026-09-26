@@ -81,3 +81,46 @@ def test_vision_probe_rejects_a_text_only_engine():
 def test_delta_e_is_zero_for_same_colour_and_large_for_opposites():
     assert seam_critic.delta_e([120, 80, 60], [120, 80, 60]) == 0
     assert seam_critic.delta_e([255, 0, 0], [0, 0, 255]) > 100
+
+
+def test_produce_films_a_board_with_one_seed_and_edits_of_the_master(tmp_path):
+    from media_lab_core import director_cli
+    take = _clip(tmp_path / "take.mp4", "testsrc2", seconds=3.0)
+
+    class FakeStudio:
+        def __init__(self):
+            self.calls, self.n = [], 0
+
+        def submit(self, path, body):
+            self.n += 1
+            self.calls.append((path, body))
+            return f"job{self.n}"
+
+        def wait(self, job_id, log=None, **kw):
+            path, _ = self.calls[int(job_id[3:]) - 1]
+            ext = ".png" if path == "/api/image" else ".mp4"
+            return {"status": "done", "url": f"/media/{job_id}{ext}"}
+
+        def fetch(self, url, dest):
+            dest.write_bytes(take.read_bytes() if url.endswith(".mp4") else b"png")
+            return dest
+
+    board = {"seed": 99, "bible": {"location": "a laundromat", "characters": [
+                {"name": "Maya", "look": "woman, curly hair", "wardrobe": "teal scrubs", "reference": "/media/maya.png"},
+                {"name": "Theo", "look": "man, red hair", "wardrobe": "green parka", "reference": "/media/theo.png"}]},
+             "beats": [{"shot_size": "WS", "characters": ["Maya", "Theo"], "video_prompt": "Both wait.",
+                        "screen_side": {"Maya": "left", "Theo": "right"}},
+                       {"shot_size": "MCU", "characters": ["Theo"], "speaker": "Theo",
+                        "screen_side": {"Theo": "right"}, "video_prompt": 'Theo: "Where do they go?"'}]}
+    studio = FakeStudio()
+    journal = director_cli.produce(board, tmp_path / "prod", studio, rounds=0, log=lambda m: None,
+                                   studio_wraps_h3=True)
+    images = [b for p, b in studio.calls if p == "/api/image"]
+    takes = [b for p, b in studio.calls if p == "/api/generate"]
+    assert "source" not in images[0]                                   # the master is painted fresh
+    assert [b.get("reference_source") for b in images[1:3]] == ["/media/maya.png", "/media/theo.png"]
+    assert images[3]["source"] == "/media/job3.png" and images[3]["reference_source"] == "/media/theo.png"
+    assert all(t["seed"] == 99 and t["model"] == "h3" and t["source"] for t in takes)
+    assert all("overall_soundscape" not in t["prompt"] for t in takes)   # the old studio wraps it itself
+    assert (tmp_path / "prod" / journal["final_cut"]).is_file()
+    assert (tmp_path / "prod" / "critic-r0.md").is_file()

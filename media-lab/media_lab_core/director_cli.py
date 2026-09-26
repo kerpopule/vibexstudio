@@ -151,7 +151,8 @@ def plan_from_brief(brief: str, chat, *, revisions: int = 2, seed: int | None = 
 # ------------------------------------------------------------------- produce
 
 def produce(board: dict, out_dir: Path, studio: Studio, *, rounds: int = 2, stills: bool = True,
-            seed: int | None = None, vision=None, log=print) -> dict[str, Any]:
+            seed: int | None = None, vision=None, studio_wraps_h3: bool = False,
+            log=print) -> dict[str, Any]:
     """Film a planned board on H3 with continuity, stitch it, critique it,
     re-render rejected shots (bounded), and leave every receipt in ``out_dir``."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -165,37 +166,54 @@ def produce(board: dict, out_dir: Path, studio: Studio, *, rounds: int = 2, stil
         for f in ds.iter_findings(exam, "error"):
             log(f"  error shot {f['shot']}: {f['code']} {f['message']}")
         raise SystemExit("the board fails the exam; fix the errors before spending GPU time")
-    journal: dict[str, Any] = {"seed": seed, "shots": {}, "rounds": []}
+    journal: dict[str, Any] = {"seed": seed, "shots": {}, "rounds": [], "stills": []}
     orientation = board.get("orientation") or "landscape"
     # 1) start frames: an establishing master, then every other still is an
     #    edit of the master (same set and light) anchored on the character's
     #    reference picture (same face)
     still_urls: dict[int, str] = {}
+    characters = ds.normalize_bible(bible)["characters"]
+
+    def image(body: dict, label: str) -> str:
+        jid = studio.submit("/api/image", body)
+        log(f"{label}: job {jid}")
+        j = studio.wait(jid, log=log)
+        if j.get("status") != "done" or not j.get("url"):
+            raise RuntimeError(f"{label} failed: {j.get('message')}")
+        journal.setdefault("stills", []).append({"label": label, "job": jid, "url": j["url"],
+                                                 "prompt": body["prompt"], "source": body.get("source"),
+                                                 "reference_source": body.get("reference_source")})
+        return j["url"]
+
     if stills:
+        # the master: the establishing wide defines the room, the light and the
+        # layout; each character's reference picture then fixes that person's
+        # face in it; every other still is an edit of the master
         master_idx = next((b["index"] for b in beats if b["shot_size"] in ds.WIDE_SIZES), 0)
-        order = [master_idx] + [b["index"] for b in beats if b["index"] != master_idx]
-        for i in order:
-            b = beats[i]
-            body = {"prompt": ds.still_prompt(bible, b), "orientation": orientation, "seed": seed,
-                    "engine": "auto"}
-            refs = [c.get("reference") for c in ds.normalize_bible(bible)["characters"]
-                    if c["name"] in b["characters"] and c.get("reference")]
-            if i != master_idx and master_idx in still_urls:
-                body["source"] = still_urls[master_idx]
-                body["prompt"] = ("Same place, same light, same people and clothes as this picture. New camera set-up: "
-                                  + body["prompt"])
-                if len(refs) == 1:
-                    body["reference_source"] = refs[0]
-            elif refs:
-                body["source"] = refs[0]
-                body["scene_place"] = True
-            jid = studio.submit("/api/image", body)
-            log(f"still for shot {i + 1}: job {jid}")
-            j = studio.wait(jid, log=log)
-            if j.get("status") != "done" or not j.get("url"):
-                raise RuntimeError(f"still for shot {i + 1} failed: {j.get('message')}")
-            still_urls[i] = j["url"]
-            studio.fetch(j["url"], out_dir / f"still-{i + 1:02d}{Path(j['url']).suffix}")
+        mb = beats[master_idx]
+        master = image({"prompt": ds.still_prompt(bible, mb), "orientation": orientation, "seed": seed,
+                        "engine": "auto"}, f"master still (shot {master_idx + 1})")
+        for c in characters:
+            if c["reference"] and c["name"] in mb["characters"]:
+                master = image({"prompt": (f"Keep this picture exactly as it is: the room, the light, the framing, "
+                                           f"the poses and every piece of clothing. Only make {c['name']} "
+                                           f"({c['look'][:160]}) look exactly like the person in the second picture."),
+                                "source": master, "reference_source": c["reference"], "orientation": orientation,
+                                "seed": seed, "engine": "auto"}, f"master identity pass: {c['name']}")
+        still_urls[master_idx] = master
+        studio.fetch(master, out_dir / f"still-{master_idx + 1:02d}{Path(master).suffix}")
+        for b in beats:
+            i = b["index"]
+            if i == master_idx:
+                continue
+            refs = [c["reference"] for c in characters if c["name"] in b["characters"] and c["reference"]]
+            body = {"prompt": ("Same place, same light, same people and the same clothes as this picture. "
+                               "New camera set-up: " + ds.still_prompt(bible, b)),
+                    "source": master, "orientation": orientation, "seed": seed, "engine": "auto"}
+            if len(refs) == 1:
+                body["reference_source"] = refs[0]
+            still_urls[i] = image(body, f"still for shot {i + 1}")
+            studio.fetch(still_urls[i], out_dir / f"still-{i + 1:02d}{Path(still_urls[i]).suffix}")
     # 2) takes
     patches: dict[int, str] = {}
     take_seed: dict[int, int] = {b["index"]: seed for b in beats}
@@ -208,6 +226,11 @@ def produce(board: dict, out_dir: Path, studio: Studio, *, rounds: int = 2, stil
             prompt = ds.compose_h3_prompt(bible, b, start_frame=i in still_urls)
             if patches.get(i):
                 prompt = prompt.replace("\n\noverall_soundscape:", " " + patches[i] + "\n\noverall_soundscape:", 1)
+            if studio_wraps_h3:
+                # a studio older than the director-school deploy wraps every H3
+                # prompt itself: send only the description or it nests the schema
+                prompt = prompt.split("\n\noverall_soundscape:")[0].replace(
+                    "integrated_multimodal_description: [Shot 1] ", "", 1)
             body = {"prompt": prompt, "model": "h3", "duration": "5", "orientation": orientation,
                     "seed": take_seed[i], "style": "none"}
             if i in still_urls:
@@ -274,6 +297,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--studio", default=os.environ.get("MEDIA_LAB_URL", "http://127.0.0.1:7863"))
     p.add_argument("--media-dir"); p.add_argument("--rounds", type=int, default=2)
     p.add_argument("--no-stills", action="store_true"); p.add_argument("--seed", type=int)
+    p.add_argument("--studio-wraps-h3", action="store_true",
+                   help="the studio predates director school and wraps H3 prompts itself")
     p.add_argument("--vision-url", default=os.environ.get("MEDIA_LAB_CRITIC_VISION_URL"))
     p.add_argument("--vision-model", default=os.environ.get("MEDIA_LAB_CRITIC_VISION_MODEL"))
     args = ap.parse_args(argv)
@@ -332,7 +357,8 @@ def main(argv: list[str] | None = None) -> int:
             chat = seam_critic.default_vision_chat(args.vision_url, args.vision_model)
         studio = Studio(args.studio, args.media_dir)
         journal = produce(_load(args.board), Path(args.out), studio, rounds=args.rounds,
-                          stills=not args.no_stills, seed=args.seed, vision=chat)
+                          stills=not args.no_stills, seed=args.seed, vision=chat,
+                          studio_wraps_h3=args.studio_wraps_h3)
         _dump({"final_cut": journal["final_cut"], "open_rerenders": journal["open_rerenders"]})
     return 0
 
