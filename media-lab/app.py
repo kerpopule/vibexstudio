@@ -21,6 +21,7 @@ from media_lab_core import installer as engine_installer
 from media_lab_core import cut as cut_core
 from media_lab_core.durable_gpu_protocol import CapacityUnqualified, LeaseBusy, StaleFence
 from media_lab_core.gpu_lease_runtime import delegation_env, delegation_headers, open_protocol
+from media_lab_core import studio_health as _studio_health
 from media_lab_core.solh3_control_guard import (current_heartbeat_allows_h3, read_pressure_sample,
                                                 write_runtime_environment)
 from runner.audio_signal_gate import audio_signal_metrics
@@ -11703,6 +11704,28 @@ def brief(j):
             "fal_request_id": j.get("fal_request_id") or None,
             "masked": bool(j.get("masked")) or None,
             "meta": j.get("meta"), "request": brief_request(j.get("request"))}
+
+@app.get("/api/health")
+def studio_health_view():
+    """One read-only answer: ok / warn / action, with the reasons and the facts.
+
+    Behind the family door like every API route (the local tool token or a
+    signed-in pass). It never touches the GPU, a lease or a service.
+    """
+    def sol_state():
+        config = h3_resident_config()
+        return {"loaded": True, **config} if config else {"loaded": False}
+    boot = Path("/proc/sys/kernel/random/boot_id")
+    return _studio_health.collect(
+        root=ROOT, boot_id=boot.read_text().strip() if boot.exists() else "",
+        jobs=jobs, queue_ids=list(queue),
+        sol_root=Path(os.path.expanduser(local_config.get("SOL_ROOT") or "~/.local/share/sol-h3-spark")),
+        sol_configured=local_config.sol_configured(), runtime_dir=Path(local_config.runtime_dir()),
+        sol_state=sol_state if "h3" in ENGINES else None,
+        text_url=local_config.text_upstream(), eta=eta_estimate,
+        mem_available_gib=lambda: round(_mem_available_gb(), 2),
+        restarts=lambda: _studio_health.unit_restarts("media-lab-simple.service"))
+
 
 @app.get("/api/queue")
 def queue_view(offset: int = 0, limit: int = 40, hist: int = 1, lane: str = "local"):
