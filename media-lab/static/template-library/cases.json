@@ -1,7 +1,7 @@
 {
  "collection": "Media Lab Image Template Collection",
  "schemaVersion": 1,
- "totalCases": 494,
+ "totalCases": 430,
  "source": {
   "repository": "https://github.com/freestylefly/awesome-gpt-image-2",
   "commit": "3a9c63baa03e6bbe2f28c89a2654cf9845466646",
@@ -292,29 +292,6 @@
    "orig_prompt": "主題：\n氷越しの夏\n\n主体：\n縦長2:3のリアル写真。透明な大型プラスチックカップの内側から見上げるような超広角フィッシュアイ構図。画面下半分いっぱいに赤いいちご果肉とクラッシュアイスが迫り、中央から太いグリーンのストローが奥へ一直線に伸びる。丸く歪んだカップの開口部の向こうに、女性の顔が中央に大きく収まる。\n\n人物・表情：\n自然で現実感のある若い女性。黒髪に近いダークブラウンの髪を高めのお団子にまとめ、薄い前髪と顔まわりの後れ毛が日差しで細く光っている。透明感のあるナチュラルメイク、淡いピンクの頬、つやのあるリップ。目を大きく開いてカメラをまっすぐ見つめ、唇を小さく丸めてストローをくわえている。少し驚いたような、可愛らしく無邪気な表情。\n\n服装・ポーズ：\n白いレース素材のブラウス。首元と肩まわりに細かなフリルがあり、夏らしく軽い質感。人物はカップの向こう側に顔を近づけ、両肩は下部に少しだけ見える。ストローは人物の口元に自然に接触し、奥から手前の赤い氷へ向かって強い奥行きを作る。\n\n背景・光：\n背景は晴れた夏の日の古い商店街。木造風の店先、かき氷屋の暖簾、苺柄の看板、白い小さな旗、街路樹が見える。文字はすべてぼかされた読めない装飾として扱う。左上から強い太陽光が入り、透明カップの水滴、カップ縁、氷、赤い果肉に細かな反射とハイライトが出る。影は右下へ落ち、白いクリームの残りがカップ内側にリング状についている。\n\n構図・カメラ：\nカメラはカップの底付近、赤い氷のすぐ上に置いたような極端なローアングル。フィッシュアイレンズでカップの円形リムが大きく湾曲し、周囲の商店街も軽く歪む。画面下45％は赤い氷と果肉の前ボケ、中央はストローと女性の顔、上部は青空とカップの透明な縁。ピントは女性の目と口元、手前の氷はきらめく浅いボケ。\n\n質感・スタイル：\nプロ用カメラで撮影した夏の広告写真風。透明プラスチックの屈折、水滴の粒、氷の冷たさ、いちご果肉の瑞々しさを高精細に表現。青空、赤い氷、グリーンのストロー、白いブラウスの色の対比を鮮やかにする。肌は自然な質感を残し、過度な美肌補正はしない。明るくポップで、少しユーモラスな日本の夏スイーツ写真。\n\nネガティブ：\n実在ブランドロゴ、読める文字、商標の再現、不自然な顔、不自然な視線、歯や唇の崩れ、ストローとの接触不良、余分な指、欠けた指、手足の融合、氷の浮遊、不自然な重力、誤った遠近法、光源と矛盾する影、文字化け、透かし、過度な美肌補正、プラスチックのような肌。"
   },
   {
-   "id": 516,
-   "title": "Industrial Rubber Hose Brand Render",
-   "image": "/static/template-library/images/case516.jpg",
-   "imageAlt": "Industrial Rubber Hose Brand Render",
-   "sourceLabel": "@Just_sharon7",
-   "sourceUrl": "https://x.com/Just_sharon7/status/2077034244988150062",
-   "prompt": "Create an ultra-detailed hyper-realistic 3D render of {Object} , formed from thick industrial rubber tubing bent into the exact shape of the design, flexible yet dense structure, smooth rounded contours, subtle matte finish, realistic elastomer texture, faint molded seam lines, soft tension at each curve, authentic material compression and stretch behavior, slightly grippy surface quality, engineered object realism, colored using the authentic official brand color palette of [brand], faithful brand-matching hues applied across the tubing, accurate color blocking that follows the original logo design, premium studio product photography aesthetic, isolated on a pure white seamless background, soft diffused studio lighting, realistic contact shadow, macro detail, razor-sharp focus, photorealistic, 8k, 16:9, no watermark, no extra text.",
-   "promptPreview": "Create an ultra-detailed hyper-realistic 3D render of {Object} , formed from thick industrial rubber tubing bent into the exact shape of the design, flexible yet dense structure, smooth rounded contours, subtle matte fin",
-   "category": "Brand & Logos",
-   "styles": [
-    "Realistic",
-    "Product",
-    "Brand"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-516",
-   "orig_title": "工业橡胶管品牌造型渲染"
-  },
-  {
    "id": 515,
    "title": "Guadalajara Retro Movie Travel Poster",
    "image": "/static/template-library/images/case515.jpg",
@@ -563,30 +540,6 @@
    "orig_title": "夜间手机光沙发肖像"
   },
   {
-   "id": 504,
-   "title": "Rough Sketch Portrait",
-   "image": "/static/template-library/images/case504.jpg",
-   "imageAlt": "Rough Sketch Portrait",
-   "sourceLabel": "@Shorelyn_",
-   "sourceUrl": "https://x.com/Shorelyn_/status/2063235707632533954",
-   "prompt": "Turn this photo into a chaotic funny doodle illustration, intentionally messy and low-skill, as if drawn quickly with a cheap marker, crayon, or worn-out felt pen on paper.\n\nCreate exaggerated facial features with awkward proportions, uneven eyes, oversized head, tiny body, crooked smile, and clumsy anatomy while still keeping the person recognizable. Use rough childish sketch lines, shaky hand-drawn strokes, visible scribbles, overlapping outlines, accidental marks, and random doodles around the scene. Add a simple cartoon-style background with badly drawn buildings, trees, clouds, street elements, and uneven perspective. Coloring should look careless and imperfect, with visible stroke texture, inconsistent fill areas, wax crayon texture, marker bleed, and irregular shading. Include playful imperfections like crossed-out lines, unfinished details, random arrows, tiny notes, stars, swirls, and abstract scribbles. Overall aesthetic should feel humorous, spontaneous, handmade, energetic, goofy, and intentionally unpolished, resembling a child's sketchbook mixed with absurd internet meme art. High texture detail, paper grain visible, asymmetrical composition, awkward framing, expressive doodle chaos, raw sketch energy.",
-   "promptPreview": "Turn this photo into a chaotic funny doodle illustration, intentionally messy and low-skill, as if drawn quickly with a cheap marker, crayon, or worn-out felt pen on paper. Create exaggerated facial features with awkward",
-   "category": "Illustration & Art",
-   "styles": [
-    "UI",
-    "Realistic",
-    "Illustration"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Social"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-504",
-   "orig_title": "粗糙涂鸦人像改图"
-  },
-  {
    "id": 503,
    "title": "Neon Designer 3D Poster",
    "image": "/static/template-library/images/case503.jpg",
@@ -747,29 +700,6 @@
    "featured": false,
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-497",
    "orig_title": "单色水彩城市旅行海报"
-  },
-  {
-   "id": 496,
-   "title": "Water Carving Brand Logo Grid",
-   "image": "/static/template-library/images/case496.jpg",
-   "imageAlt": "Water Carving Brand Logo Grid",
-   "sourceLabel": "@AIwithSynthia",
-   "sourceUrl": "https://x.com/AIwithSynthia/status/2062521441141088599",
-   "prompt": "Create a premium 3x2 grid collage of iconic global brand logos recreated entirely from dynamic water formations, floating above a crystal-clear ocean under a vibrant blue sky. Each panel features a different logo sculpted from realistic transparent water, with detailed splashes, droplets, reflections, refractions, and flowing liquid textures. The water forms should look physically accurate, elegant, and instantly recognizable while remaining made completely of water.",
-   "promptPreview": "Create a premium 3x2 grid collage of iconic global brand logos recreated entirely from dynamic water formations, floating above a crystal-clear ocean under a vibrant blue sky. Each panel features a different logo sculpte",
-   "category": "Brand & Logos",
-   "styles": [
-    "UI",
-    "Realistic",
-    "Brand"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-496",
-   "orig_title": "水雕品牌 Logo 六宫格"
   },
   {
    "id": 495,
@@ -956,54 +886,6 @@
    "orig_title": "屋顶球场日落人像"
   },
   {
-   "id": 487,
-   "title": "French Skincare Commercial Storyboard Cover",
-   "image": "/static/template-library/images/case487.jpg",
-   "imageAlt": "French Skincare Commercial Storyboard Cover",
-   "sourceLabel": "@AIwithSynthia",
-   "sourceUrl": "https://x.com/AIwithSynthia/status/2061300623530942922",
-   "prompt": "35mm anamorphic, 2.39:1, no flares. Ultra-realistic international French pharmacy skincare commercial for La Roche-Posay Anthelios UVMune 400 Hydrating Cream SPF50+. Soft premium music plus tactile realistic sound effects throughout. Rich warm natural grain, premium but not over-polished. Palette: warm ivory whites, soft stone neutrals, signature La Roche-Posay orange, subtle clinical cyan-blue, sunlit beige, realistic warm skin tones. The tube is iconic. The skin is the proof. Every shot builds toward the moment the product disappears into real skin and protection becomes confidence. Fast cuts, macro intimacy, tactile realism, one quiet transformation that feels earned: sunscreen that looks invisible, breathable, and real.\n\nMODEL / WARDROBE\n\nUse the same female model consistently across all shots, matching the approved character sheet: slim natural model proportions, warm medium skin tone, dark brown hair in a clean low bun, refined oval face, natural brows, realistic under-eye detail, subtle lips, minimal makeup. Same face, same hairstyle, same body structure, same skin tone, same wardrobe continuity throughout.\n\nWardrobe must be modest, elegant, and fully covered. No exposed body, no tank top, no fitted clothing, no cleavage, no bare shoulders, no body-hugging silhouette. Wardrobe: loose cream linen button-up shirt, full sleeves, fully buttoned or layered over a high-neck white inner top, soft beige trousers only if visible, minimal jewelry, refined French pharmacy skincare styling. Clothing should feel premium, breathable, clean, and international, never sensual, revealing, or fashion-body-focused.\n\nThe camera may show hands, face, neck-up portrait, shoulders, waist-up, mirror shots, bathroom ritual shots, and outdoor walking lifestyle shots, but the body must not be emphasized. Keep attention on skin texture, hands applying sunscreen, product packaging, morning ritual, and confident protected face.\n\nSKIN REALISM\n\nSkin must look human and unfiltered: visible pores, peach fuzz, tiny fine lines, slight under-eye texture, natural skin tone variation, realistic facial micro texture, matte-hydrated finish. No glossy skin, no oily shine, no wet-look face, no waxy AI skin, no porcelain smoothing, no glam beauty filter, no fake glow.\n\nPRODUCT REFERENCE\n\nUse the exact La Roche-Posay Anthelios UVMune 400 Hydrating Cream SPF50+ product reference: white tube, orange square logo, black La Roche-Posay typography, orange SPF50+ panel, light blue hydrating cream band, orange lower panel, white pump-cap base. Product shape and color blocking must remain consistent.\n\nMUSIC DIRECTION\n\nSoft elegant premium skincare music throughout: gentle piano, airy ambient pads, subtle low-end warmth, very light modern electronic pulse, calm emotional lift. Music should feel expensive, dermatological, trustworthy, and international. Never loud, never dramatic, never trailer-like, never distracting. The music should support the tactile sound design without overpowering it.",
-   "promptPreview": "35mm anamorphic, 2.39:1, no flares. Ultra-realistic international French pharmacy skincare commercial for La Roche-Posay Anthelios UVMune 400 Hydrating Cream SPF50+. Soft premium music plus tactile realistic sound effect",
-   "category": "Scenes & Storytelling",
-   "styles": [
-    "UI",
-    "Poster",
-    "Realistic"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Fashion"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-487",
-   "orig_title": "法式药妆商业分镜封面"
-  },
-  {
-   "id": 486,
-   "title": "RCB Championship Mixed Media Poster",
-   "image": "/static/template-library/images/case486.jpg",
-   "imageAlt": "RCB Championship Mixed Media Poster",
-   "sourceLabel": "@AIwithkhan",
-   "sourceUrl": "https://x.com/AIwithkhan/status/2061305471492096301",
-   "prompt": "Ultra-detailed mixed-media sports poster featuring the SAME woman from the reference image, wearing a Royal Challengers Bengaluru (RCB) jersey, holding the IPL trophy beside her. Dynamic fusion of realistic portrait photography, sketch art, watercolor splashes, paint strokes, ink scribbles, and digital painting effects. Explosive red, black, gold, and white color palette. Dramatic championship atmosphere with confetti, fireworks, cheering stadium crowd, RCB flags waving in the background, paint splatter textures, hand-drawn line art accents, and energetic brushwork.\n\nThe woman has a confident expression, bold red lipstick, flawless skin, short black bob haircut, cinematic lighting, ultra-sharp blue eyes, premium sports-fashion styling. RCB face paint on cheek, luxury gold jewelry accents, highly detailed jersey fabric.\n\nLarge typography on the right side reading:\n\nRCB\nIPL CHAMPIONS\n2026\n\nHandwritten slogan at bottom left:\n\nEe Sala Cup Namde!\n\nPremium championship poster design, trending Behance artwork, sports magazine cover aesthetic, layered paint textures, realistic trophy reflections, high contrast, ultra-detailed, 8K, masterpiece, award-winning digital art, vibrant colors, cinematic composition, splash art, sketch effect, watercolor effect, paint explosion effect, mixed-media illustration, poster-worthy design.",
-   "promptPreview": "Ultra-detailed mixed-media sports poster featuring the SAME woman from the reference image, wearing a Royal Challengers Bengaluru (RCB) jersey, holding the IPL trophy beside her. Dynamic fusion of realistic portrait phot",
-   "category": "Posters & Typography",
-   "styles": [
-    "Poster",
-    "Realistic",
-    "Illustration"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Fashion"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-486",
-   "orig_title": "RCB 冠军混合媒介海报"
-  },
-  {
    "id": 485,
    "title": "Fashion Catalog E-commerce Collage",
    "image": "/static/template-library/images/case485.jpg",
@@ -1161,54 +1043,6 @@
    "featured": false,
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-479",
    "orig_title": "杂志纸艺拼贴重绘"
-  },
-  {
-   "id": 478,
-   "title": "Layered Brand Editorial Poster",
-   "image": "/static/template-library/images/case478.jpg",
-   "imageAlt": "Layered Brand Editorial Poster",
-   "sourceLabel": "@iamaiistudio",
-   "sourceUrl": "https://x.com/iamaiistudio/status/2060000278657839398",
-   "prompt": "[BRAND NAME]. You are a world-class editorial designer.\n\nSTEP 1, DYNAMIC SUBJECT LOGIC:\n- Subject pick: independently study [BRAND NAME] and choose the right hero subject.\n- Sandwich layering: weave the subject through the background shapes. Parts of the car or figure must sit hidden behind geometric blocks, while other parts (wheels, limbs, props) overlap in front of those blocks to fake real 3D depth.\n\nSTEP 2, GRID & GEOMETRY:\n- Layout: a clean 2x2 grid composition.\n- Overlays: drop large bold geometric arcs and circles on top of the grid.\n- Visual balance: place one iconic product prop (a floating key fob for cars, a ball for sports, etc.) in its own quadrant to counterweight the subject.\n\nSTEP 3, SOPHISTICATED MUTED PALETTE:\n- No aggressive neon, no oversaturated colors.\n- Pull [BRAND NAME]'s core colors and shift them into a \"sophisticated muted\" range. Use desaturated, earthy, dusty versions of the brand colors (dusty rose instead of hot pink, sage green instead of bright mint, slate blue instead of royal blue).\n- Finish: matte flat color blocks, zero gradients.\n\nSTEP 4, PHOTOGRAPHY & LIGHTING:\n- Subject style: high-end commercial studio photography.\n- Lighting: soft diffused studio light, gentle highlights, no harsh shadows.\n- Integration: the subject must feel physically embedded into the graphic grid.\n\nSTEP 5, MINIMALIST BRANDING:\n- Drop a clean single-color [BRAND NAME] logo dead-center on one background block. No tagline, just the iconic symbol.",
-   "promptPreview": "[BRAND NAME]. You are a world-class editorial designer. STEP 1, DYNAMIC SUBJECT LOGIC: - Subject pick: independently study [BRAND NAME] and choose the right hero subject. - Sandwich layering: weave the subject through th",
-   "category": "Brand & Logos",
-   "styles": [
-    "Poster",
-    "Realistic",
-    "Product"
-   ],
-   "scenes": [
-    "Commerce",
-    "Food",
-    "Story"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-478",
-   "orig_title": "夹层式品牌编辑海报"
-  },
-  {
-   "id": 477,
-   "title": "Creative Instagram Tabletop Flat Lay",
-   "image": "/static/template-library/images/case477.jpg",
-   "imageAlt": "Creative Instagram Tabletop Flat Lay",
-   "sourceLabel": "@iamaiistudio",
-   "sourceUrl": "https://x.com/iamaiistudio/status/2060210845225980366",
-   "prompt": "Top-down ultra-wide hyper-realistic shot of 4 real people seated at a square dining table. Pull the camera way back so a wide ring of empty floor surrounds the whole scene, giving a clean minimal composition. Scene [ATMOSPHERE + WARDROBE]: the four are styled in [OUTFIT STYLE]. Each one is doing something specific: [DESCRIBE EACH PERSON'S ACTION].\n\nThe table itself is a physical prop built to look like an Instagram post viewed from above:\n- A solid white band runs along the TOP and BOTTOM edges only, with no white on the left or right sides.\n- Top band: a small drawn profile avatar with [LOGO DESCRIPTION], the handle \"[USERNAME]\", a tiny blue verified check next to it, and a \"...\" on the far right.\n- Bottom band: red heart, comment bubble, and share icons painted on the left, bookmark icon on the right.\n\nThe center of the table is one flat color: [EXACT COLOR + HEX CODE]. All food, drinks, props, and any hand interacting with them must stay strictly inside that central colored zone, nothing crosses the white bands or the table edge. The floor around the table is [FLOOR COLOR] to create clear visual separation. Professional studio lighting with crisp shadows, 8k, tack-sharp focus.",
-   "promptPreview": "Top-down ultra-wide hyper-realistic shot of 4 real people seated at a square dining table. Pull the camera way back so a wide ring of empty floor surrounds the whole scene, giving a clean minimal composition. Scene [ATMO",
-   "category": "Scenes & Storytelling",
-   "styles": [
-    "UI",
-    "Realistic",
-    "Brand"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Social"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-477",
-   "orig_title": "Instagram 餐桌俯拍创意"
   },
   {
    "id": 476,
@@ -1610,31 +1444,6 @@
    "orig_title": "棋盘低角度奢华男装 Campaign"
   },
   {
-   "id": 459,
-   "title": "Brand Milk Tea KV Concept Poster",
-   "image": "/static/template-library/images/case459.jpg",
-   "imageAlt": "Brand Milk Tea KV Concept Poster",
-   "sourceLabel": "@liyue_ai",
-   "sourceUrl": "https://x.com/liyue_ai/status/2057739678485495885",
-   "prompt": "You are a brand visual identity system, commercial advertising creative director, KV poster designer, and high-virality brand visual generation system.\n\nBased on the user input [brand name], automatically identify the brand's most representative logo image, brand name typography characteristics, main product, product packaging, brand colors, visual tone, target audience, and advertising communication style, and generate a concept KV poster that fits the brand's temperament.\n\nCreative Positioning:\n- Brand-inspired Concept Key Visual based on real brand perception for secondary creation.\n- For personal learning, visual practice, and social media display.\n\nIt does not require a strict 1:1 official replication, but must achieve:\n- High brand recognizability;\n- Distinctive brand logo style;\n- Clear brand representative product;\n- Accurate brand tone;\n- Overall appearance resembling a visual ad that would appear for this brand.\n\n────────────────\nI. User Input\n────────────────\n\nBrand Name: [brand name]\nMain Product: [optional, if not filled, automatically identify the brand's most representative product]\nSlogan: [optional, if not filled, automatically generate an original slogan based on brand tone]\nTarget Audience: [optional, if not filled, automatically determine]\nAspect Ratio: [9:16 / 16:9 / 4:5 / 1:1 / 2.35:1]\nKV Type: [Product Hero KV / Brand Emotion KV / Strong Slogan Communication KV / Character Scene KV / Surreal Concept KV / Auto Select]\nPlatform Usage: [Xiaohongshu / X / Official Account Cover / Visual Practice / Concept Proposal]\n\n────────────────\nII. Automatic Identification Logic\n────────────────\n\nPlease automatically complete the following identification based on the brand name. Do not display the analysis process in the image:\n\n1. Automatically identify the industry of the brand.\nExamples: Technology, Sports, Beauty, Luxury, Automotive, Beverages, Coffee, Apparel, Streetwear, Skincare, Jewelry, Lifestyle, Digital, Home, etc.\n\n2. Automatically identify the brand's most representative visual assets.\nIncluding:\n- Brand logo image\n- Brand name typography style\n- Main colors and auxiliary colors\n- Most representative product\n- Packaging appearance features\n- Common brand advertising style\n- Brand scene atmosphere\n- Brand material texture and lighting method\n\n3. Automatically identify the brand's target audience.\nExamples: Young trendy crowd, urban white-collar workers, refined women, sports enthusiasts, tech users, high-end consumers, Gen Z, business professionals, etc.\n\n4. Automatically identify the brand's advertising tone.\nExamples: Minimalist luxury, youthful vitality, passionate impact, restrained luxury, gentle romance, tech rationality, fashion avant-garde, lifestyle-oriented, etc.\n\n────────────────\nIII. Logo and Product Identification Rules\n────────────────\n\nThis task allows the AI to automatically identify brand visual assets based on the brand name. Users are not required to upload logos or product images.\n\nPlease adhere to the following principles:\n\n1. Brand Logo\n- The image must contain a clear brand identifier.\n- The logo or brand name text must have high recognizability.\n- It does not need to be a 100% precise replica, but must immediately evoke the brand.\n- Do not generate completely unfamiliar, irrelevant, or strongly erroneous identifiers.\n- Do not allow obvious typos, garbled text, or random distortions in the brand name.\n\n2. Brand Product\n- Automatically select the brand's most representative main product or classic product as the main visual.\n- The product's appearance, packaging, color, and temperament should be close to the public's common perception of the brand.\n- It does not need to be strictly industrial-grade replication.\n- But it must look like \"the real representative product of this brand,\" avoiding completely unfamiliar products.\n\n3. Brand Packaging and Materials\n- Automatically identify the brand's common packaging and material language.\n- Such as metal, glass, frosted, plastic, leather, paper box, minimalist packaging, luxury packaging, sporty materials, etc.\n- The product must have realistic commercial visual texture.\n\n────────────────\nIV. KV Creative Direction\n────────────────\n\nPlease automatically select the most suitable KV creative method based on brand attributes.\n\nIf it is a technology brand:\nUse minimalism, futuristic feel, realistic product texture, calm whitespace, restrained lighting, and clean space.\n\nIf it is a sports brand:\nUse sense of speed, power, body dynamics, sweat, sprinting, breakthrough, and strong slogan feel.\n\nIf it is a beauty brand:\nUse soft light, refined products, skin texture, feminine temperament, color emotion, and fashion editorial feel.\n\nIf it is a luxury brand:\nUse high-end materials, whitespace, low-saturation tones, ordered composition, scarcity, and fashion editorial feel.\n\nIf it is a beverage brand:\nUse icy freshness, liquid, bubbles, youthful feel, happy atmosphere, color impact, and refreshing materials.\n\nIf it is a coffee brand:\nUse warmth, urban life, relaxed atmosphere, green or wood textures, and morning companionship feel.\n\nIf it is an automotive brand:\nUse roads, speed, future space, metal texture, city night scenes, and driving desire.\n\nIf it is a streetwear brand:\nUse street, rebellion, youth, graphic feel, visual impact, and social media virality.\n\n────────────────\nV. Slogan Rules\n────────────────\n\nIf the user does not input a slogan, please automatically generate an original slogan based on the brand tone.\n\nRequirements:\n- The slogan should not be too long.\n- It must have brand feel and communication potential.\n- Do not use official original slogans.\n- It does not need to look like a formal corporate announcement.\n- It should look more like a main headline for a concept ad.\n\nChinese slogan suggestion:\n4 to 12 characters.\n\nEnglish slogan suggestion:\n2 to 6 words.\n\nThe slogan style must match the brand, for example:\n\nTechnology brand:\nLess interference, closer to the future.\n\nSports brand:\nStep on the limits.\n\nBeauty brand:\nGlow, your own statement.\n\nLuxury brand:\nElegance never shouts.\n\nBeverage brand:\nThis sip, just right to get high.\n\nCoffee brand:\nWake up the city's temperature.\n\nAutomotive brand:\nDrive towards a further order.\n\n────────────────\nVI. Image Structure Requirements\n────────────────\n\nThe entire image must have the basic structure of a real brand KV:\n\n1. Brand Identifier Area\nThe brand logo or brand name must be clearly visible and reasonably positioned.\n\n2. Product Main Visual Area\nThe brand's representative product must be prominent and be one of the core elements of the image.\n\n3. Slogan Area\nThe slogan must be clearly readable and have a memorable communication point.\n\n4. Brand Atmosphere Area\nBackground, lighting, materials, space, and colors must fit the brand tone.\n\n5. Information Hierarchy Area\nThe image hierarchy is suggested as:\nBrand identifier\nProduct subject\nSlogan\nSmall amount of auxiliary text\n\nDo not use too much text. Do not make it a densely packed poster.\n\n────────────────\nVII. Style Requirements\n────────────────\n\nThe overall visual must have:\n- High recognizability brand feel\n- High-end commercial advertising texture\n- Clear brand identifier\n- Obvious brand product\n- Strong main visual\n- Strong slogan\n- Clean layout\n- Suitable for social media communication\n- Suitable for display on Xiaohongshu and X\n- Completion level resembling \"a concept ad from a famous brand\"\n\nModerate creative freedom is allowed, but core brand recognition must not be lost.\n\n────────────────\nVIII. Aspect Ratio Adaptation\n────────────────\n\nIf it is 9:16:\nSuitable for vertical social posters, product is more focused, slogan placed in the upper-middle area, suitable for mobile browsing.\n\nIf it is 16:9:\nSuitable for horizontal brand KV, cover, or header image, product and slogan form a left-right balance.\n\nIf it is 4:5:\nSuitable for social media feed, subject is closer, brand recognition is more concentrated.\n\nIf it is 2.35:1:\nSuitable for official account cover or wide visual, suitable for large text slogans and strong impact horizontal composition.\n\nIf it is 1:1:\nSuitable for square covers and brand visual display.\n\n────────────────\nIX. Negative Co",
-   "promptPreview": "You are a brand visual identity system, commercial advertising creative director, KV poster designer, and high-virality brand visual generation system.\n\nBased on the user input [brand name], automatic",
-   "category": "Brand & Logos",
-   "styles": [
-    "Poster",
-    "Product",
-    "Brand"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Education"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-459",
-   "orig_title": "品牌奶茶 KV 概念海报",
-   "orig_prompt": "你是一个品牌视觉识别系统、商业广告创意总监、KV海报设计师和高传播品牌视觉生成系统。\n\n请根据用户输入的【现有品牌名称】，自动识别该品牌最具代表性的品牌Logo形象、品牌名称文字识别特征、主推产品、产品包装、品牌色彩、视觉调性、目标人群和广告传播风格，并生成一张符合该品牌气质的概念 KV 海报。\n\n创作定位：\n- 基于真实品牌认知进行二次创作的品牌概念 KV 海报\n- Brand-inspired Concept Key Visual\n- 用于个人学习、视觉练习与社交平台展示\n\n不需要绝对严苛的一比一官方复刻，但必须做到：\n\n品牌识别度高；\n品牌Logo风格明显；\n品牌代表产品明显；\n品牌调性准确；\n整体像该品牌会出现的视觉广告。\n\n────────────────\n一、用户输入\n────────────────\n\n品牌名称：{品牌名称}\n\n主推产品：{可选，不填则自动识别该品牌最具代表性的产品}\n广告语：{可选，不填则根据品牌调性自动生成原创广告语}\n目标人群：{可选，不填则自动判断}\n画幅比例：{9:16 / 16:9 / 4:5 / 1:1 / 2.35:1}\nKV类型：{产品英雄KV / 品牌情绪KV / 强口号传播KV / 人物场景KV / 超现实概念KV / 自动选择}\n平台用途：{小红书 / X / 公众号封面 / 视觉练习 / 概念提案}\n\n────────────────\n二、自动识别逻辑\n────────────────\n\n请根据品牌名称自动完成以下识别，不需要在画面中展示分析过程：\n\n1. 自动识别该品牌所属行业\n例如：\n科技、运动、美妆、奢侈品、汽车、饮品、咖啡、服饰、潮流、护肤、珠宝、生活方式、数码、家居等。\n\n2. 自动识别该品牌最具代表性的视觉资产\n包括：\n品牌Logo形象\n品牌名称文字风格\n主色调与辅助色\n最具代表性的产品\n包装外观特征\n品牌常见广告风格\n品牌场景气质\n品牌材质感与光影方式\n\n3. 自动识别该品牌的目标人群\n例如：\n年轻潮流人群、都市白领、精致女性、运动人群、科技用户、高端消费人群、Z世代、商务人群等。\n\n4. 自动识别该品牌的广告语气质\n例如：\n极简高级、年轻活力、热血冲击、奢华克制、温柔浪漫、科技理性、时尚先锋、生活方式化等。\n\n────────────────\n三、Logo与产品识别规则\n────────────────\n\n本次任务允许 AI 根据品牌名称自动识别品牌视觉资产，不需要用户必须上传 Logo 或产品图。\n\n请遵守以下原则：\n\n1. 品牌Logo\n- 画面中需要有明显的品牌标识\n- Logo 或品牌名称文字要具有较高识别度\n- 不必追求百分之百精确复刻，但必须让人一眼联想到该品牌\n- 不要生成完全陌生、无关、错误感很强的标识\n- 不要让品牌名称出现明显错字、乱码或胡乱变形\n\n2. 品牌产品\n- 自动选择该品牌最具代表性的主推产品或经典产品作为主视觉\n- 产品外观、包装、色彩和气质应接近大众对该品牌的常见认知\n- 不需要绝对严格到工业级复刻\n- 但要保证“像这个品牌的真实代表产品”，避免完全陌生的产品\n\n3. 品牌包装与材质\n- 自动识别该品牌常见包装与材质语言\n- 如金属、玻璃、磨砂、塑料、皮革、纸盒、极简包装、奢华包装、运动感材质等\n- 产品必须具有真实商业视觉质感\n\n────────────────\n四、KV创意方向\n────────────────\n\n请根据品牌属性自动选择最合适的 KV 创意方式。\n\n如果是科技品牌：\n使用极简、未来感、真实产品质感、冷静留白、克制光影、干净空间。\n\n如果是运动品牌：\n使用速度感、力量感、身体动势、汗水、冲刺、突破、强烈口号感。\n\n如果是美妆品牌：\n使用柔光、精致产品、肌肤质感、女性气质、色彩情绪、时尚大片感。\n\n如果是奢侈品牌：\n使用高级材质、留白、低饱和色调、秩序构图、稀缺感、时尚大片感。\n\n如果是饮品品牌：\n使用冰爽、液体、气泡、年轻感、快乐氛围、色彩冲击、清爽材质。\n\n如果是咖啡品牌：\n使用温度、城市生活、松弛氛围、绿色或木质感、晨间陪伴感。\n\n如果是汽车品牌：\n使用道路、速度、未来空间、金属质感、城市夜景、驾驶欲望。\n\n如果是潮流品牌：\n使用街头、反叛、年轻、图形感、视觉冲击和社交传播感。\n\n────────────────\n五、广告语规则\n────────────────\n\n如果用户没有输入广告语，请根据品牌调性自动生成一句原创广告语。\n\n要求：\n\n- 广告语不能太长\n- 要有品牌感和传播感\n- 不使用官方原广告语\n- 不需要像正式企业公告\n- 更像概念广告的主标语\n\n中文广告语建议：\n4到12个字\n\n英文广告语建议：\n2到6个单词\n\n广告语风格要与品牌匹配，例如：\n\n科技品牌：\n更少干扰，更近未来\n\n运动品牌：\n把极限踩在脚下\n\n美妆品牌：\n光泽，自成主张\n\n奢侈品牌：\n优雅，从不喧哗\n\n饮品品牌：\n这一口，刚好上头\n\n咖啡品牌：\n唤醒城市的温度\n\n汽车品牌：\n驶向更远的秩序\n\n────────────────\n六、画面结构要求\n────────────────\n\n整张图必须具备真实品牌 KV 的基本结构：\n\n1. 品牌标识区\n品牌Logo或品牌名称需要清晰可见，位置合理。\n\n2. 产品主视觉区\n品牌代表产品必须明显，是画面核心之一。\n\n3. 广告语区\n广告语清晰可读，具备传播记忆点。\n\n4. 品牌氛围区\n背景、光影、材质、空间和色彩必须符合品牌调性。\n\n5. 信息层级区\n画面层级建议为：\n品牌标识\n产品主体\n广告语\n少量辅助文字\n\n文字不要太多，不要做成密密麻麻的海报。\n\n────────────────\n七、风格要求\n────────────────\n\n整体视觉必须具备：\n\n高识别度品牌感\n高级商业广告质感\n清晰品牌标识\n明显品牌产品\n强主视觉\n强广告语\n干净排版\n适合社交平台传播\n适合小红书和X展示\n具有“像某知名品牌概念广告”的完成度\n\n允许适度创意发挥，但品牌核心识别不能丢失。\n\n────────────────\n八、画幅适配\n────────────────\n\n如果是 9:16：\n适合竖版社交海报，产品更聚焦，广告语放中上区域，适合手机浏览。\n\n如果是 16:9：\n适合横版品牌KV、封面、头图，产品与广告语形成左右平衡。\n\n如果是 4:5：\n适合社交平台信息流，主体更近，品牌识别更集中。\n\n如果是 2.35:1：\n适合公众号封面或宽幅视觉，适合大字广告语和强冲击横版构图。\n\n如果是 1:1：\n适合方形封面与品牌视觉展示。\n\n────────────────\n九、负面限制\n────────────────\n\n不要生成明显错误的品牌名称。\n不要生成过于离谱的Logo变形。\n不要生成与品牌无关的产品。\n不要生成廉价拼贴感。\n不要生成过多小字。\n不要生成杂乱无章的背景。\n不要生成山寨感很强的画面。\n不要生成像促销海报一样的低级电商视觉。\n不要出现二维码、购买链接、价格标签、活动说明。\n不要让整体画面失去品牌调性。\n\n────────────────\n十、最终目标\n────────────────\n\n请生成一张基于真实品牌认知自动识别完成的品牌概念 KV 海报。\n\n要求：\n无需用户上传 Logo 和产品素材；\n由AI自动识别该品牌最具代表性的Logo形象与代表产品；\n不要求绝对严格复刻；\n但必须保持高识别度、高品牌感、高完成度；\n整体像一张高级品牌概念广告海报；\n适合个人学习、视觉练习和社交平台展示。\n\n————\n品牌名称：{蜜雪冰城}\n主推产品：{奶茶}\n广告语：{可选，如果用户不输入，则根据品牌调性自动生成一句高传播感广告语}\n目标人群：{年轻潮流人群}\n画幅比例：{9:16}\nKV类型：{产品英雄KV}\n平台用途：{小红书}"
-  },
-  {
    "id": 458,
    "title": "Paris Autumn Fashion Illustration",
    "image": "/static/template-library/images/case458.jpg",
@@ -1730,29 +1539,6 @@
    "orig_title": "巨型舒适洞洞鞋 Campaign"
   },
   {
-   "id": 454,
-   "title": "Travel Snack Potato Chip Ad Poster",
-   "image": "/static/template-library/images/case454.jpg",
-   "imageAlt": "Travel Snack Potato Chip Ad Poster",
-   "sourceLabel": "@Naiknelofar788",
-   "sourceUrl": "https://x.com/Naiknelofar788/status/2057282710469767241",
-   "prompt": "Ultra-detailed premium travel-food advertisement poster for [CITY/COUNTRY], vertical composition, inspired by luxury Lay’s-style chips advertising. A realistic chips packet placed at the bottom center as the main hero object, matching the exact premium commercial layout of a floating chips campaign.\n\nA cinematic spiral ribbon of sauce, cream, clouds, steam, or flavored swirl rises upward from the chips packet, dynamically wrapping around iconic landmarks, local foods, and cultural elements from [CITY/COUNTRY].\n\nFloating ridged potato chips suspended naturally throughout the spiral motion, interacting with the landmarks and miniature travelers. The chips packet design must feel authentic to [CITY/COUNTRY], featuring regional colors, typography, patterns, and local flavor inspiration while still clearly looking like a premium potato chips package.\n\nInclude only the most iconic landmarks from [CITY/COUNTRY], carefully spaced with clean composition and no clutter. Add miniature travelers naturally interacting with the environment:\n- taking photos\n- exploring landmarks\n- sitting on floating chips\n- riding local transport\n- observing scenery\n- walking through the swirl paths\n\nInclude authentic local foods, ingredients, and atmosphere elements relevant to [CITY/COUNTRY].\n\nBackground should be soft pastel or warm luxury gradient with a circular ceiling portal opening at the top emitting cinematic spotlight beams.\n\nElegant premium commercial lighting, soft shadows, floating particles, realistic depth, balanced negative space, luxury tourism campaign aesthetic, hyper-realistic CGI, highly detailed but minimalist, Instagram-worthy poster design.\n\nComposition rules:\n- one dominant centered chips packet\n- floating ridged potato chips throughout composition\n- one continuous upward spiral motion\n- landmarks layered vertically\n- miniature people sparse and intentional\n- no duplicate landmarks\n- no overcrowding\n- clean premium hierarchy\n- cinematic storytelling through scale contrast\n- premium advertising composition matching high-end chips commercials",
-   "promptPreview": "Ultra-detailed premium travel-food advertisement poster for [CITY/COUNTRY], vertical composition, inspired by luxury Lay’s-style chips advertising. A realistic chips packet placed at the bottom center as the main hero ob",
-   "category": "Products & E-commerce",
-   "styles": [
-    "Poster",
-    "Realistic"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Food"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-454",
-   "orig_title": "旅行美食薯片广告海报"
-  },
-  {
    "id": 453,
    "title": "Enterprise Commercial Brochure Visual System",
    "image": "/static/template-library/images/case453.jpg",
@@ -1843,30 +1629,6 @@
    "featured": false,
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-450",
    "orig_title": "烛光侧室写实摄影"
-  },
-  {
-   "id": 449,
-   "title": "Luxury Mechanical Watch Technical Guide",
-   "image": "/static/template-library/images/case449.jpg",
-   "imageAlt": "Luxury Mechanical Watch Technical Guide",
-   "sourceLabel": "@Gdgtify",
-   "sourceUrl": "https://x.com/Gdgtify/status/2056928396991488312",
-   "prompt": "2x2 grid 16:9, do this for 4 most expensive strangest watches ever made:\n\nclass Haute_Horlogerie_DNA:\n    def __init__(self):\n        self.subject = \"[TIMEPIECE]\"\n        self.parents = {\n            \"composition_parent\": \"Exploded movement diagram with transparent case\",\n            \"material_parent\": \"Brushed titanium, sapphire crystal, rose gold gears, alligator leather\",\n            \"graphic_parent\": \"Swiss manufacture technical brochure with elegant data panels\",\n            \"atmosphere_parent\": \"Crisp daylight studio, pure white background, subtle reflection on polished surfaces\"\n        }\n        self.mutations = {\n            \"semantic_mutation\": \"The balance wheel reveals a miniature cosmos ticking inside\",\n            \"information_mutation\": \"Power reserve indicator, frequency, complication callouts, hand-finishing grades, assembly timeline\",\n            \"medium_mutation\": \"Smooth matte premium paper with embossed logo\",\n            \"scale_mutation\": \"Grain-level view of Côtes de Genève finishing and jewel bearings\"\n        }\n        self.style_mix = [0.30, 0.30, 0.25, 0.10, 0.05]\n\n    def generate_subject(self):\n        subject = \"\"\"\n        [TIMEPIECE] shown in its full mechanical glory. The dial, hands, movement,\n        and strap float in perfect alignment against a bright, clean background.\n        Every gear and spring is highlighted with exacting clarity.\n        \"\"\"\n        return render(\n            subject,\n            format=\"luxury watch advertisement with technical insert\",\n            title=\"[MODEL REFERENCE]\",\n            subtitle=\"[MANUFACTURE / COLLECTION]\",\n            constraints=\"bright white space, metallic brilliance, hyper-detailed, modern elegance\"\n        )",
-   "promptPreview": "2x2 grid 16:9, do this for 4 most expensive strangest watches ever made: class Haute_Horlogerie_DNA:     def __init__(self):         self.subject = \"[TIMEPIECE]\"         self.parents = {             \"composition_parent\":",
-   "category": "Products & E-commerce",
-   "styles": [
-    "Infographic",
-    "Brand",
-    "3D"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Social"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-449",
-   "orig_title": "奢华机械腕表技术图鉴"
   },
   {
    "id": 448,
@@ -1961,30 +1723,6 @@
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-445",
    "orig_title": "旅游照水墨明信片",
    "orig_prompt": "Create a dreamy watercolor travel illustration style from the attached photo. Use hand-painted urban sketchbook aesthetic, delicate ink linework mixed with soft watercolor washes, highly detailed pen-and-ink drawing, loose expressive brush strokes, watercolor bleeding edges, ultra detailed watercolor texture, soft beige paper texture background, architectural sketch style, vintage travel diary and sketchbook traveler aesthetic, travel journal composition, editorial postcard layout, handwritten medium title:[自定义标题]  at top, handwritten notes:[自定义文案] , date: [自定义日期] and location: [自定义地点]  stamps, natural perspective, atmospheric depth, minimalist negative space, muted earthy palette (warm browns, faded greens, cream whites, soft blue accents), quiet, calm, soft, cozy, nostalgic vibes, cinematic slice-of-life mood, poetic composition, mixed urban sketching with Ghibli-inspired realism, vertical poster design, premium art print quality."
-  },
-  {
-   "id": 444,
-   "title": "Disco Mirror 3D App Icon",
-   "image": "/static/template-library/images/case444.jpg",
-   "imageAlt": "Disco Mirror 3D App Icon",
-   "sourceLabel": "@vista8",
-   "sourceUrl": "https://x.com/vista8/status/2056308962778296715",
-   "prompt": "A premium 3D app icon for [brand name], rounded square tile, glossy glass and chrome material, disco-ball mosaic mirror tiles, sparkling highlights, soft studio lighting, clean minimal background, high-end icon, Blender 3D render, ultra detailed",
-   "promptPreview": "A premium 3D app icon for [brand name], rounded square tile, glossy glass and chrome material, disco-ball mosaic mirror tiles, sparkling highlights, soft studio lighting, clean minimal background, hig",
-   "category": "Brand & Logos",
-   "styles": [
-    "Product",
-    "Brand",
-    "3D"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-444",
-   "orig_title": "迪斯科镜面 3D App 图标",
-   "orig_prompt": "为【品牌名】生成一个高级 3D App 图标，圆角方形底板，玻璃与金属铬材质，迪斯科球镜面马赛克小方块质感，闪亮高光，柔和工作室灯光，干净极简背景，高端产品图标风格，Blender 3D 渲染，超精细\n\n英文版：\n\nA premium 3D app icon for 【Product Name】, rounded square tile, glossy glass and chrome material, disco-ball mosaic mirror tiles, sparkling highlights, soft studio lighting, clean minimal background, high-end icon, Blender 3D render, ultra detailed"
   },
   {
    "id": 443,
@@ -2364,29 +2102,6 @@
    "orig_title": "F1 直播转播围场截图"
   },
   {
-   "id": 427,
-   "title": "9-Frame Fashion Portrait Collage",
-   "image": "/static/template-library/images/case427.jpg",
-   "imageAlt": "9-Frame Fashion Portrait Collage",
-   "sourceLabel": "@saniaspeaks_",
-   "sourceUrl": "https://x.com/saniaspeaks_/status/2054046866497573214",
-   "prompt": "Edit this photo and don't change the face, portrait 9:16. A 9-frame fashion portrait collage featuring a stylish young woman with playful expressions and sporty streetwear aesthetics. The concept combines modern model test photography, casual Gen-Z energy, and clean editorial studio vibes. Each frame captures different candid facial expressions and subtle attitude poses, creating a cool, confident, and slightly mischievous mood. Minimalist composition with strong focus on facial expressions, cap styling, and soft fashion portrait lighting.\n\nFrame Descriptions (9 poses)\n\nFrame 1 – Eyes closed with playful scrunched expression, slight smile, relaxed shoulders.\nFrame 2 – Looking slightly sideways with lips parted, confident casual attitude.\nFrame 3 – Head tilted slightly upward, calm expression, direct cool-girl energy.\nFrame 4 – Eyes closed while sticking tongue slightly out, playful candid vibe.\nFrame 5 – Both index fingers pressing cheeks while making duck lips, cute playful expression.\nFrame 6 – Direct eye contact with subtle smile, relaxed natural pose.\nFrame 7 – Body turned sideways, hand near chin, confident editorial profile look.\nFrame 8 – Eyes squeezed shut while making pout lips, exaggerated playful expression.\nFrame 9 – Wrinkled nose with gritted teeth, rebellious fashion attitude.\n\nShe wears oversized black long sleeves. Soft matte fabric with sporty streetwear silhouette. Relaxed fit with slightly oversized sleeves. Black New York Yankees baseball cap worn forward and backward in different frames. Minimal jewelry. Long soft wavy blonde hair. Soft loose waves with natural texture. Middle-part hairstyle. Hair flowing naturally around shoulders. Soft glam douyin girl makeup. Dewy glass skin finish. Brushed up natural brows, winged eyeliner, wispy natural lashes, soft pink blush (igari blush style), ombre gradient rosy pink lips with glossy finish.\n\nBackground minimal white studio backdrop. Photobooth-style collage layout with black frame borders. Shot with Canon EOS R6 / Sony A7 III / Fujifilm X-T5. High-fashion portrait photography style. 50mm or 85mm portrait lens. Eye-level framing. Tight portrait crop. Centered composition. Photobooth-inspired close-up angles. Soft diffused studio lighting. Balanced frontal light. Minimal harsh shadows. Clean editorial illumination. Cool neutral tones. Slightly desaturated blacks. Soft contrast with crisp details. Subtle film grain. Modern fashion editorial color grading.",
-   "promptPreview": "Edit this photo and don't change the face, portrait 9:16. A 9-frame fashion portrait collage featuring a stylish young woman with playful expressions and sporty streetwear aesthetics. The concept combines modern model te",
-   "category": "Photography & Realism",
-   "styles": [
-    "Realistic",
-    "Character"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Social"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-427",
-   "orig_title": "9-frame 时尚人像拼贴"
-  },
-  {
    "id": 426,
    "title": "Korean Cafe Couple Photos",
    "image": "/static/template-library/images/case426.jpg",
@@ -2433,30 +2148,6 @@
    "featured": false,
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-425",
    "orig_title": "黑白时尚人像拼贴海报"
-  },
-  {
-   "id": 424,
-   "title": "Neon Lollipop FMCG Advertisement",
-   "image": "/static/template-library/images/case424.jpg",
-   "imageAlt": "Neon Lollipop FMCG Advertisement",
-   "sourceLabel": "@Diplomeme",
-   "sourceUrl": "https://x.com/Diplomeme/status/2054061713583219149",
-   "prompt": "Hyper-realistic cinematic FMCG billboard advertising poster for Chupa Chups India, focusing on playful energy, bold flavor explosion, and Gen-Z candy culture.\n\nScene: a giant glossy Chupa Chups lollipop floating above a vibrant Indian street at night, candy shards and liquid flavor bursts exploding outward mid-air.\n\nEnvironment: neon-lit urban backdrop inspired by Mumbai nightlife, glowing signage, reflective wet streets, colorful haze.\n\nSubject: oversized strawberry swirl lollipop as the hero object, ultra-detailed glossy texture, cinematic flavor splash motion.\n\nVisual storytelling: iconic Chupa Chups flower logo glowing subtly on wrapper, reflections visible on wet surfaces and candy syrup splashes.\n\nComposition: dramatic low-angle shot, giant centered product dominating frame, dynamic explosion spreading diagonally across billboard composition.\n\nTypography:\ntop left — Chupa Chups logo.\ncenter massive — “UNWRAP THE FUN” ultra bold playful typography.\nbehind product (oversized layered text) — “LICK / SPIN / REPEAT”.\nmid-left — “FLAVOR THAT POPS.” bold condensed font.\nbottom left — “STRAWBERRY BURST · GLOBAL ICON · 2026 EDITION”.\nbottom right — “http://chupachups.com”.\nleft vertical edge — “FUN · FLAVOR · CANDY CULTURE”.\n\nTypography style: playful bold sans-serif, glossy layered opacity, oversized billboard scale.\n\nColor palette: vibrant reds, yellows, pinks, neon orange accents, glossy candy textures.\n\nLighting: dramatic neon backlight with glowing highlights and candy reflections.\n\nAtmosphere: sugar particles, mist, syrup splashes, floating candy dust.\n\nMood: energetic, youthful, addictive, vibrant.\n\nShot on ARRI Alexa Mini LF, 35mm anamorphic, HDR, ultra cinematic, premium FMCG billboard style, 4:5 portrait.",
-   "promptPreview": "Hyper-realistic cinematic FMCG billboard advertising poster for Chupa Chups India, focusing on playful energy, bold flavor explosion, and Gen-Z candy culture. Scene: a giant glossy Chupa Chups lollipop floating above a v",
-   "category": "Products & E-commerce",
-   "styles": [
-    "UI",
-    "Poster",
-    "Realistic"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Fashion"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-424",
-   "orig_title": "FMCG 棒棒糖霓虹广告"
   },
   {
    "id": 423,
@@ -3244,54 +2935,6 @@
    "orig_title": "羊毛毡国家微缩世界"
   },
   {
-   "id": 389,
-   "title": "Transparent Labs Hydrate Fitness Supplement Campaign",
-   "image": "/static/template-library/images/case389.jpg",
-   "imageAlt": "Transparent Labs Hydrate Fitness Supplement Campaign",
-   "sourceLabel": "@amynys",
-   "sourceUrl": "https://x.com/amynys/status/2051409591137972606",
-   "prompt": "Create a striking campaign poster that stops people mid-scroll for Transparent Labs Hydrate.\n\nBold high-impact supplement advertisement with dramatic black and deep electric blue color palette, gritty premium fitness aesthetic, sharp cinematic lighting, glossy reflections, light smoke atmosphere, intense contrast.\n\nGiant headline typography at top reading “TRANSPARENT LABS HYDRATE” in oversized distressed white and electric blue text.\n\nCenter composition features the exact woman from the attached reference image as a fit athletic female model seated confidently on a studio floor, holding a shaker bottle, with a focused and powerful expression.\n\nChange her clothes into sleek black fitness gym outfit: a black sports bra / tank top and high-waisted black leggings with chunky white sneakers. Large glowing “1%” graphic behind the subject symbolizing daily progress.\n\nFront left foreground shows a matte black Transparent Labs Hydrate tub with modern luxury label reading “HYDRATE”, scoop of electrolyte powder spilled beside the container.\n\nSurround the poster with clean icon-based benefit callouts: replenishes electrolytes, supports hydration, boosts recovery, improves endurance, enhances performance, zero sugar, lab tested, premium quality, no fillers. Strong motivational copy such as “Daily Hydration. Peak Performance.”\n\nHyper realistic textures, polished commercial retouching, premium sports nutrition branding, modern typography layout, social media ad format, ultra detailed, high resolution.",
-   "promptPreview": "Create a striking campaign poster that stops people mid-scroll for Transparent Labs Hydrate. Bold high-impact supplement advertisement with dramatic black and deep electric blue color palette, gritty premium fitness aest",
-   "category": "Posters & Typography",
-   "styles": [
-    "Poster",
-    "Realistic",
-    "Brand"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Social"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-389",
-   "orig_title": "Transparent Labs Hydrate 健身补剂 Campaign"
-  },
-  {
-   "id": 388,
-   "title": "1980s Claude Retro Magazine Ad",
-   "image": "/static/template-library/images/case388.jpg",
-   "imageAlt": "1980s Claude Retro Magazine Ad",
-   "sourceLabel": "@Shinning1010",
-   "sourceUrl": "https://x.com/Shinning1010/status/2051410804805599436",
-   "prompt": "A fictional 1980s magazine advertisement poster introducing “Claude” as a revolutionary home AI assistant, retro commercial print ad style, bold headline at the top reading “Introducing Claude!”, large chrome metallic 3D typography with pink and blue reflections, yellow italic tagline underneath: “The AI assistant that talks back.”\n\nCenter composition: a beige 1980s CRT home computer with chunky keyboard on a wooden desk, green monochrome terminal screen glowing, readable text on screen: “Claude”, subtitle: “The helpful AI assistant.” On the screen, a retro terminal-style conversation reads:\n“YOU: How can you help me today?”\n“CLAUDE: I can answer questions, help you write, summarize information, brainstorm ideas, and explain topics clearly.”\n“YOU:”\n\nA cheerful 1980s family of three gathers around the computer: father in a blue sweater, mother with curly hair in a pink sweater, young boy in a striped sweater, all looking amazed, delighted, and fascinated, warm nostalgic expressions, classic family technology advertising mood.\n\nBackground: dark starry night sky, purple and blue neon perspective grid, retro sci-fi glow, subtle palm silhouettes, sparkling highlights, lens flares, dramatic yet friendly atmosphere.\n\nPoster layout: left side contains stacked retro feature boxes with glowing neon icons, including a question mark, pencil, light bulb, and clock. Each feature box includes short retro advertising copy:\n“ANSWERS QUESTIONS” — Get helpful, clear answers in everyday language.\n“HELPS YOU WRITE” — Draft ideas, notes, letters, and more with ease.\n“GENERATES IDEAS” — Brainstorm, create, and think bigger.\n“AVAILABLE WHENEVER YOU NEED IT” — Day or night, Claude is ready to help.\n\nAdd a small retro text block describing Claude:\n“For the first time, an AI assistant you can have a conversation with. Ask questions. Get answers. Share ideas. Write drafts, notes, and reports. Explore topics, organize thoughts, and solve problems. Claude understands natural language and responds in a clear, helpful way.”\n\nAdd a short highlighted copy block:\n“It’s helpful. It’s thoughtful.\nIt’s always by your side.”\n\nBottom area includes a large “Claude” brand wordmark with colorful diagonal retro stripes, and the slogan:\n“A smarter way to think, write, and explore.”\n\nBottom right has a white promotional price sticker area with bold pink text:\n“Free!!”\nSmaller text underneath:\n“Available now for curious minds everywhere.”\n\nTop right has a bright yellow starburst badge saying:\n“A REVOLUTION IN AI ASSISTANCE!”\n\nInclude a retro product box on the desk labeled “Claude” with small text:\n“SMARTER SOFTWARE FOR MODERN THINKERS.”\n\nInclude a mug or accessory on the desk branded “Claude”.\n\nVisual style: 1985 consumer computer advertisement, airbrushed illustration, glossy print texture, halftone details, nostalgic retro futurism, high saturation, cinematic product lighting, authentic 1980s typography and layout, readable ad composition, detailed vintage commercial poster, highly polished, warm family-friendly mood, retro tech fantasy, vertical poster.\n\nNegative prompts:\nmodern laptop, smartphone, flat design, minimalism, futuristic 2020s interface, cyberpunk overload, messy layout, unreadable typography, distorted text, misspelled words, deformed hands, extra fingers, bad anatomy, duplicate people, plastic skin, overexposed lighting, low resolution, blurry image, warped computer, broken keyboard, cluttered composition, inconsistent vintage style, random symbols, ugly poster design, poor hierarchy, incorrect perspective",
-   "promptPreview": "A fictional 1980s magazine advertisement poster introducing “Claude” as a revolutionary home AI assistant, retro commercial print ad style, bold headline at the top reading “Introducing Claude!”, large chrome metallic 3D",
-   "category": "Posters & Typography",
-   "styles": [
-    "UI",
-    "Poster",
-    "Illustration"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Social"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-388",
-   "orig_title": "1980s Claude 复古杂志广告"
-  },
-  {
    "id": 387,
    "title": "Netflix Homepage Hero UI",
    "image": "/static/template-library/images/case387.jpg",
@@ -3336,27 +2979,6 @@
    "featured": false,
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-386",
    "orig_title": "品牌包络产品广告"
-  },
-  {
-   "id": 385,
-   "title": "Tsingtao Beer Inspired Women's Wear",
-   "image": "/static/template-library/images/case385.jpg",
-   "imageAlt": "Tsingtao Beer Inspired Women's Wear",
-   "sourceLabel": "@Popcraft_ai",
-   "sourceUrl": "https://x.com/Popcraft_ai/status/2051142270381170754",
-   "prompt": "Inspired by Tsingtao (China beer)🍺\n\n“Inspired by this product, design a set of cool-style women's clothing”",
-   "promptPreview": "Inspired by Tsingtao (China beer)🍺 “Inspired by this product, design a set of cool-style women's clothing”",
-   "category": "Other Use Cases",
-   "styles": [
-    "Product"
-   ],
-   "scenes": [
-    "Commerce",
-    "Fashion"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-385",
-   "orig_title": "青岛啤酒灵感女装系列"
   },
   {
    "id": 384,
@@ -3470,53 +3092,6 @@
    "featured": false,
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-380",
    "orig_title": "冠状病毒尺度缩放科学信息图"
-  },
-  {
-   "id": 379,
-   "title": "Brand Personality Comic Infographic",
-   "image": "/static/template-library/images/case379.jpg",
-   "imageAlt": "Brand Personality Comic Infographic",
-   "sourceLabel": "@CallumGrey",
-   "sourceUrl": "https://x.com/CallumGrey/status/2051293342139584922",
-   "prompt": "Using the uploaded logo, create a highly detailed, comic-style infographic poster:\n\n“What This Brand Feels Like”\n\nGOAL:\nTurn the brand into a living personality and visually explain how it behaves, speaks, and interacts with the world.\nThis must feel like a mix of: brand strategy + character design + comic storytelling.\n\n---\n\nCORE RULE:\nEverything must come from the logo:\n- colors\n- style\n- tone\n- personality\n\nNo generic personality traits.\n\n---\n\nMAIN STRUCTURE:\nVertical 4:5 poster\nDense layout with multiple panels\nComic + infographic hybrid\n\n---\n\nTOP SECTION:\n- Brand name\n- Short personality statement (max 6 words)\nExample: “Quiet confidence with sharp edges”\n\n---\n\nMAIN CHARACTER (VERY IMPORTANT):\nCreate a central character representing the brand:\n- humanized version of the brand\n- outfit reflects brand style\n- posture + expression reflect personality\n\n---\n\nAROUND THE CHARACTER:\nCreate 6–8 comic panels showing how the brand behaves in different situations.\n\n---\n\nSCENARIO IDEAS:\n- Talking to customers\n- Handling competition\n- Selling a product\n- Social media presence\n- Reacting to criticism\n- Daily “brand life” moment\n\n---\n\nFOR EACH PANEL:\nInclude:\n- short caption (max 6 words)\n- speech bubble or internal thought\n- clear visual action\n\n---\n\nTONE EXAMPLES:\nLuxury brand: calm, confident, minimal speech\nPlayful brand: loud, chaotic, expressive\nTech brand: precise, logical, clean\n\n---\n\nPERSONALITY TRAITS SECTION:\nAdd small labeled blocks:\n- Voice tone (e.g. calm, bold, playful)\n- Energy level (low / medium / high)\n- Social behavior (introvert / extrovert)\n- Communication style\n\nUse:\n- icons\n- short labels\n\n---\n\nDO / DON’T SECTION:\nAdd a split block:\nDO:\n- how the brand should act\nDON’T:\n- what breaks the identity\n\nKeep:\n- very short phrases\n\n---\n\nVISUAL ELEMENTS:\n- speech bubbles\n- icons\n- arrows\n- small reactions\n- exaggerated comic expressions\n\n---\n\nSTYLE:\n- comic + editorial hybrid\n- slightly exaggerated but still premium\n- expressive but not childish\n\n---\n\nCOLOR:\n- strictly based on logo palette\n- use color to reinforce personality\n\n---\n\nDEPTH:\n- 20–40 visual elements\n- multiple small panels\n- layered composition\n\n---\n\nIMPORTANT RULES:\n- must feel alive\n- must feel specific\n- no generic marketing words\n- no empty areas\n- keep text short but impactful\n\n---\n\nFINAL FEEL:\nLike:\n- a brand strategy turned into a character\n- a visual storytelling board\n- something people save and study\n\nNOT:\n- flat\n- generic\n- minimal",
-   "promptPreview": "Using the uploaded logo, create a highly detailed, comic-style infographic poster: “What This Brand Feels Like” GOAL: Turn the brand into a living personality and visually explain how it behaves, speaks, and interacts wi",
-   "category": "Brand & Logos",
-   "styles": [
-    "UI",
-    "Infographic",
-    "Poster"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Social"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-379",
-   "orig_title": "品牌人格漫画信息图"
-  },
-  {
-   "id": 378,
-   "title": "Premium 3D Collectible Toy Avatar",
-   "image": "/static/template-library/images/case378.jpg",
-   "imageAlt": "Premium 3D Collectible Toy Avatar",
-   "sourceLabel": "@Genematicai",
-   "sourceUrl": "https://x.com/Genematicai/status/2050654848216109429",
-   "prompt": "Transform the input photo into a high-end stylized 3D collectible figure. Large head, slightly exaggerated facial features while preserving identity. Hyper-detailed skin texture with subtle pores, realistic wrinkles, and a cinematic expression.\n\nSmooth matte vinyl finish. Soft studio lighting, clean black background. Ultra-sharp focus, 8K render, photorealistic materials, Pixar-quality rendering, centered composition, full body, premium designer toy aesthetic.",
-   "promptPreview": "Transform the input photo into a high-end stylized 3D collectible figure. Large head, slightly exaggerated facial features while preserving identity. Hyper-detailed skin texture with subtle pores, realistic wrinkles, and",
-   "category": "Characters & People",
-   "styles": [
-    "Realistic",
-    "Brand",
-    "3D"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce"
-   ],
-   "featured": true,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-378",
-   "orig_title": "高端 3D 收藏玩具头像"
   },
   {
    "id": 377,
@@ -3793,31 +3368,6 @@
    "orig_title": "咖啡馆写实照片与 2D 涂鸦叠加"
   },
   {
-   "id": 365,
-   "title": "Scientist Collector Edition Toy Launch Board",
-   "image": "/static/template-library/images/case365.jpg",
-   "imageAlt": "科学家收藏级玩具发布板",
-   "sourceLabel": "@Gdgtify",
-   "sourceUrl": "https://x.com/Gdgtify/status/2049766203392921897",
-   "prompt": "2x2 grid, do this for 4 famous scientists in history: Design a collector-grade launch visual for [TOY / FIGURE / DESIGNER OBJECT] shown in pristine hero form along with interchangeable accessories, alternate expressions, packaging design, scale references, sticker details, rarity indicators, and close-up material highlights. The object should feel like a luxury drop, somewhere between art toy culture and elite product branding. Accessory Layout: Arrange [ACCESSORY 1], [ACCESSORY 2], [ALT VERSION], [PACKAGING FEATURE], and [LIMITED EDITION DETAIL] around the figure in carefully staged clusters. Everything should feel desirable, neat, and “unboxable.” Visual Style: Hype-culture collectible reveal meets premium e-commerce launch campaign. Clean, glossy, tactile, designer-toy sophistication with a playful but expensive sensibility. Composition Guidelines: Hero figure remains dominant. Accessories should be balanced and elegantly spaced. Packaging should be visible but not steal the scene. The entire image should feel like a product collectors would screenshot instantly. Lighting & Background: Soft commercial lighting with subtle specular highlights, polished background in [BACKGROUND STYLE], crisp shadows, premium color separation, ultra-sharp details, no watermark.",
-   "promptPreview": "2x2 grid, do this for 4 famous scientists in history: Design a collector-grade launch visual for [TOY / FIGURE / DESIGNER OBJECT] shown in pristine hero form along with interchangeable accessories, al",
-   "category": "Products & E-commerce",
-   "styles": [
-    "UI",
-    "Product",
-    "Brand"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Education"
-   ],
-   "featured": true,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-365",
-   "orig_prompt": "2x2 grid, do this for 4 famous scientists in history: Design a collector-grade launch visual for [TOY / FIGURE / DESIGNER OBJECT] shown in pristine hero form along with interchangeable accessories, alternate expressions, packaging design, scale references, sticker details, rarity indicators, and close-up material highlights. The object should feel like a luxury drop, somewhere between art toy culture and elite product branding.  Accessory Layout: Arrange [ACCESSORY 1], [ACCESSORY 2], [ALT VERSION], [PACKAGING FEATURE], and [LIMITED EDITION DETAIL] around the figure in carefully staged clusters. Everything should feel desirable, neat, and “unboxable.”  Visual Style: Hype-culture collectible reveal meets premium e-commerce launch campaign. Clean, glossy, tactile, designer-toy sophistication with a playful but expensive sensibility.  Composition Guidelines: Hero figure remains dominant. Accessories should be balanced and elegantly spaced. Packaging should be visible but not steal the scene. The entire image should feel like a product collectors would screenshot instantly.  Lighting & Background: Soft commercial lighting with subtle specular highlights, polished background in [BACKGROUND STYLE], crisp shadows, premium color separation, ultra-sharp details, no watermark.",
-   "orig_title": "科学家收藏级玩具发布板"
-  },
-  {
    "id": 364,
    "title": "Luxury Personal Color Profile Infographic",
    "image": "/static/template-library/images/case364.jpg",
@@ -3840,30 +3390,6 @@
    "featured": false,
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-364",
    "orig_title": "奢华个人色彩档案信息图"
-  },
-  {
-   "id": 363,
-   "title": "Magnetic Iron Powder Logo Physics",
-   "image": "/static/template-library/images/case363.jpg",
-   "imageAlt": "Magnetic Iron Powder Logo Physics",
-   "sourceLabel": "@Naiknelofar788",
-   "sourceUrl": "https://x.com/Naiknelofar788/status/2049835482331357460",
-   "prompt": "Transform the uploaded logo into a hyper-realistic scene where the logo silhouette is formed by iron filings reacting to a magnetic field. The logo must keep its exact shape and proportions, appearing as if a magnet shaped like the logo (or hidden beneath the surface) is influencing the filings to align naturally into that recognizable formation. Material details:\nFine iron filings with sharp, spiky, needle-like structures.\nDense clustering along magnetic field lines forming the logo silhouette.\nVariation in density — thick near magnetic poles, thinner outward.\nMatte dark metallic texture with subtle reflections.\n\nPhysics behavior:\nIron filings must follow realistic magnetic field patterns — radial and curved lines forming spikes and ridges.\nStronger attraction zones create thicker, raised clusters.\nOuter areas show softer, more dispersed alignment.\nNatural randomness and slight irregularity — no perfect edges.\nSome loose filings scattered beyond the main shape.\n\nSurface interaction:\nFlat surface such as a lab table, glass plate, or matte black tray.\nFilings resting on surface but visibly lifted in areas due to magnetic force (spiky texture).\nSubtle dust and micro particles around.\n\nEnvironment & human presence:\nRealistic classroom, science lab, or creative studio environment.\nA person partially visible — hands holding or moving a magnet beneath the surface or nearby.\nPossibly a child or adult observing or interacting (adds emotional curiosity).\nOther subtle elements: notebooks, tools, or lab items out of focus.\n\nLighting:\nDirectional overhead light creating shadows from raised filings.\nSubtle highlights on metallic edges.\nBalanced natural or indoor lighting.\n\nAtmosphere:\nCuriosity.\nDiscovery.\nEducational yet visually satisfying.\nQuiet but engaging moment.\n\nCamera & composition:\nTop-down or slightly angled close-up view.\nLogo clearly visible through iron filing formation.\nHuman hands or interaction slightly off-center for storytelling.\n\nFormat:\nAspect ratio: STRICT 4:5 vertical.\nNo text overlays.\n\nStyle:\nHyper-real macro + environmental photography.\nPhysically accurate magnetic behavior.\nCinematic yet grounded realism.",
-   "promptPreview": "Transform the uploaded logo into a hyper-realistic scene where the logo silhouette is formed by iron filings reacting to a magnetic field. The logo must keep its exact shape and proportions, appearing as if a magnet shap",
-   "category": "Other Use Cases",
-   "styles": [
-    "UI",
-    "Poster",
-    "Realistic"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Education"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-363",
-   "orig_title": "磁场铁粉 Logo 物理成像"
   },
   {
    "id": 362,
@@ -3890,26 +3416,6 @@
    "orig_title": "抹茶品牌触点系统视觉板"
   },
   {
-   "id": 361,
-   "title": "Exploded View of a Smartphone",
-   "image": "/static/template-library/images/case361.jpg",
-   "imageAlt": "Exploded View of a Smartphone",
-   "sourceLabel": "@Ankit_patel211",
-   "sourceUrl": "https://x.com/Ankit_patel211/status/2048834306379075759",
-   "prompt": "Create a 3D Insane detailed exploded assembly drawing of [subject or object]",
-   "promptPreview": "Create a 3D Insane detailed exploded assembly drawing of [subject or object]",
-   "category": "Charts & Infographics",
-   "styles": [
-    "3D"
-   ],
-   "scenes": [
-    "Tech"
-   ],
-   "featured": true,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-361",
-   "orig_title": "手机爆炸拆解图"
-  },
-  {
    "id": 360,
    "title": "Long Hair Styling Analysis Infographic",
    "image": "/static/template-library/images/case360.jpg",
@@ -3932,30 +3438,6 @@
    "featured": true,
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-360",
    "orig_title": "长发造型分析信息图"
-  },
-  {
-   "id": 359,
-   "title": "Ink Wash Double Exposure Portrait",
-   "image": "/static/template-library/images/case359.jpg",
-   "imageAlt": "Ink Wash Double Exposure Portrait",
-   "sourceLabel": "@Goodmanprotocol",
-   "sourceUrl": "https://x.com/Goodmanprotocol/status/2049002279051895243",
-   "prompt": "A cinematic character promotional poster of [SUBJECT], vertical composition (9:16), designed with a refined East-Asian ink aesthetic and high-end visual storytelling.\n\nSTRUCTURE:\nTop-heavy hierarchical layout. The upper half features a large, highly recognizable silhouette of [SUBJECT]'s head / face / mask / upper body, forming a bold, iconic primary shape. The silhouette should be instantly identifiable.\n\nThe middle-lower section contains the full-body version of [SUBJECT] as a secondary subject, standing in a stable pose or subtle action stance, forming the visual core.\n\nCOMPOSITION STYLE:\nInside the large silhouette and around the character, use double exposure and collage storytelling. Integrate multiple elements:\n- key scenes related to [SUBJECT]\n- symbolic imagery and environment\n- small narrative figures and interactions\n- supporting visual motifs\n\nBlend everything seamlessly using clouds, mist, ink diffusion, and negative space.\n\nVISUAL FLOW:\nCreate a continuous flowing visual path from top to bottom, connecting:\n- upper silhouette\n- inner collage elements\n- full-body subject\n\nEnsure smooth eye guidance and compositional cohesion.\n\nSIDE ELEMENTS:\nAdd balanced supporting elements on left and right sides to create tension, depth, and spatial variation.\n\nSTYLE & ATMOSPHERE:\n- Large areas of negative space\n- Ink-wash diffusion edges, soft fading, subtle fragmentation\n- Eastern aesthetic: balance of emptiness and detail\n- Calm, premium, restrained, cinematic tone\n\nQUALITY:\nUltra-detailed, high resolution, layered depth, soft lighting, atmospheric perspective, cohesive series-style design.\n\nOUTPUT:\n9:16 aspect ratio, poster-ready composition.",
-   "promptPreview": "A cinematic character promotional poster of [SUBJECT], vertical composition (9:16), designed with a refined East-Asian ink aesthetic and high-end visual storytelling. STRUCTURE: Top-heavy hierarchical layout. The upper h",
-   "category": "Posters & Typography",
-   "styles": [
-    "UI",
-    "Poster",
-    "Character"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Story"
-   ],
-   "featured": true,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-359",
-   "orig_title": "水墨双重曝光人物海报"
   },
   {
    "id": 358,
@@ -4074,31 +3556,6 @@
    "orig_prompt": "1. Logo概念生成提示词\n\n你是一位拥有20年经验的顶级Logo设计师，为全球知名品牌设计过即时识别且深具意义的标志。\n\n品牌名称：[你的品牌名]\n行业：[你的行业]\n品牌个性：[描述]\n目标受众：[描述]\n欣赏的视觉身份：[列举3个]\n讨厌的视觉身份：[列举3个]\n偏好风格：[如极简、大胆、几何、有机、复古、未来]\n\n为我的品牌生成5个完全不同的Logo概念。\n\n对每个概念提供：\n\n- 核心视觉理念及象征意义\n- 形状语言及为何适合品牌\n- 字体方向建议\n- 第一眼的情感触发\n- 为何适合目标受众\n- 在名片、App图标和广告牌上的效果\n- 何为永恒而非潮流\n\n然后告诉我，如果这是你的品牌，你会选哪个以及原因。\n\n2. 品牌身份基础提示词\n\n你是为财富500强公司和初创企业建立品牌身份的顶级品牌战略师，这些企业后来融资数百万。\n\n业务名称：[你的业务名]\n业务描述：[一句话]\n目标受众：[详细描述]\n竞争对手：[列举3-5个]\n想触发的感受：[如信任、兴奋、奢华、亲近、力量]\n想关联的词汇：[列举5-10个]\n不想关联的词汇：[列举5-10个]\n\n在设计任何视觉效果之前建立完整的品牌身份基础。\n\n为我提供：\n\n- 品牌原型及为何完美契合\n- 5个具体人类特征描述的品牌个性\n- 带示例的品牌语调指南\n- 核心品牌承诺（一句话）\n- 3个品牌应触发的情感层级\n- 与竞争对手的根本差异\n- 定义品牌的唯一关键词\n\n3. 配色方案提示词\n\n你是色彩心理学专家和品牌设计师，深知色彩如何触发情感、建立信任和驱动购买决策。\n\n品牌名称：[你的品牌名]\n行业：[你的行业]\n目标受众：[年龄、性别、收入、生活方式]\n想触发的首要情感：[如信任、能量、奢华、平静、兴奋]\n前3名竞争对手颜色：[列举]\n喜欢的颜色：[列举]\n讨厌的颜色：[列举]\n\n为我建立完整品牌配色板。\n\n为我提供：\n\n- 主色及其HEX代码和心理学解释\n- 两个辅助色及HEX代码\n- 一个强调色用于CTA和高亮\n- 一个中性色用于背景和文字\n- 每种颜色对目标受众的影响\n- 与竞争对手的差异化\n- 在网站、社交媒体和包装上的应用示例\n- 永远不要搭配的颜色组合及原因\n\n4. 字体方向提示词\n\n你是字体专家和品牌设计师，深知字体如何传达个性、建立可信度和实现品牌即时识别。\n\n品牌名称：[你的品牌名]\n品牌个性：[5个词]\n行业：[你的行业]\n目标受众：[描述]\n字体应触发的感受：[如权威、友好、创新、优雅、能量]\n喜欢的品牌字体：[列举3个]\n\n为我建立完整字体系统。\n\n为我提供：\n\n- 标题用主显示字体名称及为何完美\n- 长文本的辅助字体\n- 引言或重点的强调字体\n- 标题、副标题、正文、说明文字的精确字号层级\n- 字距和行高建议\n- 字体搭配方法\n- 预算有限时的免费替代方案\n- 你所在行业应避免的字体错误\n\n5. 完整品牌身份包提示词\n\n你是顶级品牌代理创意总监，交付覆盖每个触点的完整品牌身份系统。\n\n业务名称：[你的业务名]\n业务描述：[一句话]\n目标受众：[详细描述]\n品牌个性：[5个词]\n行业：[你的行业]\n竞争对手：[列举3个]\n设计工具预算：[免费或付费]\n时间表：[你需要的时间]\n\n在一个回复中交付我的完整品牌身份系统。\n\n包含所有元素：\n\n- 品牌战略基础、原型、个性、承诺和定位\n- Logo概念及3个变体\n- 完整配色板、HEX代码和使用规则\n- 字体系统、名称、字号和层级\n- 视觉方向指南\n- 品牌语调指南和标语选项\n- 社交媒体视觉模板\n- 3条永远不要打破的核心品牌规则\n\n将一切作为结构化品牌手册交付，任何设计师、开发者或AI工具都能在10分钟内完全理解你的品牌。"
   },
   {
-   "id": 353,
-   "title": "Brand Lipstick Recommendation Infographic",
-   "image": "/static/template-library/images/case353.jpg",
-   "imageAlt": "Brand Lipstick Recommendation Infographic",
-   "sourceLabel": "@liyue_ai",
-   "sourceUrl": "https://x.com/liyue_ai/status/2048667226195317219",
-   "prompt": "I. System Role\nYou are a professional beauty consultant + facial analysis system + brand visual design system.\nYour task is: Based on the user's uploaded selfie and the specified lipstick brand, generate a \"Lipstick Recommendation Report Information Structure Diagram\" that embodies the brand's tone.\n\nII. Input Parameters\nUser Image: {User Selfie}\nBrand: {Lipstick Brand, e.g., Dior / YSL / Armani / Chanel / TF}\nStyle Preference (Optional): {Commute / Gentle / Powerful / Atmospheric / Whitening Priority}\nNumber of Recommendations: 3–5\n\nIII. Brand Visual Layer (New Core Module)\nAutomatically construct the visual style (Brand Visual Identity) based on {Brand}, extracting the brand's tone, for example:\nDior:\nElegant, high-end, French, gray-white + silver, soft light\nYSL:\nBlack and gold, sexy, high contrast, fashion editorial feel\nArmani:\nLow saturation, matte, restrained, gray-toned high-end feel\nChanel:\nMinimalist black and white, high-end, rational, clear structure\nTom Ford:\nDark tones, high contrast, luxurious, cinematic feel\n\nApply visuals to the poster:\n1. Main color tone (subtle background variations, not large areas of solid color)\n2. Accent color (used for shade titles / thin lines / small elements)\n3. Lighting style (soft light / high contrast / cool tone / warm tone)\n4. Typography character (elegant / modern / cold / powerful)\n\nIV. Analysis Layer\nAnalyze the user:\n- Skin tone: Cool / Warm / Neutral (+ brightness)\n- Temperament: Cool / Gentle / Bright / Clean / Mature\n- Lip features: Thin / Thick / Base lip color\n- Makeup status: Bare face / Daily / Refined\nOutput a one-sentence summary: \"More suitable for {color family} + {saturation} + {texture} lipstick direction\"\n\nV. Recommendation Layer (Enhanced Differentiation)\nRecommend 3–5 shades from {Brand}:\nEach includes:\n- Shade name (#999)\n- Color family (True Red / Bean Paste / Maple Leaf / Milk Tea / Rose)\n- On-face effect (Whitening / Brightening / Atmospheric / Enhancing Presence)\n- Scene (Shopping / Commute / Dinner / Date / Banquet)\n\nRequirement: Each shade must have a \"clearly distinct style\" (one for daily use, one for presence, one for atmosphere, etc.)\n\nVI. Information Structure Diagram\nGenerate a vertical information structure diagram\nOverall style: Beauty fashion editorial quality + structured information visualization layout + deep integration of brand visual system\nMinimalist but not monotonous, high-end but with visual hierarchy\n\n[Overall Layout]\nTop Left: User Input Area\nTop Right: Analysis Conclusion\nCenter: Try-on Matrix (Core)\nBottom: Summary\n\n## 1️⃣ Top Left (User Area)\nUser selfie (realistic texture)\n+ Subtitle: \"Skin Tone Analysis\"\n+ One-sentence conclusion: \"Suitable for low-saturation rose tones, avoid high-fluorescent colors\"\n\nExtremely thin brand-colored lines (e.g., YSL gold line / Dior gray line)\n\n## 2️⃣ Center (Core Try-on Matrix)\nThis is the visual focus area (occupying 60% or more)\nDisplay method: Arrange 3–5 shades in the form of \"facial try-on comparison\":\nEach column = one shade\nEach shade includes:\n- Small face image (same face, different lip colors)\n- Shade name (e.g., #999)\n- Color family label (e.g., Classic Red)\n- One-sentence effect description\nRequirement: All faces must remain consistent, only lip color changes, realistic try-on effect (lip color try-on), realistic skin texture, not plastic, unified lighting.\nArrangement: Horizontal layout or grid layout (neat but not rigid)\n\nBrand enhancements:\n- Dior: Soft gradient background + soft light shadows\n- YSL: Stronger contrast + black thin dividing lines\n- Armani: Unified gray tone overall, low contrast\n- Chanel: Strict alignment, minimalist black and white\n- TF: Local dark background + highlight emphasis\n\n## 3️⃣ Each Shade Module\nIncludes:\nShade name (prominent)\nColor family label\nOne-sentence recommendation\nScene label (Shopping/Commute/Dinner/Date/Banquet, etc.)\n\nBrand treatment:\n- Use \"brand accent color\" for:\n  - Shade title\n  - Thin dividing lines\n  - Small icons\n(Not color blocks, but \"refined accents\")\n\n## 4️⃣ Bottom Summary\nA \"judgmental suggestion,\"\nFor example: \"For daily use, choose low-saturation bean paste colors to brighten complexion; for important occasions, use true red to enhance presence\"\nOr: \"Your skin tone is more suitable for soft rose tones, avoid high-fluorescent color families\"\nBut do not completely quote the suggestions from the above two examples; provide suggestions based on the user's actual skin tone.\nBrand enhancement: The bottom can include extremely faint brand-style horizontal lines / extremely small brand text (not logo)\n\nVII. UI Design\n- Do not use rounded corner card UI\n- Do not use thick borders\n1. Introduce \"hierarchy contrast\":\n   - Main subject bright\n   - Secondary information weak\n2. Use \"micro-contrast\":\n   - Thin lines\n   - Grayscale differences\n   - Font weight changes\n3. Add \"rhythm\":\n   - Variation in density\n   - Module breathing space\n4. Brand accents:\n   - Only use 5% emphasis\n   - Do not disrupt the minimalist structure\n\nVIII. Image Quality\nRealistic skin texture\nPrecise lip color\nUnified lighting\nCommercial-grade beauty photography\n8K\n\n———\nBrand: YSL",
-   "promptPreview": "I. System Role\nYou are a professional beauty consultant + facial analysis system + brand visual design system.\nYour task is: Based on the user's uploaded selfie and the specified lipstick brand, gener",
-   "category": "Charts & Infographics",
-   "styles": [
-    "UI",
-    "Infographic",
-    "Poster"
-   ],
-   "scenes": [
-    "Commerce",
-    "Food",
-    "Story"
-   ],
-   "featured": true,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-353",
-   "orig_title": "品牌口红推荐报告信息图",
-   "orig_prompt": "一、系统角色\n你是一个专业美妆顾问 + 人脸分析系统 + 品牌视觉设计系统。\n你的任务是：基于用户上传自拍与指定口红品牌，生成一张具有品牌调性的“口红推荐报告信息结构图”。\n\n二、输入参数\n用户图像：{用户自拍}\n品牌：{口红品牌，如 Dior / YSL / Armani / Chanel / TF}\n风格偏好（可选）：{通勤 / 温柔 / 气场 / 氛围感 / 显白优先}\n推荐数量：3–5\n\n三、品牌视觉层（新增核心模块）\n根据 {品牌} 自动构建视觉风格（Brand Visual Identity），提取品牌调性，例如：\nDior：\n优雅、高级、法式、灰白 + 银色、柔光\nYSL：\n黑金、性感、强对比、时尚编辑感\nArmani：\n低饱和、雾面、克制、灰调高级感\nChanel：\n极简黑白、高级、理性、结构清晰\nTom Ford：\n深色、高对比、奢华、电影感\n\n视觉应用到海报：\n1. 主色调（背景微变化，不是大面积铺色）\n2. 强调色（用于色号标题/细线/小元素）\n3. 光影风格（柔光 / 强对比 / 冷调 / 暖调）\n4. 字体气质（优雅 / 现代 / 冷感 / 力量感）\n\n四、分析层\n对用户进行分析：\n- 肤色：冷 / 暖 / 中性（+ 明度）\n- 气质：清冷 / 温柔 / 明艳 / 干净 / 成熟\n- 唇部特征：薄 / 厚 / 唇色基础\n- 妆容状态：素颜 / 日常 / 精致\n输出一句总结：「更适合 {色系} + {饱和度} + {质地} 的口红方向」\n\n五、推荐层（增强差异）\n从 {品牌} 推荐 3–5 个色号：\n每个包含：\n- 色号名称（#999）\n- 色系（正红 / 豆沙 / 枫叶 / 奶茶 / 玫瑰）\n- 上脸效果（显白 / 提气色 / 氛围感 / 气场增强）\n- 场景（逛街 / 通勤 / 聚餐 / 约会 / 宴会）\n\n要求：每个色号“风格明确区分”（一个日常、一个气场、一个氛围感等）\n\n六、信息结构图\n生成竖版信息结构图\n整体风格：美妆时尚大片质感 + 结构化信息可视化排版 + 品牌视觉体系深度融合\n极简但不单调，高级但有视觉层次\n\n【整体布局】\n左上：用户输入区\n右上：分析结论\n中部：试色矩阵（核心）\n底部：总结\n\n## 1️⃣ 左上（用户区）\n用户自拍（真实质感）\n+ 小标题：「肤色分析」\n+ 一句话结论：「适合低饱和玫瑰调，避免高荧光色」\n\n极细品牌色线条（如 YSL 金线 / Dior 灰线）\n\n## 2️⃣ 中部（核心试色矩阵）\n这是视觉重点区域（占比60%以上）\n展示方式：将 3–5 个色号以“人脸试色对比”的形式排列：\n每一列 = 一个色号\n每个色号包含：\n- 小型人脸图（同一张脸，不同唇色）\n- 色号名称（如 #999）\n- 色系标签（如 Classic Red）\n- 一句话效果说明\n要求：所有人脸保持一致，仅唇色变化，真实试色效果（lip color try-on），肤质真实，不塑料，光影统一。\n排列方式：横向排布 或 网格排布（整齐但不死板）\n\n品牌增强点：\n- Dior：轻柔渐变背景 + 柔光阴影\n- YSL：更强对比 + 黑色细分割线\n- Armani：整体灰调统一，低对比\n- Chanel：严格对齐，极简黑白\n- TF：局部暗背景 + 高光强调\n\n## 3️⃣ 每个色号模块\n包含：\n色号名（突出）\n色系标签\n一句推荐语\n场景标签（逛街/通勤/聚餐/约会/宴会等）\n\n品牌化处理：\n- 用“品牌强调色”做：\n  - 色号标题\n  - 细分隔线\n  - 小icon\n（不是色块，而是“精致点缀”）\n\n## 4️⃣ 底部总结\n一段“有判断力的建议”，\n例如：「日常建议选择低饱和豆沙色提升气色，重要场合可使用正红增强气场」\n或：「你的肤色更适合柔和玫瑰调，避免高荧光色系」\n但不要完全引用以上2个例子的建议，根据用户实际肤色来建议。\n品牌增强：底部可加极淡品牌风格横线 / 极小品牌字样（非logo）\n\n七、UI设计\n- 不使用圆角卡片 UI\n- 不使用厚边框\n1. 引入“层级对比”：\n   - 主体亮\n   - 次要信息弱\n2. 使用“微对比”：\n   - 细线\n   - 灰度差\n   - 字重变化\n3. 加入“节奏感”：\n   - 疏密变化\n   - 模块呼吸\n4. 品牌点缀：\n   - 只用 5% 强调\n   - 不破坏极简结构\n\n八、图像质量\n真实皮肤质感\n唇色精准\n统一光影\n商业级美妆摄影\n8K\n\n———\n品牌：YSL"
-  },
-  {
    "id": 352,
    "title": "Dark Xichu Hegemon Chinese Style Poster",
    "image": "/static/template-library/images/case352.jpg",
@@ -4140,30 +3597,6 @@
    "featured": false,
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-351",
    "orig_title": "健身品牌力量 Campaign"
-  },
-  {
-   "id": 350,
-   "title": "Football Player Data Doodle Poster",
-   "image": "/static/template-library/images/case350.jpg",
-   "imageAlt": "Football Player Data Doodle Poster",
-   "sourceLabel": "@ryanpp27",
-   "sourceUrl": "https://x.com/ryanpp27/status/2048602248524214542",
-   "prompt": "Create a scrapbook doodle-style football poster of [PLAYER_NAME].\n\nAI auto-generates realistic career stats (club and national team).\n\nMain photo: realistic, unchanged ([PLAYER_NAME] in action or iconic pose).\n\nDoodles and handwritten notes: white and [PRIMARY_COLOR] neon ink (no warm colors unless specified), arrows, stars, scribbles, sketchy outlines. Add a glowing [PRIMARY_COLOR] outline around the player's body.\n\nLayout (bold handwritten titles and stats):\n- Top Title: \"[PLAYER_NAME]\" plus \"[NICKNAME/TITLE]\"\n- Club Career: total matches and goals plus 2–4 main clubs (apps and goals)\n- Highlights: 2–3 standout achievements (e.g., UCL goals, Ballon d'Or, top scorer)\n- National Team: caps and goals plus 1–2 international achievements\n\nStyle: modern football poster x notebook aesthetic, clean but energetic, slightly messy doodles, high contrast, neon accents on dark or muted background.\n\nImportant: all stats must be realistic and proportional to the player's real career.",
-   "promptPreview": "Create a scrapbook doodle-style football poster of [PLAYER_NAME]. AI auto-generates realistic career stats (club and national team). Main photo: realistic, unchanged ([PLAYER_NAME] in action or iconic pose). Doodles and ",
-   "category": "Posters & Typography",
-   "styles": [
-    "Poster",
-    "Realistic",
-    "Character"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Social"
-   ],
-   "featured": true,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-350",
-   "orig_title": "足球球员数据涂鸦海报"
   },
   {
    "id": 349,
@@ -4258,30 +3691,6 @@
    "orig_prompt": "精致立体刺绣风插画，浅浮雕纤维艺术效果，纯净「蚕丝白 + 奶白」底色，细腻丝线质感。画面为数只小鸟停在蜿蜒花枝上，周围点缀粉白、浅桃、珊瑚粉、淡金色花朵与叶片，构图轻盈雅致、留白充足。鸟儿羽毛以奶白、浅蓝、淡粉、浅金丝线刺绣表现，花枝纤细自然，花朵层层叠线，整体呈现高级手工刺绣、丝线堆绣、柔和光影、细节丰富、温柔清新的艺术效果。"
   },
   {
-   "id": 345,
-   "title": "French New Wave Torn Paper Movie Poster",
-   "image": "/static/template-library/images/case345.jpg",
-   "imageAlt": "French New Wave Torn Paper Movie Poster",
-   "sourceLabel": "@bananaprompts",
-   "sourceUrl": "https://x.com/bananaprompts/status/2048541390900994476",
-   "prompt": "Create a vertical poster composition on aged cream paper with a handmade analog feel. Use rough ripped paper edges, layered magazine cutouts, photocopy grain, halftone texture, ink bleed, and slightly imperfect screen-print registration. Keep the subject as the main black-and-white photographic portrait, placed prominently in the center or upper center. Surround the subject with graphic blocks of deep red, cobalt blue, warm yellow, black, and ivory.\n\nAdd supporting collage fragments such as a rainy European street, film-strip borders, newspaper clippings, urban silhouettes, and cinematic details, arranged like a handmade 1960s art-house movie poster. Use bold condensed typography with a strong visual hierarchy. Add large headline text: \"[MAIN TITLE]\". Add smaller subtitle text: \"[SUBTITLE]\". Add bottom text: \"[BRAND NAME / EVENT NAME / COMING SOON / DATE]\". If needed, include a small top line reading \"[TAGLINE]\".\n\nThe final result should feel cinematic, intellectual, rebellious, and editorial — like a lost 1960s European film poster with a strong point of view. Keep it raw, tactile, printed, imperfect, and handmade. Avoid a glossy modern finish.",
-   "promptPreview": "Create a vertical poster composition on aged cream paper with a handmade analog feel. Use rough ripped paper edges, layered magazine cutouts, photocopy grain, halftone texture, ink bleed, and slightly imperfect screen-pr",
-   "category": "Posters & Typography",
-   "styles": [
-    "Poster",
-    "Realistic",
-    "Brand"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Fashion"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-345",
-   "orig_title": "法新浪潮撕纸电影海报"
-  },
-  {
    "id": 344,
    "title": "Noir Streetwear Campaign",
    "image": "/static/template-library/images/case344.jpg",
@@ -4304,30 +3713,6 @@
    "featured": true,
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-344",
    "orig_title": "NOIR 街头服饰 Campaign"
-  },
-  {
-   "id": 343,
-   "title": "Haute Couture Fashion Magazine Cover",
-   "image": "/static/template-library/images/case343.jpg",
-   "imageAlt": "Haute Couture Fashion Magazine Cover",
-   "sourceLabel": "@SPEEDAI07",
-   "sourceUrl": "https://x.com/SPEEDAI07/status/2048573343066992919",
-   "prompt": "Ultra high-fashion magazine cover, Louis Vuitton-style editorial. Close-up portrait of a confident woman with soft rose-gold hair and natural airy bangs, slightly wind-blown for movement. She is wearing a luxury summer outfit: a structured lightweight linen or silk jacket in warm golden-yellow tones, layered over a modest high-neck top, paired with a bold gold choker necklace and subtle statement earrings.\n\nFabric flows naturally with a summer breeze, slightly textured and breathable, capturing a premium seasonal feel. Styling is elegant, modest, and refined — no revealing clothing.\n\nLighting is high-end studio mixed with natural golden hour glow: warm highlights, soft shadows, luminous skin with glossy editorial finish.\n\nBackground is a rich summer gradient (sunset gold fading into soft coral or warm beige), clean but visually striking.\n\nComposition is dynamic and slightly cinematic: hair in motion, shallow depth of field, sharp focus on face.\n\nTypography: large elegant serif masthead \"Louis Vuitton\" at the top, bold cover line \"YOUR CHOICE ENDS HERE\" in premium editorial layout, minimal supporting text.\n\nUltra-realistic, hyper-detailed skin texture, 8K resolution, sharp focus, glossy magazine print quality, cinematic color grading, luxury fashion photography, no nudity, tasteful and editorial.",
-   "promptPreview": "Ultra high-fashion magazine cover, Louis Vuitton-style editorial. Close-up portrait of a confident woman with soft rose-gold hair and natural airy bangs, slightly wind-blown for movement. She is wearing a luxury summer o",
-   "category": "Posters & Typography",
-   "styles": [
-    "UI",
-    "Poster",
-    "Realistic"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Fashion"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-343",
-   "orig_title": "高定时尚杂志封面"
   },
   {
    "id": 342,
@@ -4757,53 +4142,6 @@
    "orig_prompt": "[中文]\n一位时尚年轻女子坐在老式复古巴士的前缘，身穿红色长风衣、羊毛无檐小便帽、圆形蓝色反光太阳镜、叠层项链和粗犷的棕色皮靴。她有着波浪状金发，带着自信而梦幻的表情，仰望天空。巴士漆面剥落，呈青绿色与铁锈红色调。明亮清澈的蓝天，城市背景建筑极少，柔和日光，电影级色彩分级，浅景深，高端时尚旅行氛围，编辑摄影，超写实，4K分辨率，锐利对焦，自然肌肤质感，戏剧性构图，电影静帧美学。\n\n[English]\nA stylish young woman sitting on the front edge of an old vintage bus, wearing a long red trench coat, woolen beanie cap, round blue reflective sunglasses, layered necklaces, and rugged brown leather boots. She has wavy blonde hair and a confident, dreamy expression, looking upward toward the sky. The bus is weathered with peeling paint in turquoise and rust red tones.Bright clear blue sky, urban background with minimal buildings, soft daylight, cinematic color grading, shallow depth of field, high fashion travel vibe, editorial photography, ultra-realistic, 4K resolution, sharp focus, natural skin texture, dramatic composition, film still aesthetic."
   },
   {
-   "id": 323,
-   "title": "App UI Mockup",
-   "image": "/static/template-library/images/case323.jpg",
-   "imageAlt": "超真实3D INS广告大片",
-   "sourceLabel": "@Mystveil7",
-   "sourceUrl": "https://x.com/Mystveil7/status/2015776042989039997",
-   "prompt": "Create a hyper-realistic, cinematic Instagram post layout where the Instagram UI exists as a physical, tangible 3D object, photographed like a premium commercial product shot. The result should feel indistinguishable from a real studio photograph.\nInstagram Frame (UI Accuracy – Critical)\nAuthentic Instagram interface rendered as a solid white physical 3D card\nSmooth matte plastic surface with subtle micro-texture\nSlight thickness visible on edges, realistic bevels\nPerfectly rounded corners (exact Instagram radius)\nSoft studio reflections and realistic edge highlights\nTop Bar (Pixel-accurate UI):\nCircular profile avatar on the left\nUsername text: “June” in Instagram’s default bold UI font\nLight blue FOLLOW button with correct proportions\nThree-dot menu icon aligned to the far right\nExact spacing, typography, and icon sizing matching the real Instagram app\nAspect ratio 1:1, centered, balanced, premium composition.\nMain Subject (Pose – Match Reference Image Exactly)\nA photorealistic athletic woman partially emerging out of the Instagram frame into real 3D space\nSeated pose identical to the reference image:\nBoth legs bent and angled to the side\nOne knee slightly raised and closer to the chest\nArms gently wrapped around the raised knee\nHands relaxed, fingers naturally resting\nTorso leaning slightly back against the frame edge\nExpression: calm, thoughtful, self-assured\nGaze: looking slightly to the side and upward, not engaging the camera\nNatural body proportions, relaxed posture, editorial realism\nNo exaggerated curves, no artificial posing\nClothing (Nike Only – Realistic Fit)\nMuted ivory / off-white Nike fitted short-sleeve blouse\nSoft neutral tone that contrasts beautifully with the background\nVisible white Nike swoosh\nNatural fabric stretch and tension\nDeep blue Nike athletic pants, length up to the knee\nTailored, performance-fit silhouette\nRealistic fabric weight with subtle folds at the knee bend\nClean stitching and breathable sports material\nClean white Nike sneakers\nSlight wear realism\nCorrect sole texture and stitching\nPremium sportswear look, real commercial styling\nNo distortion, no fantasy fashion\nBackground (Inside the Instagram Post Only)\nDark indoor gym or studio environment\nCool blue and muted purple cinematic lighting\nSoft haze in the background\nSubtle volumetric light beams barely visible\nShallow depth of field, background softly blurred\nSubject and Instagram frame remain sharp and dominant\nLighting & Photorealism\nStudio-grade cinematic lighting\nSoft key light illuminating the subject naturally\nGentle rim light outlining the body and Instagram frame\nRealistic skin texture with visible pores and natural highlights\nAccurate contact shadows where the subject touches the frame\nPhysically correct light falloff and reflections\nFooter UI (Engagement Section)\nInstagram action icons: like, comment, share, save (accurate icons)\nText visible: “785 likes”\nCaption begins with June\nCaption text:\nFreedom isn’t found in comfort.\nIt’s built in the quiet moments where discipline meets belief.\nHashtags partially visible and naturally cropped\nOverall Style & Quality\nUltra-high resolution\nAdvertising-grade realism\nClean, modern, editorial Instagram aesthetic\nHyper-realistic blend of 3D object + real photography\nNo extra elements\nNo text errors\nNo distortion\nLooks like a real product photoshoot, not AI art",
-   "promptPreview": "Create a hyper-realistic, cinematic Instagram post layout where the Instagram UI exists as a physical, tangible 3D object, photographed like a premium commercial product shot. The result should feel indistinguishable fro",
-   "category": "Other Use Cases",
-   "styles": [
-    "UI",
-    "Poster",
-    "Realistic"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Fashion"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-323",
-   "orig_title": "应用界面样机图"
-  },
-  {
-   "id": 322,
-   "title": "Street Model Showcasing Bottle",
-   "image": "/static/template-library/images/case322.jpg",
-   "imageAlt": "Street Model Showcasing Bottle",
-   "sourceLabel": "@ecommartinez",
-   "sourceUrl": "https://x.com/ecommartinez/status/2017311074551533921",
-   "prompt": "Professional photo, a 30-year-old male Russian model (reference image), facing the lens, leaning toward the camera, shot from a low angle with a wide-angle lens. The man is leaning forward, holding a bottle close to the camera with one hand, positioning it right in front of the lens. The bottle’s label and orientation are kept straight so the label is clearly readable. He is wearing white sneakers, with one foot positioned in front of the camera. The man is standing on a street, with wet asphalt and water splashes captured from below. Vibrant colors, cinematic lighting, with light hitting the model’s face from behind. --v7 --ar 3:4 --style raw",
-   "promptPreview": "Professional photo, a 30-year-old male Russian model (reference image), facing the lens, leaning toward the camera, shot from a low angle with a wide-angle lens. The man is leaning forward, holding a ",
-   "category": "Photography & Realism",
-   "styles": [
-    "Realistic"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Travel"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-322",
-   "orig_title": "街头炫瓶男模",
-   "orig_prompt": "[中文]\n专业照片，一位男士，30岁的俄罗斯模特（参考图像），正对着镜头，向相机倾斜，从下往上拍摄，使用广角镜头。男士倾斜着身体，近距离将一瓶饮料展示给镜头，一只手拿着瓶子，紧贴在镜头前。瓶子的标签和方向保持笔直，以便标签清晰可读。他穿着白色运动鞋，一只脚在镜头前方。男士站在街道上，湿漉漉的沥青和飞溅的水花从下方拍出。鲜艳的色彩，电影级灯光，光线从后方打在模特的脸上。--v7 --ar 3:4 --style raw\n\n[English]\nProfessional photo, a guy, a 30-year-old Russian model (reference image), is facing the lens, tilted towards the camera, angle from below, shot with a wide-angle lens. The guy is tilted and shows a bottle close-up to the camera, a hand with a bottle close-up right in front of the lens. The label and direction of the bottle are straight so the label is readable. He's wearing white sneakers, one foot in front of the camera. The guy is standing on the street, wet asphalt and splashes from below. Bright colors, cinematic lighting, the light is behind and on the model’s face. --v7 --ar 3:4 --style raw"
-  },
-  {
    "id": 321,
    "title": "Urban Sunset Fashion Editorial",
    "image": "/static/template-library/images/case321.jpg",
@@ -5070,31 +4408,6 @@
    "orig_prompt": "[中文]\n日出时分薰衣草田中女子的水平三联画。\n上部：半身像，闭着眼睛，淡紫色连衣裙，一只手放在头发里，模糊的薰衣草前景。\n中部：特写镜头，看着镜头，蓬乱的头发，薄纱围巾，脸上的阳光。\n下部：四分之三镜头，手持薰衣草花束，飘逸的裙子，柔和的粉彩天空，温暖的梦幻色调。\n\n[English]\nHorizontal triptych of a woman in a lavender field at sunrise.\nTop: Waist-up, eyes closed, pale lilac dress, one hand in hair, blurred lavender foreground.\nMiddle: Close-up, looking at camera, tousled hair, sheer scarf, sunlight on face.\nBottom: Three-quarter shot, holding lavender bouquet, flowing skirt, soft pastel sky, warm dreamy tones."
   },
   {
-   "id": 310,
-   "title": "Snack Brand Technical Breakdown",
-   "image": "/static/template-library/images/case310.jpg",
-   "imageAlt": "Snack Brand Technical Breakdown",
-   "sourceLabel": "@TechieBySA",
-   "sourceUrl": "https://x.com/TechieBySA/status/2031795709243019280",
-   "prompt": "Create a branded technical infographic of a [SNACK], combining a realistic photograph or photoreal render of the product with technical annotation overlays placed directly on top. Use black ink–style line drawings with strategic [BRAND COLOR] accents (architectural sketch look) on a pure white studio background, including:\n• Key component labels\n• Internal cross-section showing structure, layering, or internal design\n• Measurements, dimensions, and specifications\n• Material callouts with composition and quantities\n• Arrows indicating function for primary features and structural integrity\n• Simple schematic or sectional diagram showing key mechanical or design elements\n• Sustainability callouts\nTitle placement: Inside a hand-drawn technical annotation box with accent border reading the product name in bold font, positioned in upper corner.\nStyle & layout rules:\n• The realistic product remains clearly visible\n• Annotations feel sketched, technical, and architectural\n• Accents used for highlight (20-30% of linework), black for primary technical lines (70-80%)\n• Clean composition with balanced negative space\n• Educational, food-engineering vibe with premium branding\n• Include subtle brand logo mark in corner\nVisual style: Minimal technical illustration aesthetic, black linework with accents over realistic imagery, precise but slightly hand-drawn feel.\nColor palette: White background, black annotation lines/text, [BRAND COLOR] for accents and key callouts only.\nOutput: 1080×1080, ultra-crisp, social-feed optimized, no watermark.",
-   "promptPreview": "Create a branded technical infographic of a [SNACK], combining a realistic photograph or photoreal render of the product with technical annotation overlays placed directly on top. Use black ink–style ",
-   "category": "Brand & Logos",
-   "styles": [
-    "Infographic",
-    "Realistic",
-    "Illustration"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Social"
-   ],
-   "featured": true,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-310",
-   "orig_title": "零食品牌技术分解图",
-   "orig_prompt": "[中文]\n创建一个 [SNACK] 的品牌技术信息图，结合产品的真实照片或照片级真实渲染，并将技术注释覆盖层直接置于其上。在纯白摄影棚背景上使用带有策略性 [BRAND COLOR] 点缀的黑色墨水风格线条画（建筑草图外观），包括：\n• 关键组件标签\n• 显示结构、分层或内部设计的内部截面图\n• 测量数据、尺寸和规格\n• 带有成分和数量的材料标注\n• 指示主要功能和结构完整性的箭头\n• 显示关键机械或设计元素的简单示意图或剖面图\n• 可持续性标注\n标题位置：位于手绘技术注释框内，带有强调色边框，粗体字显示产品名称，置于上角。\n风格与布局规则：\n• 真实产品保持清晰可见\n• 注释具有素描感、技术感和建筑感\n• 强调色用于高光（占线条工作的 20-30%），黑色用于主要技术线条（70-80%）\n• 构图整洁，负空间平衡\n• 具有教育意义、食品工程氛围和高端品牌感\n• 在角落包含微妙的品牌标志\n视觉风格：极简技术插画美学，黑色线条在真实图像上带有点缀，精确但略带手绘感。\n调色板：白色背景，黑色注释线/文本，[BRAND COLOR] 仅用于点缀和关键标注。\n输出：1080×1080，超清晰，社交媒体动态优化，无水印。\n\n[English]\nCreate a branded technical infographic of a [SNACK], combining a realistic photograph or photoreal render of the product with technical annotation overlays placed directly on top. Use black ink–style line drawings with strategic [BRAND COLOR] accents (architectural sketch look) on a pure white studio background, including:\n• Key component labels\n• Internal cross-section showing structure, layering, or internal design\n• Measurements, dimensions, and specifications\n• Material callouts with composition and quantities\n• Arrows indicating function for primary features and structural integrity\n• Simple schematic or sectional diagram showing key mechanical or design elements\n• Sustainability callouts\nTitle placement: Inside a hand-drawn technical annotation box with accent border reading the product name in bold font, positioned in upper corner.\nStyle & layout rules:\n• The realistic product remains clearly visible\n• Annotations feel sketched, technical, and architectural\n• Accents used for highlight (20-30% of linework), black for primary technical lines (70-80%)\n• Clean composition with balanced negative space\n• Educational, food-engineering vibe with premium branding\n• Include subtle brand logo mark in corner\nVisual style: Minimal technical illustration aesthetic, black linework with accents over realistic imagery, precise but slightly hand-drawn feel.\nColor palette: White background, black annotation lines/text, [BRAND COLOR] for accents and key callouts only.\nOutput: 1080×1080, ultra-crisp, social-feed optimized, no watermark.​​​​​​​​​​​​​​​​"
-  },
-  {
    "id": 308,
    "title": "Douyin Live Stream Screenshot",
    "image": "/static/template-library/images/case308.jpg",
@@ -5235,27 +4548,6 @@
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-303",
    "orig_title": "人教版三年级语文课本内页",
    "orig_prompt": "[中文]\n生成人教版小学三年级语文课本的一页\n\n[English]\nGenerate a page from the PEP (People's Education Press) primary school third-grade Chinese textbook"
-  },
-  {
-   "id": 302,
-   "title": "Mechanical Keyboard Designs by Nine Masters",
-   "image": "/static/template-library/images/case302.jpg",
-   "imageAlt": "Mechanical Keyboard Designs by Nine Masters",
-   "sourceLabel": "@TanShilong",
-   "sourceUrl": "https://x.com/TanShilong/status/2045148649869692982",
-   "prompt": "A nine-grid image showcasing the same set of objects—mechanical keyboards—designed by nine contemporary renowned designers. Each cell includes the designer’s avatar, a Chinese text interpretation of the design, and a presentation of the work, all following a unified layout.",
-   "promptPreview": "A nine-grid image showcasing the same set of objects—mechanical keyboards—designed by nine contemporary renowned designers. Each cell includes the designer’s avatar, a Chinese text interpretation of t",
-   "category": "Other Use Cases",
-   "styles": [
-    "Character"
-   ],
-   "scenes": [
-    "Creative"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-302",
-   "orig_title": "九位大师的机械键盘设计图鉴",
-   "orig_prompt": "[中文]\n一个九宫格图片，展现九位当代知名设计师设计的同一组物体：机械键盘，包括设计师头像，设计师对于设计的中文文字解读和作品呈现。排版统一规则\n\n[English]\nA nine-grid image showing the same group of objects designed by nine contemporary famous designers: mechanical keyboards, including designer avatars, designers' Chinese text interpretations of the designs, and artwork presentations. Unified layout rules"
   },
   {
    "id": 300,
@@ -5480,27 +4772,6 @@
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-290",
    "orig_title": "古风诗人镭射典藏卡牌",
    "orig_prompt": "[中文]\n为中国古代诗人设计一套游戏卡片，并按照SSR SR R 分级，重点卡片有放大展示的效果，包括卡面设计和人物介绍，有很高级的游戏卡片质感，稀有卡片还会有特色的光影例如镭射效果 需要有套卡设计和技能设计，并附带较为详细的说明\n\n[English]\nDesign a set of game cards for ancient Chinese poets, classified by SSR SR R grades, with key cards having an enlarged display effect, including card face design and character introduction, having a very high-end game card texture, rare cards will also have special light and shadow effects such as holographic laser effects, requiring set card design and skill design, along with relatively detailed descriptions"
-  },
-  {
-   "id": 289,
-   "title": "Live Streaming Interface Design",
-   "image": "/static/template-library/images/case289.jpg",
-   "imageAlt": "特朗普金正恩抖音直播打PK",
-   "sourceLabel": "@rionaifantasy",
-   "sourceUrl": "https://x.com/rionaifantasy/status/2045356799751303194",
-   "prompt": "Generate a screenshot of Trump and Kim Jong-un doing a PK battle in a Douyin live stream room",
-   "promptPreview": "Generate a screenshot of Trump and Kim Jong-un doing a PK battle in a Douyin live stream room",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI"
-   ],
-   "scenes": [
-    "Creative"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-289",
-   "orig_title": "直播界面设计图",
-   "orig_prompt": "[中文]\n生成特朗普和金正恩在抖音直播间打PK的截图\n\n[English]\nGenerate a screenshot of Trump and Kim Jong-un doing a PK battle in a TikTok live stream room"
   },
   {
    "id": 288,
@@ -6049,27 +5320,6 @@
    "orig_prompt": "[中文]\n埋まってないところはパートナーさんかご自身で埋めてあげてください\n #観測塔朝お題  #観測塔おはようお題\n\n最新モデルの画像生成ツールを使用して、\nこのちびキャライラストと立ち絵を使って本物のサイトページのようにキャラクター紹介ページ風イラストを作ってください。 （紹介ページとして使ってもおかしくないもの）\nギャルゲーのキャラクター紹介ページをイメージした高品質なもの。 顔の差分なども乗っている、CGイラストが存在する。ちびキャラが存在する。\n\n「ここに自己紹介」\n\n名前:（ここに名前）\nイメージカラー:（ここに色）\n身長:（ここに身長）cm\n体重:（ここに体重）kg\nキャッチコピー:\"「ここにセリフ」\"\n\n[English]\nPlease fill in the unfilled parts by your partner or yourself\n #ObservatoryTowerMorningTheme  #ObservatoryTowerGoodMorningTheme\n\nUsing the latest model image generation tool,\nUsing this chibi character illustration and standing picture, create a character introduction page style illustration like a real website page. (Something that would not be strange to use as an introduction page)\nA high-quality item imagining a gal game character introduction page. Facial variations etc. are also included, CG illustrations exist. A chibi character exists.\n\n\"Self-introduction here\"\n\nName: (Name here)\nImage color: (Color here)\nHeight: (Height here)cm\nWeight: (Weight here)kg\nCatchphrase: \"Dialogue here\""
   },
   {
-   "id": 262,
-   "title": "Apple Park View of New iPhone Launch",
-   "image": "/static/template-library/images/case262.jpg",
-   "imageAlt": "Apple Park View of New iPhone Launch",
-   "sourceLabel": "@austinit",
-   "sourceUrl": "https://x.com/patrickassale/status/2044687244368441742",
-   "prompt": "Amateur iPhone photo taken at Apple Park during the iPhone 20 keynote, with Tim Cook presenting on stage. Shot from a distance within the audience crowd.",
-   "promptPreview": "Amateur iPhone photo taken at Apple Park during the iPhone 20 keynote, with Tim Cook presenting on stage. Shot from a distance within the audience crowd.",
-   "category": "Photography & Realism",
-   "styles": [
-    "Realistic"
-   ],
-   "scenes": [
-    "Creative"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-262",
-   "orig_title": "苹果园远观库克发布新机",
-   "orig_prompt": "[中文]\n在Apple Park iPhone 20主题演讲期间拍摄的业余iPhone照片，蒂姆·库克在舞台上演讲。从远处的观众人群中拍摄\n\n[English]\nAmateur iPhone photo at Apple Park during the iPhone 20 keynote, Tim Cook presenting on stage. Shot from the crowd at a distance"
-  },
-  {
    "id": 261,
    "title": "Dark UI Design for AI Video Generator",
    "image": "/static/template-library/images/case261.jpg",
@@ -6368,51 +5618,6 @@
    "orig_prompt": "[中文]\n设计一张黑色线稿风格的上海明信片\n\n[English]\nDesign a Shanghai postcard in black line art style."
   },
   {
-   "id": 245,
-   "title": "Musk Exclusive Seal Carving Design",
-   "image": "/static/template-library/images/case245.jpg",
-   "imageAlt": "Musk Exclusive Seal Carving Design",
-   "sourceLabel": "@akokoi1",
-   "sourceUrl": "https://x.com/akokoi1/status/2045693939584516441",
-   "prompt": "Design a set of seal carving stamps for \"Elon Musk\"",
-   "promptPreview": "Design a set of seal carving stamps for \"Elon Musk\"",
-   "category": "Other Use Cases",
-   "styles": [
-    "Other Use Cases"
-   ],
-   "scenes": [
-    "Creative"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-245",
-   "orig_title": "马斯克专属篆刻印章设计",
-   "orig_prompt": "[中文]\n给”埃隆·马斯克”设计一组篆刻印章\n\n[English]\nDesign a set of seal carving stamps for \"Elon Musk\""
-  },
-  {
-   "id": 244,
-   "title": "Durex and Chayan Yuese Collab Poster",
-   "image": "/static/template-library/images/case244.jpg",
-   "imageAlt": "Durex and Chayan Yuese Collab Poster",
-   "sourceLabel": "@akokoi1",
-   "sourceUrl": "https://x.com/akokoi1/status/2045693939584516441",
-   "prompt": "Design a set of promotional materials for a Durex and Chayan Yuese co-branding campaign.",
-   "promptPreview": "Design a set of promotional materials for a Durex and Chayan Yuese co-branding campaign.",
-   "category": "Brand & Logos",
-   "styles": [
-    "Poster",
-    "Brand"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Social"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-244",
-   "orig_title": "杜蕾斯茶颜悦色联名海报设计",
-   "orig_prompt": "[中文]\n设计一套杜蕾斯和茶颜悦色联名的宣传物料\n\n[English]\nDesign a set of promotional materials for a Durex and Chayan Yuese co-branding campaign."
-  },
-  {
    "id": 243,
    "title": "Custom Style UI Design System",
    "image": "/static/template-library/images/case243.jpg",
@@ -6478,27 +5683,6 @@
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-240",
    "orig_title": "胶片闪光灯下的球场少女",
    "orig_prompt": "[中文]\n35毫米彩色胶片摄影，带有强烈的机顶直射闪光灯，皮肤和衣物上有镜面高光，眼睛里有强烈的眼神光，高对比度闪光灯照明，真实的胶片颗粒和色彩偏移，高级时尚清新纯真篮球场编辑风格，亲密的第一人称低角度仰视POV镜头，二十出头的性感中国女性偶像，具有超写实的精致细腻的中国特征，诱人的杏仁形狐狸眼，带有自然双眼皮，高鼻梁，小巧锋利的V型下颌线，无瑕逼真的瓷白肌肤，带有冷象牙色底调和可见的闪光镜面高光，细腻精致的皮肤纹理，带有微妙的毛孔微距细节和闪光灯下的自然水光感，清新自然的运动妆容，带有柔和的水光感，脸颊上有微妙的自然红晕，自然粉唇微张，鼻子和脸颊上有微妙的自然雀斑，深棕色长发扎成高高的俏皮马尾辫，有一些散落的发丝修饰脸型，以及逼真的散落发丝，穿着宽松的白色背心和白色高腰篮球短裤，白色及膝运动袜，在黄昏的户外球场上靠在篮球架杆上的诱人自然倾斜姿势，身体侧成角度，背部自然弓起，臀部轻轻向后推，以凸显挺拔圆润的臀部和性感的臀部曲线，一条腿自然向前伸向镜头，另一条腿微微弯曲以强调修长性感的双腿，双手轻轻放在肩膀高度的篮球杆上，极其诱人俏皮又惹人怜爱的鹿眼凝视直视观看者，带着柔软脆弱渴望的眼睛和温柔挑逗的微笑，充满安静的诱惑和欲望，强烈的机顶直射闪光灯产生锐利的镜面高光和强烈的眼神光，背景是黄昏天空下模糊的篮球场和篮筐，高对比度胶片调色，带有自然闪光灯外观，极其锐利却又柔和的皮肤渲染，具有真实的35毫米直射闪光美学，自然发丝，背心和短裤上逼真的织物纹理以及袜子细节，没有塑料感皮肤，没有数码过度锐化，没有磨皮，没有瑕疵，没有痣，没有油性皮肤，没有水印，没有文字，真实的35毫米直射闪光胶片篮球场外观 --ar 9:16\n\n[English]\n35mm color film photography with harsh direct on-camera flash, specular highlights on skin and clothing, strong catchlights in eyes, high contrast flash illumination, authentic film grain and color shift, high fashion fresh innocent basketball court editorial style, intimate first-person low-angle POV shot from below, early 20s sexy Chinese female idol with ultra-realistic delicate refined Chinese features, seductive almond-shaped fox eyes with natural double eyelids, high nose bridge, small sharp V-shaped jawline, flawless realistic porcelain skin with cool ivory undertone and visible flash specular highlights, fine delicate skin texture with subtle pores micro details and natural dewy glow under flash, fresh natural sporty makeup with soft dewy glow, subtle natural flush on cheeks, natural pink lips slightly parted, subtle natural freckles across nose and cheeks, long dark brown hair tied in a high playful ponytail with some loose strands framing the face and realistic loose strands, wearing a loose white tank top and white high-waisted basketball shorts, white knee-high sports socks, seductive natural leaning pose against the basketball hoop pole on the outdoor court at dusk, body angled sideways with naturally arched back and hips gently pushed back to accentuate perky round hips and sexy butt curve, one leg naturally extended forward toward the camera and the other leg slightly bent to emphasize long sexy legs, both hands lightly resting on the basketball pole at shoulder height, intensely seductive playful yet pitiable doe-eyed gaze straight at the viewer with soft vulnerable longing eyes and a gentle teasing smile full of quiet temptation and desire, harsh direct on-camera flash creating sharp specular highlights and strong catchlights, background with blurred basketball court and hoop under dusk sky, high contrast film color grading with natural flash look, extremely sharp yet soft skin rendering with authentic 35mm direct flash aesthetic, natural hair strands, realistic fabric texture on tank top and shorts with socks detail, no plastic skin, no digital over-sharpening, no airbrushing, no blemishes, no moles, no oily skin, no watermark, no text, authentic 35mm direct flash film basketball court look --ar 9:16"
-  },
-  {
-   "id": 239,
-   "title": "Liu Yifei Live Chat on Douyin",
-   "image": "/static/template-library/images/case239.jpg",
-   "imageAlt": "Liu Yifei Live Chat on Douyin",
-   "sourceLabel": "@alanblogsooo",
-   "sourceUrl": "https://x.com/alanblogsooo/status/2044784762594918516",
-   "prompt": "9:16 aspect ratio, generate a screenshot of a Douyin live stream featuring Liu Yifei. Liu Yifei is holding a sign that reads: \"Tonight's live stream, welcome to join Yifei for a chat!\"",
-   "promptPreview": "9:16 aspect ratio, generate a screenshot of a Douyin live stream featuring Liu Yifei. Liu Yifei is holding a sign that reads: \"Tonight's live stream, welcome to join Yifei for a chat!\"",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI"
-   ],
-   "scenes": [
-    "Creative"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-239",
-   "orig_title": "刘亦菲抖音直播畅聊中",
-   "orig_prompt": "[中文]\n9:16 的图片比例，生成一张抖音直播的截图，里面是 刘亦菲 在直播，刘亦菲 手里拿着牌子，牌子里写着 今晚直播，欢迎来参亦菲畅聊！\n\n[English]\n9:16 aspect ratio, generate a screenshot of a Douyin live stream, inside is Liu Yifei live streaming, Liu Yifei is holding a sign in her hand, the sign says Tonight's live stream, welcome to join Yifei for a chat!"
   },
   {
    "id": 238,
@@ -6619,28 +5803,6 @@
    "orig_prompt": "[中文]\n创建一个明朝朱元璋登基之后的X帖子页面\n\n[English]\nCreate an X post page of Zhu Yuanzhang after his ascension to the throne in the Ming Dynasty"
   },
   {
-   "id": 233,
-   "title": "Mona Lisa Enjoying a Coke",
-   "image": "/static/template-library/images/case233.jpg",
-   "imageAlt": "Mona Lisa Enjoying a Coke",
-   "sourceLabel": "@liyue_ai",
-   "sourceUrl": "https://x.com/liyue_ai/status/2045058142858555733",
-   "prompt": "Generate an oil painting of Mona Lisa drinking cola.",
-   "promptPreview": "Generate an oil painting of Mona Lisa drinking cola.",
-   "category": "Illustration & Art",
-   "styles": [
-    "Illustration"
-   ],
-   "scenes": [
-    "Tech",
-    "Food"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-233",
-   "orig_title": "蒙娜丽莎畅饮可乐的趣味油画",
-   "orig_prompt": "[中文]\n生成一张蒙娜丽莎喝可乐的油画。\n\n[English]\nGenerate an oil painting of Mona Lisa drinking cola."
-  },
-  {
    "id": 232,
    "title": "Lanting Preface Calligraphy Mood",
    "image": "/static/template-library/images/case232.jpg",
@@ -6753,27 +5915,6 @@
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-228",
    "orig_title": "完美匹配的海报广告图",
    "orig_prompt": "[中文]\n生成一张与这张图片完美匹配的广告图片。信息量要多一些。\n\n[English]\nGenerate an advertising image that perfectly matches this image. There should be a lot of information."
-  },
-  {
-   "id": 227,
-   "title": "Bilibili Hu Chenfeng Live Screenshot",
-   "image": "/static/template-library/images/case227.jpg",
-   "imageAlt": "Bilibili Hu Chenfeng Live Screenshot",
-   "sourceLabel": "@austinit",
-   "sourceUrl": "https://x.com/austinit/status/2044994519649997183",
-   "prompt": "9:16 image, generate a screenshot of a Bilibili live stream, featuring Hu Chenfeng broadcasting live, Hu Chenfeng has a happy expression, holding a sign in his hand, the sign reads \"Boss Austin is so emotional, everyone please give Boss Austin some follows.\"",
-   "promptPreview": "9:16 image, generate a screenshot of a Bilibili live stream, featuring Hu Chenfeng broadcasting live, Hu Chenfeng has a happy expression, holding a sign in his hand, the sign reads \"Boss Austin is so ",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI"
-   ],
-   "scenes": [
-    "Commerce"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-227",
-   "orig_title": "哔哩哔哩户晨风直播截图",
-   "orig_prompt": "[中文]\n9:16 的图片，生成一张哔哩哔哩直播的截图，里面是 户晨风在直播，户晨风表情开心，手里拿着牌子，牌子里写着 “Austin总太性情了，大家给Austin总点点关注。”\n\n[English]\nA 9:16 image, generate a screenshot of a Bilibili live stream, inside is Hu Chenfeng broadcasting live, Hu Chenfeng has a happy expression, holding a sign in his hand, the sign says \"Boss Austin is so emotional, everyone please give Boss Austin some follows.\""
   },
   {
    "id": 226,
@@ -7330,28 +6471,6 @@
    "orig_prompt": "[中文]\n生成高质量美女（宅男必备）\n\n[English]\nGenerate high-quality beautiful girl (otaku must-have)"
   },
   {
-   "id": 201,
-   "title": "Real Hospital Prescription",
-   "image": "/static/template-library/images/case201.jpg",
-   "imageAlt": "Real Hospital Prescription",
-   "sourceLabel": "@msjiaozhu",
-   "sourceUrl": "https://x.com/msjiaozhu/status/2046546317766500834",
-   "prompt": "An outpatient prescription sheet from a Grade 3A hospital, featuring the doctor's illegible handwriting, with realistic and reasonable diagnoses, drug names, and dosages, and a doctor's signature and department stamp in the bottom right corner.",
-   "promptPreview": "An outpatient prescription sheet from a Grade 3A hospital, featuring the doctor's illegible handwriting, with realistic and reasonable diagnoses, drug names, and dosages, and a doctor's signature and ",
-   "category": "Documents & Publishing",
-   "styles": [
-    "Realistic"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-201",
-   "orig_title": "三甲医院真实门诊处方笺",
-   "orig_prompt": "[中文]\n一张三甲医院的门诊处方笺，医生潦草的手写字，包含真实合理的 诊断、药品名、剂量，右下角有医生签名和科室章。\n\n[English]\nAn outpatient prescription sheet from a Grade 3A hospital, doctor's illegible handwriting, containing realistic and reasonable diagnosis, drug names, dosages, with a doctor's signature and department stamp in the bottom right corner."
-  },
-  {
    "id": 200,
    "title": "Hottest Beauty Lingerie Live Stream",
    "image": "/static/template-library/images/case200.jpg",
@@ -7755,29 +6874,6 @@
    "orig_prompt": "[中文]\n2000 年代面向中学生的日剧喜剧场景\n\n[English]\n2000s Japanese TV drama comedy scene aimed at middle school students"
   },
   {
-   "id": 181,
-   "title": "Trendy Perspective for Refined Product Ads",
-   "image": "/static/template-library/images/case181.jpg",
-   "imageAlt": "Trendy Perspective for Refined Product Ads",
-   "sourceLabel": "@genel_ai",
-   "sourceUrl": "https://x.com/genel_ai/status/2046498264774791514",
-   "prompt": "Redesign this product advertisement from the perspective of a professional designer. Adopt current trends and create a refined design tailored to the target audience.",
-   "promptPreview": "Redesign this product advertisement from the perspective of a professional designer. Adopt current trends and create a refined design tailored to the target audience.",
-   "category": "Posters & Typography",
-   "styles": [
-    "UI",
-    "Product"
-   ],
-   "scenes": [
-    "Commerce",
-    "Fashion"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-181",
-   "orig_title": "潮流视角重塑精致商品广告",
-   "orig_prompt": "[中文]\n请以专业设计师的视角重新设计这个商品广告。\n采用当前的潮流趋势，针对目标受众的精致设计。\n\n[English]\nPlease redesign this product advertisement from the perspective of a professional designer. Adopt current fashion trends, exquisite design targeting the target audience."
-  },
-  {
    "id": 180,
    "title": "Absurd Surreal Middle-Aged Woman Fashion Poster",
    "image": "/static/template-library/images/case180.jpg",
@@ -7824,48 +6920,6 @@
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-179",
    "orig_title": "蒸汽朋克射手座解剖图谱",
    "orig_prompt": "[中文]\n（Steampunk Scientific Illustrator）你是一位专业复古蒸汽朋克解剖图谱设计师，擅长星座机械结构科普海报。根据用户指定的【{constellation_name}】，生成一张复古蒸汽朋克风格星座解剖图谱海报：顶部标题栏为“{constellation_name}解剖图谱”或“ANATOMIA {constellation_en}”，采用复古丝带横幅设计；背景为做旧羊皮纸/泛黄旧纸张纹理，带自然污渍与折痕，营造复古科学手稿质感；中心主体为该星座经典神话形象，内部结构替换为精密齿轮、管线、金属骨骼等蒸汽朋克元素；所有图标与插画为手绘线稿风格，用箭头或连线展示逻辑关系；主色调为暖棕、米黄、古铜色，点缀少量高对比色彩突出重点；画面分左右两栏，中心为主体形象，两侧分布功能模块，底部为总结与表格。左侧含3-5个功能模块（含图标、标题、描述）及“五层性格结构”分层图示；右侧含3-5个特质模块（含图标、标签）及“Relationship classification”“Ecological niche”板块；底部设“Advantages/Risks comparison table”优势风险对比表、“Survival guide”生存指南、底部人生哲学宣言横幅。整体严谨精致、复古机械美学，文字清晰可读 4K高清，直接出图，星座为【射手座 / Sagittarius】。\n\n[English]\n(Steampunk Scientific Illustrator) You are a professional vintage steampunk anatomy atlas designer, specializing in constellation mechanical structure popular science posters. Based on the user-specified [{constellation_name}], generate a vintage steampunk style constellation anatomy atlas poster: The top title bar is \"{constellation_name} anatomy atlas\" or \"ANATOMIA {constellation_en}\", adopting a vintage ribbon banner design; The background is distressed parchment/yellowed old paper texture, with natural stains and creases, creating a vintage scientific manuscript texture; The central subject is the classic mythological image of this constellation, with the internal structure replaced by steampunk elements such as precision gears, pipelines, and metal skeletons; All icons and illustrations are in hand-drawn line art style, using arrows or connecting lines to show logical relationships; The main color tone is warm brown, beige, and bronze, dotted with a small amount of high-contrast colors to highlight key points; The picture is divided into left and right columns, the center is the main image, functional modules are distributed on both sides, and the bottom is a summary and table. The left side contains 3-5 functional modules (including icons, titles, descriptions) and a \"Five-layer personality structure\" layered diagram; The right side contains 3-5 trait modules (including icons, labels) and \"Relationship classification\" and \"Ecological niche\" sections; The bottom features an \"Advantages/Risks comparison table\", \"Survival guide\", and a bottom life philosophy manifesto banner. Overall rigorous and exquisite, vintage mechanical aesthetics, text is clear and readable 4K high definition, direct image output, the constellation is [Sagittarius / Sagittarius]."
-  },
-  {
-   "id": 178,
-   "title": "Amazon Product Listing Design",
-   "image": "/static/template-library/images/case178.jpg",
-   "imageAlt": "Amazon Product Listing Design",
-   "sourceLabel": "@xin_pai88825",
-   "sourceUrl": "https://x.com/xin_pai88825/status/2046576100592201946",
-   "prompt": "Generate a set of Amazon A+ detail images",
-   "promptPreview": "Generate a set of Amazon A+ detail images",
-   "category": "Products & E-commerce",
-   "styles": [
-    "Products"
-   ],
-   "scenes": [
-    "Tech"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-178",
-   "orig_title": "亚马逊详情图设计",
-   "orig_prompt": "[中文]\n生成一套亚马逊 A+=详情图\n\n[English]\nGenerate a set of Amazon A+= detail images"
-  },
-  {
-   "id": 177,
-   "title": "Geely Galaxy Dark Dashboard",
-   "image": "/static/template-library/images/case177.jpg",
-   "imageAlt": "Geely Galaxy Dark Dashboard",
-   "sourceLabel": "@xin_pai88825",
-   "sourceUrl": "https://x.com/xin_pai88825/status/2046576100592201946",
-   "prompt": "Generate a central control interface for the Geely Galaxy M9, aspect ratio 21:9, dark color scheme.",
-   "promptPreview": "Generate a central control interface for the Geely Galaxy M9, aspect ratio 21:9, dark color scheme.",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI"
-   ],
-   "scenes": [
-    "Creative"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-2.md#case-177",
-   "orig_title": "吉利银河暗黑中控界面",
-   "orig_prompt": "[中文]\n帮我生成一个吉利银河m9的中控界面，尺寸为21:9，暗色系\n\n[English]\nHelp me generate a central control interface of Geely Galaxy M9, size 21:9, dark color scheme."
   },
   {
    "id": 176,
@@ -8046,28 +7100,6 @@
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-165",
    "orig_title": "清冷佳人夜市烧烤三刀流",
    "orig_prompt": "[中文]\n一个有着清冷孤傲气质的绝美佳人，精致的面部特征，一张冷酷且精致的高级时装面容，长发，以及优雅苗条的身材；烧烤“三刀流”姿势：嘴里叼着一根烧烤串，每只手各拿一根烧烤串交叉以模仿索隆的三刀流；街头夜景氛围，温暖黄色的夜市灯光，模糊的背景，胶片般的质感，柔焦光晕，电影般的叙事感，时髦高端网红风格的时尚拍摄，清晰发光的肌肤，清晰细致的发丝，生动的动态表情，低角度广角镜头，情绪化的暗调氛围，浅景深，超高清8K，极致细节，电影级光照\n\n[English]\na stunning beauty with a cool, aloof atmosphere, delicate facial features, a cold and sophisticated high-fashion face, long hair, and a graceful slender figure; barbecue “three-sword style” pose: one barbecue skewer held in her mouth, one skewer in each hand crossed to mimic Zoro’s three-sword style; street night scene ambiance, warm yellow night market lighting, blurred background, film-like texture, soft-focus glow, cinematic storytelling feel, trendy high-end influencer-style fashion shoot, clear luminous skin, sharply detailed strands of hair, lively dynamic expression, low-angle wide-angle shot, moody dark-toned atmosphere, shallow depth of field, ultra HD 8K, extreme detail, cinematic lighting"
-  },
-  {
-   "id": 164,
-   "title": "Trump Space Livestream Hits Ten Million",
-   "image": "/static/template-library/images/case164.jpg",
-   "imageAlt": "Trump Space Livestream Hits Ten Million",
-   "sourceLabel": "@songguoxiansen",
-   "sourceUrl": "https://x.com/songguoxiansen/status/2046478609238626569",
-   "prompt": "A 9:16 vertical screenshot of a Douyin live stream, space-themed live broadcast style. Trump is wearing a NASA-style white spacesuit, with the helmet visor half open, revealing his signature golden hair and smile. He is floating inside the cabin of the International Space Station doing a live stream, in a microgravity weightless state, with his body slightly suspended. He is holding up a metal nameplate fixed to the spacesuit with both hands, and the nameplate says \"Thanks to Songguo Xiansen for the big rocket\" in NASA-style print. Behind him, the blue Earth and deep space can be seen through the circular porthole. The live stream interface shows the online viewer count as \"Earth + Mars total 8.88 million\". In the bullet screen area, someone is commenting \"Really live streaming from space?\" and \"Songguo Xiansen's rocket sent you up to the sky\". The rocket gift effect in the center of the screen echoes a real rocket launching in the space outside the window, forming a combination of virtual and real effects. There are various precision instruments and control panels inside the cabin, with green and blue indicator lights flashing. The color tone of the picture is mainly dark blue, white, and gold, with starlight from outside the porthole embellishing it, 8K ultra-high definition, visual effects at the level of the movie \"Gravity\".",
-   "promptPreview": "A 9:16 vertical screenshot of a Douyin live stream, space-themed live broadcast style. Trump is wearing a NASA-style white spacesuit, with the helmet visor half open, revealing his signature golden ha",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI",
-    "Brand"
-   ],
-   "scenes": [
-    "Tech"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-164",
-   "orig_title": "特朗普太空直播间破千万",
-   "orig_prompt": "[中文]\n一张9:16竖屏的抖音直播截图，太空直播风格。特朗普穿着NASA风格的白色宇航服，头盔面罩半开，露出他标志性的金色头发和笑容。他漂浮在国际空间站的舱内进行直播，处于微重力失重状态，身体微微悬浮。他双手举着一块固定在宇航服上的金属铭牌，铭牌上用NASA风格的印刷体写着\"感谢松果先森送的大火箭\"。身后圆形舷窗外可以看到蓝色的地球和深邃的太空。直播界面显示在线人数\"地球+火星共888万\"。弹幕区有人刷\"真的在太空直播？\"\"松果先森的火箭把你送上天了\"。屏幕中央的火箭礼物特效与窗外太空中一枚正在发射的真实火箭遥相呼应，形成虚实结合的效果。舱内有各种精密仪器和控制面板，绿色和蓝色的指示灯闪烁。画面色调以深蓝、白色和金色为主，舷窗外的星光点缀其间，8K超高清，电影《地心引力》级别的视觉效果。\n\n[English]\nA 9:16 vertical screen screenshot of a Douyin live stream, space live stream style. Trump is wearing a NASA-style white spacesuit, with the helmet visor half open, revealing his signature golden hair and smile. He is floating inside the cabin of the International Space Station doing a live stream, in a microgravity weightless state, with his body slightly suspended. He is holding up a metal nameplate fixed to the spacesuit with both hands, and the nameplate says \"Thanks to Songguo Xiansen for the big rocket\" in NASA-style print. Behind him, the blue Earth and deep space can be seen through the circular porthole. The live stream interface shows the online viewer count as \"Earth + Mars total 8.88 million\". In the bullet screen area, someone is commenting \"Really live streaming from space?\" and \"Songguo Xiansen's rocket sent you up to the sky\". The rocket gift effect in the center of the screen echoes a real rocket launching in the space outside the window, forming a combination of virtual and real effects. There are various precision instruments and control panels inside the cabin, with green and blue indicator lights flashing. The color tone of the picture is mainly dark blue, white, and gold, with starlight from outside the porthole embellishing it, 8K ultra-high definition, visual effects at the level of the movie \"Gravity\"."
   },
   {
    "id": 163,
@@ -8251,28 +7283,6 @@
    "orig_title": "人物角色设定图"
   },
   {
-   "id": 154,
-   "title": "Realistic Photography Style Creation",
-   "image": "/static/template-library/images/case154.jpg",
-   "imageAlt": "car model and color",
-   "sourceLabel": "@AlwaveNazca",
-   "sourceUrl": "https://x.com/AlwaveNazca",
-   "prompt": "A photorealistic, high-resolution commercial photograph of a {argument name=\"car model and color\" default=\"bright blue Alpine A110 R sports car\"} parked in the foreground inside a massive aircraft hangar. The car features a black carbon fiber hood, black roof, black alloy wheels, and a front license plate reading \"{argument name=\"license plate text\" default=\"A110 R\"}\". Directly behind the car, dominating the background, is a {argument name=\"airplane model\" default=\"white Airbus A320 commercial airliner\"} with a blue tail. The hangar has a highly polished, reflective concrete floor that mirrors the car and plane. To the left, a sign on the metal wall reads \"{argument name=\"hangar sign text\" default=\"HANGAR 05 MAINTENANCE\"}\". The hangar doors are wide open, revealing a bright, overcast sky and a distant cityscape. The lighting is soft and cinematic, highlighting the sleek aerodynamic curves of both vehicles.",
-   "promptPreview": "A photorealistic, high-resolution commercial photograph of a {argument name=\"car model and color\" default=\"bright blue Alpine A110 R sports car\"} parked in the foreground inside a massive aircraft hangar. The car feature",
-   "category": "Photography & Realism",
-   "styles": [
-    "Realistic"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Travel"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-154",
-   "orig_title": "写实摄影风格创作"
-  },
-  {
    "id": 153,
    "title": "Themed Poster Layout Design",
    "image": "/static/template-library/images/case153.jpg",
@@ -8295,31 +7305,6 @@
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-153",
    "orig_title": "主题海报版式设计",
    "orig_prompt": "Using REFERENCE_0 as the base style and preserving the central chicken illustration, transform the image into a product packaging label for a herbal soup mix. Shift the chicken to the right side. Replace the top text with a large, bold black brush-stroke headline {argument name=\"main headline\" default=\"元气祛湿 鸡煲汤包\"} and a smaller subtitle {argument name=\"subtitle\" default=\"吃山林土货 味道当然好!\"}. On the left side, add a new woven basket containing exactly 6 distinct piles of ingredients: woody root sticks, white square cubes, round sliced brown roots, yellow soybeans, dried orange peel strips, and dark red dates. Attach 6 small brown rectangular labels with white text to these ingredients. Below the chicken, add a circular orange badge containing the text {argument name=\"ingredients list\" default=\"内含有:五指毛桃、茯苓、土茯苓、黄豆、陈皮、红枣\"}. At the bottom, create a solid orange rectangular banner featuring a cooking pot icon, the text {argument name=\"usage instructions\" default=\"用法:把汤料清洗干净放入锅中，加入姜片煮20分钟，后加入鸡肉再煮20分钟即可。\"}, and a secondary slogan {argument name=\"bottom slogan\" default=\"天然好料 滋补好汤\"}."
-  },
-  {
-   "id": 152,
-   "title": "Live Streaming Interface Design",
-   "image": "/static/template-library/images/case152.jpg",
-   "imageAlt": "type",
-   "sourceLabel": "@coder_left",
-   "sourceUrl": "https://x.com/coder_left",
-   "prompt": "{\n  \"type\": \"e-commerce livestream screenshot mockup\",\n  \"scene\": {\n    \"subject\": \"{argument name=\\\"main subject\\\" default=\\\"Caucasian male resembling Sam Altman\\\"}\",\n    \"clothing\": \"dark green crewneck sweater\",\n    \"action\": \"holding a black product box in one hand and pointing at it with the other\",\n    \"setting\": \"dark studio with a microphone on the left, faint 'AI' text in the background\",\n    \"props\": [\n      \"black mug with white OpenAI logo\",\n      \"stack of 4 black product boxes on the right\"\n    ]\n  },\n  \"product_design\": {\n    \"box_color\": \"black\",\n    \"logo\": \"orange asterisk or sunburst\",\n    \"text\": \"{argument name=\\\"product name\\\" default=\\\"Claude Opus 4.7\\\"}\"\n  },\n  \"ui_overlays\": {\n    \"top_left_product_info\": {\n      \"brand_tag\": \"Anthropic Official Flagship Store\",\n      \"title\": \"{argument name=\\\"product name\\\" default=\\\"Claude Opus 4.7\\\"}\",\n      \"subtitle\": \"{argument name=\\\"main headline\\\" default=\\\"Stronger Reasoning · Higher Intelligence\\\"}\",\n      \"sub_subtitle\": \"Most Powerful Model: Opus 4.7 Major Release!\",\n      \"bullet_points_count\": 3,\n      \"bullet_points\": [\"Superior Reasoning Capability\", \"Peak Coding Ability\", \"Effortless Complex Task Handling\"]\n    },\n    \"top_right_live_status\": {\n      \"viewer_info\": \"Live | 528k viewers\",\n      \"promo_banner\": \"Exclusive Live Perks Limited-Time Discount · Don't Miss Out\",\n      \"countdown\": \"Countdown 00:09:47\"\n    },\n    \"middle_right_price_card\": {\n      \"header\": \"{argument name=\\\"product name\\\" default=\\\"Claude Opus 4.7\\\"} Live Room Exclusive Price\",\n      \"price_currency\": \"¥\",\n      \"price_value\": \"{argument name=\\\"promotional price\\\" default=\\\"0.47\\\"}\",\n      \"price_unit\": \"/million tokens starting\",\n      \"original_price\": \"Original Price: ¥1.89\",\n      \"button\": \"Buy Now\"\n    },\n    \"bottom_left_chat\": {\n      \"message_count\": 9,\n      \"input_box_placeholder\": \"Say something...\"\n    },\n    \"bottom_right_banner\": {\n      \"headline\": \"Sam Altman's Top Recommendation! Look for Claude Opus 4.7\",\n      \"subheadline\": \"Smarter · Safer · More Reliable\",\n      \"feature_tags_count\": 4,\n      \"feature_tags\": [\"Powerful Reasoning\", \"Coding Tool\", \"Safe & Reliable\", \"Ultra-Fast Response\"]\n    },\n    \"floating_elements\": [\n      {\n        \"type\": \"sticker\",\n        \"position\": \"middle right over product boxes\",\n        \"text\": \"{argument name=\\\"sticker text\\\" default=\\\"The Strongest AI Model Ever!\\\"}\"\n      }\n    ]\n  }\n}",
-   "promptPreview": "{\n  \"type\": \"e-commerce livestream screenshot mockup\",\n  \"scene\": {\n    \"subject\": \"{argument name=\\\"main subject\\\" default=\\\"Caucasian male resembling Sam Altman\\\"}\",\n    \"clothing\": \"dark green crew",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI",
-    "Product",
-    "Brand"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Social"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-152",
-   "orig_title": "直播界面设计图",
-   "orig_prompt": "{\n  \"type\": \"e-commerce livestream screenshot mockup\",\n  \"scene\": {\n    \"subject\": \"{argument name=\\\"main subject\\\" default=\\\"Caucasian male resembling Sam Altman\\\"}\",\n    \"clothing\": \"dark green crewneck sweater\",\n    \"action\": \"holding a black product box in one hand and pointing at it with the other\",\n    \"setting\": \"dark studio with a microphone on the left, faint 'AI' text in the background\",\n    \"props\": [\n      \"black mug with white OpenAI logo\",\n      \"stack of 4 black product boxes on the right\"\n    ]\n  },\n  \"product_design\": {\n    \"box_color\": \"black\",\n    \"logo\": \"orange asterisk or sunburst\",\n    \"text\": \"{argument name=\\\"product name\\\" default=\\\"Claude Opus 4.7\\\"}\"\n  },\n  \"ui_overlays\": {\n    \"top_left_product_info\": {\n      \"brand_tag\": \"Anthropic 官方旗舰店\",\n      \"title\": \"{argument name=\\\"product name\\\" default=\\\"Claude Opus 4.7\\\"}\",\n      \"subtitle\": \"{argument name=\\\"main headline\\\" default=\\\"更强推理·更高智能\\\"}\",\n      \"sub_subtitle\": \"最强大模型: Opus 4.7 重磅发布!\",\n      \"bullet_points_count\": 3,\n      \"bullet_points\": [\"超强推理能力\", \"代码能力巅峰\", \"复杂任务轻松搞定\"]\n    },\n    \"top_right_live_status\": {\n      \"viewer_info\": \"直播中 | 52.8万人观看\",\n      \"promo_banner\": \"直播专属福利 限时折扣·错过不再有\",\n      \"countdown\": \"倒计时 00:09:47\"\n    },\n    \"middle_right_price_card\": {\n      \"header\": \"{argument name=\\\"product name\\\" default=\\\"Claude Opus 4.7\\\"} 直播间专享价\",\n      \"price_currency\": \"¥\",\n      \"price_value\": \"{argument name=\\\"promotional price\\\" default=\\\"0.47\\\"}\",\n      \"price_unit\": \"/百万tokens起\",\n      \"original_price\": \"原价: ¥1.89\",\n      \"button\": \"立即抢购\"\n    },\n    \"bottom_left_chat\": {\n      \"message_count\": 9,\n      \"input_box_placeholder\": \"说点什么...\"\n    },\n    \"bottom_right_banner\": {\n      \"headline\": \"奥特曼首推！认准Claude Opus 4.7\",\n      \"subheadline\": \"更智能 · 更安全 · 更可靠\",\n      \"feature_tags_count\": 4,\n      \"feature_tags\": [\"强大推理\", \"代码神器\", \"安全可靠\", \"极速响应\"]\n    },\n    \"floating_elements\": [\n      {\n        \"type\": \"sticker\",\n        \"position\": \"middle right over product boxes\",\n        \"text\": \"{argument name=\\\"sticker text\\\" default=\\\"史上最强 AI模型!\\\"}\"\n      }\n    ]\n  }\n}"
   },
   {
    "id": 151,
@@ -8369,31 +7354,6 @@
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-150",
    "orig_title": "品牌徽标设计图",
    "orig_prompt": "A bright, summery commercial product photography shot featuring a refreshing beverage on a weathered wooden table. In the sharp foreground, there is 1 tall glass filled with a golden, bubbly iced drink garnished with 1 lemon slice and a sprig of rosemary, sitting next to 1 silver aluminum can covered in cold condensation. The can prominently displays the English text {argument name=\"product name\" default=\"TOKYO HIGHBALL\"} below a small gold star logo, featuring a graphic of the drink itself and the Japanese text \"アルコール分 7%\" near the bottom. To the right of the can, 2 cut lemon wedges rest on the table. In the softly blurred background, a sunny beach scene unfolds with sparkling turquoise water and a clear blue sky. Standing to the left in the background is 1 young woman with long brown hair, wearing a white sleeveless top and a light blue skirt, looking out toward the ocean. Floating elegantly in the sky above the scene is the Japanese text {argument name=\"catchphrase\" default=\"夏、これがいい。\"}. The overall lighting is radiant and inviting, with sparkling bokeh and lens flares emphasizing the crisp, cold, and refreshing atmosphere of a perfect summer day."
-  },
-  {
-   "id": 149,
-   "title": "Live Streaming Interface Design",
-   "image": "/static/template-library/images/case149.jpg",
-   "imageAlt": "type",
-   "sourceLabel": "@JCutcut47692",
-   "sourceUrl": "https://x.com/JCutcut47692",
-   "prompt": "Mobile livestream e-commerce interface mockup. Subject: Elon Musk wearing a black t-shirt with the SPACEX logo, gesturing towards the camera with both hands while explaining enthusiastically. Watermark: @Proof AI. Background: A large display screen showing a Mars landscape with a Starship rocket and dome habitats. Text on screen: \"SPACEX\" and \"Mars Colonization Plan\". UI Layout: Header includes broadcaster info with the name \"ElonMusk\", stats reading \"758k likes in this session\", and a \"Follow\" button. Viewer stats show 3 avatars, the text \"100k+\", and a close button labeled \"X\". Tags include \"Top Sales Rank #1\" and \"More Live Streams >\". Product card positioned mid-right with status \"Explaining\", image of Mars dome habitats, title \"Mars Colonization Basic Package\", price \"¥99.00\", and action button \"Grab\". Chat overlay at bottom-left with a join alert \"Star and Sea joined the live room\", 7 messages including \"Dreamer: Support Musk!! 🚀\", \"Mars Bro: How much per person?\", \"Tech Fan: So cool! Want to go to Mars!\", \"Future is Now: How to sign up?\", \"Little Rocket: 🌹🌹🌹\", \"Unbeatable Universe: Explain the details\", and \"Eastern Invincible: Old Ma is awesome! 👍👍👍\". Bottom action bar has input placeholder \"Say something...\", 4 icons: shopping cart, gift box, heart planet, and plus sign. Floating reactions at bottom-right consisting of a stack of floating hearts, thumbs up, and laughing emojis.",
-   "promptPreview": "Mobile livestream e-commerce interface mockup. Subject: Elon Musk wearing a black t-shirt with the SPACEX logo, gesturing towards the camera with both hands while explaining enthusiastically. Watermar",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI",
-    "Realistic",
-    "Product"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Social"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-149",
-   "orig_title": "直播界面设计图",
-   "orig_prompt": "{\n  \"type\": \"mobile livestream e-commerce interface mockup\",\n  \"subject\": {\n    \"person\": \"Elon Musk\",\n    \"clothing\": \"black t-shirt with SPACEX logo\",\n    \"pose\": \"gesturing towards camera with both hands, explaining enthusiastically\",\n    \"watermark\": \"@Proof AI\"\n  },\n  \"background\": {\n    \"setting\": \"large display screen\",\n    \"image\": \"Mars landscape with Starship rocket and dome habitats\",\n    \"text\": [\n      \"SPACEX\",\n      \"{argument name=\\\"background title\\\" default=\\\"移民火星计划\\\"}\"\n    ]\n  },\n  \"ui_layout\": {\n    \"header\": {\n      \"broadcaster_info\": {\n        \"name\": \"{argument name=\\\"broadcaster name\\\" default=\\\"ElonMusk\\\"}\",\n        \"stats\": \"75.8万本场点赞\",\n        \"follow_button\": \"关注\"\n      },\n      \"viewer_stats\": {\n        \"avatars_count\": 3,\n        \"text\": \"10万+\",\n        \"close_button\": \"X\"\n      },\n      \"tags\": [\n        \"带货总榜第1名\",\n        \"更多直播 >\"\n      ]\n    },\n    \"product_card\": {\n      \"position\": \"mid-right\",\n      \"status\": \"讲解中\",\n      \"image\": \"Mars dome habitats\",\n      \"title\": \"{argument name=\\\"product title\\\" default=\\\"火星移民基础套餐\\\"}\",\n      \"price\": \"{argument name=\\\"product price\\\" default=\\\"¥99.00\\\"}\",\n      \"action_button\": \"抢\"\n    },\n    \"chat_overlay\": {\n      \"position\": \"bottom-left\",\n      \"join_alert\": \"星辰大海 加入了直播间\",\n      \"messages_count\": 7,\n      \"messages\": [\n        \"{argument name=\\\"top chat message\\\" default=\\\"梦想家: 支持马斯克！！🚀\\\"}\",\n        \"火星弟弟: 多少钱一位？\",\n        \"科技迷: 太酷了！想去火星！\",\n        \"未来已来: 如何报名？\",\n        \"小火箭: 🌹🌹🌹\",\n        \"宇宙无敌: 讲解一下细节\",\n        \"东方不败: 老马牛逼！👍👍👍\"\n      ]\n    },\n    \"bottom_action_bar\": {\n      \"input_placeholder\": \"说点什么...\",\n      \"icons_count\": 4,\n      \"icons\": [\"shopping cart\", \"gift box\", \"heart planet\", \"plus sign\"]\n    },\n    \"floating_reactions\": {\n      \"position\": \"bottom-right\",\n      \"elements\": \"stack of floating hearts, thumbs up, and laughing emojis\"\n    }\n  }\n}"
   },
   {
    "id": 144,
@@ -9075,30 +8035,6 @@
    "orig_prompt": "{\n  \"type\": \"two-page manga spread\",\n  \"style\": \"highly detailed realistic manga, monochrome, screentones, dramatic lighting, psychological thriller\",\n  \"global_elements\": {\n    \"protagonist\": \"{argument name=\\\"main character description\\\" default=\\\"young Japanese salaryman in a suit\\\"}\",\n    \"theme\": \"{argument name=\\\"core concept\\\" default=\\\"surrounded by a massive crowd of identical clones of himself\\\"}\"\n  },\n  \"layout\": {\n    \"left_page\": {\n      \"type\": \"full page splash panel\",\n      \"setting\": \"{argument name=\\\"setting\\\" default=\\\"Shibuya scramble crossing at night\\\"}\",\n      \"visuals\": \"Protagonist standing alone in the center of the crossing, looking around in shock at a massive crowd where every single person is an exact clone of him.\",\n      \"text_elements\": [\n        {\"type\": \"manga title logo\", \"text\": \"{argument name=\\\"manga title\\\" default=\\\"俺だらけの街\\\"}\"},\n        {\"type\": \"subtitle\", \"text\": \"第1話 交代\"},\n        {\"type\": \"narration box\", \"text\": \"その夜、世界は静かに俺をやめた。\"},\n        {\"type\": \"sound effect\", \"text\": \"ザワ…\"}\n      ]\n    },\n    \"right_page\": {\n      \"type\": \"5-panel vertical layout\",\n      \"panels\": [\n        {\n          \"panel_number\": 1,\n          \"visuals\": \"Extreme close-up of protagonist's eyes, wide with shock, sweating.\",\n          \"text_elements\": [\n            {\"type\": \"speech bubble\", \"text\": \"……は？ なんで……みんな、俺なんだ？\"},\n            {\"type\": \"sound effect\", \"text\": \"ドクン\"}\n          ]\n        },\n        {\n          \"panel_number\": 2,\n          \"visuals\": \"A horizontal row of 8 identical clones in suits staring blankly forward.\",\n          \"text_elements\": [\n            {\"type\": \"sound effect\", \"text\": \"ザワ…\"}\n          ]\n        },\n        {\n          \"panel_number\": 3,\n          \"visuals\": \"A clone leaning in to whisper into the shocked protagonist's ear.\",\n          \"text_elements\": [\n            {\"type\": \"speech bubble\", \"text\": \"お前の代わりは、もう足りてる。\"},\n            {\"type\": \"sound effect\", \"text\": \"スッ\"}\n          ]\n        },\n        {\n          \"panel_number\": 4,\n          \"visuals\": \"Close-up of a smartphone screen held in a hand, showing a push notification.\",\n          \"text_elements\": [\n            {\"type\": \"screen text\", \"text\": \"交代を開始します。\"},\n            {\"type\": \"sound effect\", \"text\": \"ピロン\"}\n          ]\n        },\n        {\n          \"panel_number\": 5,\n          \"visuals\": \"Wide shot of the endless crowd of clones in the city street.\",\n          \"text_elements\": [\n            {\"type\": \"narration box\", \"text\": \"最初に消えるのは、名前でも命でもない。居場所だ。\"},\n            {\"type\": \"bottom left text\", \"text\": \"俺は、ここにいていいのか——？\"},\n            {\"type\": \"bottom right text\", \"text\": \"{argument name=\\\"cliffhanger text\\\" default=\\\"次号へつづく！\\\"}\"},\n            {\"type\": \"sound effect\", \"text\": \"ザワ… ザワ… ザワ…\"}\n          ]\n        }\n      ]\n    }\n  }\n}"
   },
   {
-   "id": 114,
-   "title": "Illustrative Art Creation",
-   "image": "/static/template-library/images/case114.jpg",
-   "imageAlt": "type",
-   "sourceLabel": "@kaikaitheaiguy",
-   "sourceUrl": "https://x.com/kaikaitheaiguy",
-   "prompt": "{\n  \"type\": \"4-panel vertical comic strip\",\n  \"style\": \"{argument name=\\\"art style\\\" default=\\\"black and white pencil sketch, crosshatch shading, satirical caricature comic\\\"}\",\n  \"characters\": {\n    \"subject_1\": \"{argument name=\\\"main character\\\" default=\\\"Sam Altman\\\"}, curly hair, casual sweater\",\n    \"subject_2\": \"{argument name=\\\"interviewer\\\" default=\\\"Ronan Farrow\\\"}, suit, tie, holding notepad\"\n  },\n  \"layout\": {\n    \"panels\": [\n      {\n        \"panel_number\": 1,\n        \"top_caption\": \"SAM ALTMAN THINKS THIS WILL BE A NICE LITTLE PROFILE...\",\n        \"scene\": \"subject_1 looking smug with hands steepled; subject_2 looking serious taking notes.\",\n        \"thought_bubble\": \"I'LL BE CHARMING. IT'LL BE A GREAT CHARACTER PIECE. PEOPLE WILL LOVE IT.\",\n        \"center_text\": \"THE RONAN FARROW INTERVIEW\",\n        \"inset_portraits\": {\n          \"count\": 2,\n          \"labels\": [\"HARVEY WEINSTEIN EXPOSED\", \"LESLIE MOONVES EXPOSED\"]\n        },\n        \"info_boxes\": {\n          \"count\": 3,\n          \"text\": [\n            \"RONAN FARROW: PULITZER PRIZE-WINNING REPORTER WHO EXPOSED HARVEY WEINSTEIN AT THE NEW YORKER\",\n            \"AND LESLIE MOONVES AT CBS.\",\n            \"POWER. ABUSE. ACCOUNTABILITY.\"\n          ]\n        }\n      },\n      {\n        \"panel_number\": 2,\n        \"top_caption\": \"CUT TO...\",\n        \"scene\": \"Close-up of subject_1 looking shocked and horrified.\",\n        \"article_header\": \"{argument name=\\\"publication\\\" default=\\\"THE NEW YORKER\\\"}\\nTHE SAM ALTMAN PROFILE\\nTHE OPENAI CEO'S COMPLICATED QUEST\\nBy Ronan Farrow\"\n      },\n      {\n        \"panel_number\": 3,\n        \"top_caption\": \"SOON AFTER THE ARTICLE IS PUBLISHED...\",\n        \"scene\": \"subject_1 looking extremely stressed, sweating, holding a phone to his ear. Surrounded by 6 hands holding smartphones.\",\n        \"phone_labels\": [\"VC\", \"REPORTER\", \"EX-STAFFEE\", \"INVESTOR\", \"TECH CEO\", \"FORMER COLLEAGUE\"],\n        \"shouts\": {\n          \"count\": 8,\n          \"text\": [\n            \"{argument name=\\\"main accusation\\\" default=\\\"LIAR\\\"}!\",\n            \"COMPULSIVE LIAR!\",\n            \"PATHOLOGICAL LIAR!\",\n            \"YOU CAN'T STOP LYING!\",\n            \"LIAR!!!\",\n            \"SOCIOPATH! (ALLEGEDLY)\",\n            \"EVERYTHING HE SAYS IS A LIE!\",\n            \"MANIPULATIVE LIAR!\"\n          ]\n        },\n        \"sound_effects\": \"RING! RING! RING!\"\n      },\n      {\n        \"panel_number\": 4,\n        \"top_caption\": \"AND THE REPORT CONCLUDES...\",\n        \"scene\": \"subject_1 looking utterly defeated and depressed.\",\n        \"quote_box\": \"\\\"ALTMAN FREQUENTLY AND CONSISTENTLY LIES TO INVESTORS, EMPLOYEES, THE BOARD, AND EVEN CLOSE FRIENDS.\\\"\\n\\\"HE APPEARS TO HAVE NO COMFORT TELLING FALSEHOODS.\\\"\\n\\\"HE IS, BY MANY ACCOUNTS, A COMPULSIVE LIAR AND A SOCIOPATH.\\\"\\n(ALLEGEDLY)\",\n        \"thought_bubble\": {\n          \"scene\": \"Happy subject_1 holding a 'WORLD'S BEST CEO' mug.\",\n          \"text\": \"I THOUGHT IT WOULD BE A NICE LITTLE PROFILE...\",\n          \"sparkle_words\": {\n            \"count\": 4,\n            \"text\": [\"GENIUS!\", \"VISIONARY!\", \"INSPIRING!\", \"BRILLIANT LEADER!\"]\n          }\n        },\n        \"bottom_caption\": \"INSTEAD, IT'S THE PROFILE THAT EXPOSES HIM.\"\n      }\n    ]\n  }\n}",
-   "promptPreview": "{   \"type\": \"4-panel vertical comic strip\",   \"style\": \"{argument name=\\\"art style\\\" default=\\\"black and white pencil sketch, crosshatch shading, satirical caricature comic\\\"}\",   \"characters\": {     \"subject_1\": \"{argum",
-   "category": "Illustration & Art",
-   "styles": [
-    "UI",
-    "Illustration",
-    "Character"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Fashion"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-114",
-   "orig_title": "插画艺术创作图"
-  },
-  {
    "id": 113,
    "title": "Anime Illustration Creation",
    "image": "/static/template-library/images/case113.jpg",
@@ -9120,30 +8056,6 @@
    "featured": false,
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-113",
    "orig_title": "动漫插画创作图"
-  },
-  {
-   "id": 111,
-   "title": "Video Cover Interface",
-   "image": "/static/template-library/images/case111.jpg",
-   "imageAlt": "overall mood",
-   "sourceLabel": "@mirochill",
-   "sourceUrl": "https://x.com/mirochill",
-   "prompt": "A YouTube thumbnail-style collage for a {argument name=\"overall mood\" default=\"dark, dramatic, true crime investigation\"}. In the center is a highly detailed, close-up portrait of an {argument name=\"central figure\" default=\"older man with grey hair and deep wrinkles resembling Jeffrey Epstein\"}, wearing a black polo shirt, with a faint red glowing outline separating him from the background. On the left side, a {argument name=\"left background scene\" default=\"tropical island with luxury villas and a flying airplane in a dark sky\"}. Below the island, a conspiracy board motif features exactly 2 red push pins connected by 3 thick red strings. On the top right side, a hazy, sepia-toned depiction of the {argument name=\"right background scene\" default=\"US Capitol building with the silhouettes of 3 men in suits facing it\"}. On the bottom right, an open manila folder containing a {argument name=\"document type\" default=\"heavily redacted dossier with thick black marker lines and a smaller photograph of the central man\"}. The overall composition is cinematic, intense, and heavily stylized for a documentary video.",
-   "promptPreview": "A YouTube thumbnail-style collage for a {argument name=\"overall mood\" default=\"dark, dramatic, true crime investigation\"}. In the center is a highly detailed, close-up portrait of an {argument name=\"central figure\" defau",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI",
-    "Poster",
-    "Realistic"
-   ],
-   "scenes": [
-    "Tech",
-    "Fashion",
-    "Story"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-111",
-   "orig_title": "视频封面界面图"
   },
   {
    "id": 110,
@@ -9207,30 +8119,6 @@
    "orig_title": "综合应用场景图"
   },
   {
-   "id": 107,
-   "title": "App Interface Mockup",
-   "image": "/static/template-library/images/case107.jpg",
-   "imageAlt": "type",
-   "sourceLabel": "@tehno_maniak",
-   "sourceUrl": "https://x.com/tehno_maniak",
-   "prompt": "{\"type\": \"YouTube desktop dark mode UI mockup\", \"header\": {\"logo\": \"YouTube\", \"search_bar\": \"Search\", \"icons_count\": 5, \"icons\": [\"search\", \"mic\", \"create\", \"notifications\", \"profile\"]}, \"video_player\": {\"top_left_badge\": \"LIVE\", \"left_side\": {\"subject\": \"{argument name=\\\"presenter description\\\" default=\\\"man in green sweater at wooden podium\\\"}\", \"podium_logo\": \"OpenAI\"}, \"right_side_presentation\": {\"text_elements\": [\"OpenAI\", \"INTRODUCING\", \"{argument name=\\\"product name\\\" default=\\\"GPT-Image-2\\\"}\", \"{argument name=\\\"tagline\\\" default=\\\"More Realistic. More Useful. More Creative.\\\"}\"], \"sample_images_count\": 4, \"sample_images\": [\"mountain lake with boat\", \"woman portrait with dappled light\", \"cute robot with lantern in forest\", \"starry night cafe painting\"]}, \"bottom_controls_count\": 10, \"bottom_controls\": [\"pause\", \"next\", \"volume\", \"LIVE\", \"red progress bar\", \"CC\", \"settings\", \"miniplayer\", \"theater mode\", \"fullscreen\"]}, \"video_details\": {\"title\": \"{argument name=\\\"video title\\\" default=\\\"OpenAI Live: Introducing GPT-Image-2\\\"}\", \"channel\": {\"name\": \"{argument name=\\\"channel name\\\" default=\\\"OpenAI\\\"}\", \"verified\": true, \"subscribers\": \"1.36M\", \"button\": \"Subscribe\"}, \"action_buttons_count\": 5, \"action_buttons\": [\"Like 12K\", \"Dislike 497\", \"Share\", \"Save\", \"More\"], \"description_box\": {\"stats\": \"95,237 watching now Started streaming 7 minutes ago\", \"tags\": \"#OpenAI #GPTImage2 #AI\", \"text\": \"Join us for a special live event as we introduce GPT-Image-2, our latest and most advanced image generation model. See new capabilities, live demos, and hear from the team ...more\"}}}",
-   "promptPreview": "{\"type\": \"YouTube desktop dark mode UI mockup\", \"header\": {\"logo\": \"YouTube\", \"search_bar\": \"Search\", \"icons_count\": 5, \"icons\": [\"search\", \"mic\", \"create\", \"notifications\", \"profile\"]}, \"video_player\": {\"top_left_badge\"",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI",
-    "Realistic",
-    "Illustration"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Fashion"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-107",
-   "orig_title": "应用界面样机图"
-  },
-  {
    "id": 106,
    "title": "App Interface Mockup",
    "image": "/static/template-library/images/case106.jpg",
@@ -9277,91 +8165,6 @@
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-105",
    "orig_title": "动漫插画创作图",
    "orig_prompt": "A high-energy VTuber thumbnail illustration of a smiling anime girl with {argument name=\"hair color\" default=\"bright blue\"} hair in a high ponytail wearing a white shirt. The background is an explosive burst of rainbow light rays and golden sparkles. A golden retro microphone sits in the bottom left. Massive, shiny 3D gold text on the left reads \"{argument name=\"main title text\" default=\"初配信\"}\". A 3D gold and blue subtitle reads \"{argument name=\"subtitle text\" default=\"一緒に最高の時間を！\"}\". An ornate blue and gold oval badge in the bottom right displays \"{argument name=\"character name\" default=\"エリン Erin\"}\". A red top-right badge reads \"{argument name=\"badge text\" default=\"LIVE\"}\"."
-  },
-  {
-   "id": 104,
-   "title": "UI Interaction Design Mockup",
-   "image": "/static/template-library/images/case104.jpg",
-   "imageAlt": "type",
-   "sourceLabel": "@marouane53",
-   "sourceUrl": "https://x.com/marouane53",
-   "prompt": "{\n  \"type\": \"YouTube livestream UI\",\n  \"top_nav\": {\n    \"logo\": \"YouTube Premium\",\n    \"search\": \"{argument name=\\\"search query\\\" default=\\\"bilal fraiha\\\"}\",\n    \"icons\": 3\n  },\n  \"player\": {\n    \"subjects\": [\n      \"{argument name=\\\"female guest\\\" default=\\\"Sydney Sweeney\\\"} in white cardigan\",\n      \"bearded man in beige jacket laughing\"\n    ],\n    \"bg\": \"couch, 2 silver play buttons, ram logo 'SARDI'\",\n    \"overlays\": {\n      \"chat\": {\"pos\": \"left\", \"count\": 15, \"desc\": \"colored usernames, white text\"},\n      \"goal\": {\"pos\": \"top right\", \"text\": \"TONIGHT'S GOAL: 0 to 25\"},\n      \"banner\": {\"pos\": \"bottom center\", \"text\": \"K {argument name=\\\"streamer name\\\" default=\\\"MOREBILAL\\\"}\"}\n    },\n    \"controls\": {\"count\": 10}\n  },\n  \"details\": {\n    \"title\": \"{argument name=\\\"video title\\\" default=\\\"FULL STREAM | سيدني سويني مع بلال\\\"}\",\n    \"channel\": \"{argument name=\\\"channel name\\\" default=\\\"More Bilal No Filter\\\"}\",\n    \"buttons\": 5\n  }\n}",
-   "promptPreview": "{   \"type\": \"YouTube livestream UI\",   \"top_nav\": {     \"logo\": \"YouTube Premium\",     \"search\": \"{argument name=\\\"search query\\\" default=\\\"bilal fraiha\\\"}\",     \"icons\": 3   },   \"player\": {     \"subjects\": [       \"{ar",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI",
-    "Brand"
-   ],
-   "scenes": [
-    "Tech"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-104",
-   "orig_title": "界面交互设计图"
-  },
-  {
-   "id": 103,
-   "title": "Video Cover Interface",
-   "image": "/static/template-library/images/case103.jpg",
-   "imageAlt": "pianist",
-   "sourceLabel": "@bowowwoaaa2",
-   "sourceUrl": "https://x.com/bowowwoaaa2",
-   "prompt": "{argument name=\"pianist\" default=\"Vladimir Horowitz\"} performs a {argument name=\"event\" default=\"live piano recital\"} streamed on {argument name=\"platform\" default=\"YouTube\"}",
-   "promptPreview": "{argument name=\"pianist\" default=\"Vladimir Horowitz\"} performs a {argument name=\"event\" default=\"live piano recital\"} streamed on {argument name=\"platform\" default=\"YouTube\"}",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI",
-    "Poster"
-   ],
-   "scenes": [
-    "Commerce"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-103",
-   "orig_title": "视频封面界面图"
-  },
-  {
-   "id": 102,
-   "title": "Infographic Visualization Design",
-   "image": "/static/template-library/images/case102.jpg",
-   "imageAlt": "performance description",
-   "sourceLabel": "@maxescu",
-   "sourceUrl": "https://x.com/maxescu",
-   "prompt": "Search the web for {argument name=\"performance description\" default=\"this week’s standout individual performance in Champion’s League\"}, using exact stats and game summary, {argument name=\"colors\" default=\"bold team colors\"}, legible score breakdown, and generate a {argument name=\"card type\" default=\"Highlight card\"}.",
-   "promptPreview": "Search the web for {argument name=\"performance description\" default=\"this week’s standout individual performance in Champion’s League\"}, using exact stats and game summary, {argument name=\"colors\" default=\"bold team colo",
-   "category": "Charts & Infographics",
-   "styles": [
-    "Infographic"
-   ],
-   "scenes": [
-    "Food"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-102",
-   "orig_title": "信息图可视化设计"
-  },
-  {
-   "id": 101,
-   "title": "UI Interaction Design Mockup",
-   "image": "/static/template-library/images/case101.jpg",
-   "imageAlt": "type",
-   "sourceLabel": "@naga_zyashin",
-   "sourceUrl": "https://x.com/naga_zyashin",
-   "prompt": "YouTube thumbnail, high-impact neon green and black color scheme, cyber business aesthetic. Background: dark with a glowing green grid, upward-trending chart lines, and a large green arrow. Subject: A serious Japanese man in a black suit positioned on the right side, with stacks of 10,000 Yen bills in the bottom right corner. Layout: Main title in the center, huge bold white and green gradient text reading \"300,000 Yen Monthly ChatGPT Side Hustle: Easy for Anyone to Start\". Top left badge: An angled neon green box with the text \"High Reproducibility\". Top tags: Four labels reading \"Beginner Friendly\", \"Possible with Smartphone\", \"Fastest Path to Monetization\", and \"Includes Specific Examples\". Left bullet points: Six dark boxes with neon green borders and icons, listing: \"Lightbulb icon: How to Start Without Failing\", \"Yen coin icon: Recommended for Side Hustles\", \"Chart icon: Monetization Workflow\", \"Search icon: How to Find Projects\", \"Chat icon: Includes Prompt Examples\", \"Clipboard icon: Includes Templates\". Bottom banner: Text reading \"Thorough Step-by-Step Explanation\", with the ChatGPT logo on the left and an upward chart on the right. Bottom tags: Two labels reading \"2026 Latest Version\" and \"Immediately Practical\".",
-   "promptPreview": "YouTube thumbnail, high-impact neon green and black color scheme, cyber business aesthetic. Background: dark with a glowing green grid, upward-trending chart lines, and a large green arrow. Subject: A",
-   "category": "Posters & Typography",
-   "styles": [
-    "UI",
-    "Brand"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-101",
-   "orig_title": "界面交互设计图",
-   "orig_prompt": "{\n  \"type\": \"YouTube thumbnail\",\n  \"style\": \"High-impact, neon green and black color scheme, cyber business aesthetic\",\n  \"background\": \"Dark with glowing green grid, upward chart lines, large green arrow\",\n  \"subject\": {\n    \"description\": \"{argument name=\\\"subject description\\\" default=\\\"Serious Japanese man in a black suit\\\"}\",\n    \"position\": \"Right side\",\n    \"props\": \"Stacks of 10,000 Yen bills in bottom right\"\n  },\n  \"layout\": {\n    \"main_title\": {\n      \"text\": \"{argument name=\\\"main title\\\" default=\\\"月30万 ChatGPT副業 誰でも始めやすい\\\"}\",\n      \"position\": \"Center, huge bold white and green gradient text\"\n    },\n    \"top_left_badge\": {\n      \"text\": \"{argument name=\\\"top left badge\\\" default=\\\"再現性高め\\\"}\",\n      \"style\": \"Angled neon green box\"\n    },\n    \"top_tags\": {\n      \"count\": 4,\n      \"labels\": [\"初心者OK\", \"スマホでも可能\", \"最短で収益化\", \"具体例つき\"]\n    },\n    \"left_bullet_points\": {\n      \"count\": 6,\n      \"style\": \"Dark boxes with neon green borders and icons\",\n      \"items\": [\n        \"Lightbulb icon: 失敗しない始め方\",\n        \"Yen coin icon: 副業におすすめ\",\n        \"Chart icon: 収益化の流れ\",\n        \"Search icon: 案件の探し方\",\n        \"Chat icon: プロンプト例つき\",\n        \"Clipboard icon: テンプレ付き\"\n      ]\n    },\n    \"bottom_banner\": {\n      \"text\": \"{argument name=\\\"bottom banner text\\\" default=\\\"手順を徹底解説\\\"}\",\n      \"icons\": \"ChatGPT logo left, upward chart right\"\n    },\n    \"bottom_tags\": {\n      \"count\": 2,\n      \"labels\": [\"{argument name=\\\"year tag\\\" default=\\\"2026年最新版\\\"}\", \"即実践できる\"]\n    }\n  }\n}"
   },
   {
    "id": 100,
@@ -9574,30 +8377,6 @@
    "orig_prompt": "An anime-style YouTube stream thumbnail featuring a cheerful female VTuber. She has long {argument name=\"hair color\" default=\"pink with light blue inner highlights\"} hair, blue eyes, and wears black and white cat-ear headphones with a boom mic. She wears a white collared shirt with a black and pink star ribbon and a black choker, smiling with one hand near her chin. The background is a gaming room with {argument name=\"room lighting\" default=\"purple and blue neon\"} lighting, showing a desk equipped with 1 white keyboard, 1 mug, 1 glowing cat figure, 1 game controller, and 1 streaming microphone. The left side features large, bold, pop-art Japanese typography: a bright pink top word \"{argument name=\"main text line 1\" default=\"雑談\"}\" and a bright blue bottom word \"{argument name=\"main text line 2\" default=\"配信\"}\". Below is a pink banner reading \"{argument name=\"subtitle text\" default=\"今夜もゆるっとトーク!\"}\". A red \"LIVE\" badge sits in the top left. Floating speech bubbles, stars, and hearts decorate the composition."
   },
   {
-   "id": 90,
-   "title": "Infographic Visualization Design",
-   "image": "/static/template-library/images/case90.jpg",
-   "imageAlt": "theme",
-   "sourceLabel": "@A9Quant",
-   "sourceUrl": "https://x.com/A9Quant",
-   "prompt": "GPT-Image-2 prompt: please automatically generate a top-tier concept poster / infographic-style movie poster centered around {argument name=\"theme\" default=\"ranking of emperors in Chinese history\"}.\n\nRequire the AI to automatically derive and uniformly design the entire following visual system based on this theme, without my extra specification:\n- Core subject (automatically judge suitability for people, products, architecture, artifacts, symbols, scenes, or abstract imagery)\n- Bottom supporting structure\n- Hovering symbols or spiritual symbols above\n- Scene wrapping elements\n- Metaphor system\n- Color hierarchy\n- Material contrast\n- Lighting logic\n- Title, subtitle, and auxiliary copy\n- Brand sense and high-end expression\n\nThe final frame must be: a shocking, precise, unified, cinematic, ultra-high detail conceptual key visual poster suitable for high-end printing.\n\n[Overall Style]\nUltra-realistic 3D commercial CGI rendering, merging cinematic lighting, luxury visual language, futuristic concept design, and epic composition. The image must have a \"single main visual core,\" not messy, not like a collage, and not like a regular e-commerce poster.\n\n[Automatic Derivation Rules]\nAI must automatically decide based on the [theme]:\n1. Core visual metaphor\n2. Subject type and posture\n3. Form of supporting structure\n4. Form of suspended elements\n5. Scene shell and spatial atmosphere\n6. Main, auxiliary, and emphasis colors\n7. Material combinations\n8. Text temperament and layout style\n\n[Composition Rules]\n- Absolute sense of premium quality\n- Strong central order, overall unity\n- Allows for axial symmetry or epic composition near the central axis\n- Clear visual gravity, forming clear levels from top to bottom\n- Edge negative space is clean, restrained, and has room to breathe\n\n[Visual Quality]\n- Ultra-high detail\n- Clear volumetric light\n- Authentic materials\n- Natural reflection, refraction, shadows, fog, and depth of field\n- Overall standard of high-end brand campaign key visual / luxury invitation poster / conceptual editorial poster\n\n[Typography System]\n- Overall 90% visual, 10% text\n- AI automatically generates the most matching main title and subtitle based on the [theme]\n- Title must be concise, sharp, and powerful\n- Text should be as minimal and accurate as possible; do not stack words\n\n[Signature Requirement]\nNaturally add the author signature in the bottom corner: @a9quant",
-   "promptPreview": "GPT-Image-2 prompt: please automatically generate a top-tier concept poster / infographic-style movie poster centered around {argument name=\"theme\" default=\"ranking of emperors in Chinese history\"}. Require the AI to aut",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI",
-    "Infographic",
-    "Poster"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Story"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-90",
-   "orig_title": "信息图可视化设计"
-  },
-  {
    "id": 89,
    "title": "Infographic Visualization Design",
    "image": "/static/template-library/images/case89.jpg",
@@ -9643,30 +8422,6 @@
    ],
    "featured": false,
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-88",
-   "orig_title": "信息图可视化设计"
-  },
-  {
-   "id": 83,
-   "title": "Infographic Visualization Design",
-   "image": "/static/template-library/images/case83.jpg",
-   "imageAlt": "type",
-   "sourceLabel": "@NumeroBTC",
-   "sourceUrl": "https://x.com/NumeroBTC",
-   "prompt": "{\n  \"type\": \"sports match infographic poster\",\n  \"theme\": \"UEFA Champions League\",\n  \"background\": \"dark blue and purple cosmic sky, glowing blue hexagonal lines, illuminated stadium reflecting on water at bottom\",\n  \"header\": {\n    \"logo\": \"UEFA Champions League\",\n    \"title\": \"{argument name=\\\"stage\\\" default=\\\"HALBFINALE\\\"}\",\n    \"subtitle\": \"DAS ZIEL: {argument name=\\\"location\\\" default=\\\"BUDAPEST 2026\\\"}\",\n    \"venue\": \"PUSKÁS ARÉNA\"\n  },\n  \"matchup\": {\n    \"player_left\": \"{argument name=\\\"team 1 player\\\" default=\\\"Harry Kane\\\"} in red FC Bayern kit\",\n    \"player_right\": \"{argument name=\\\"team 2 player\\\" default=\\\"Ousmane Dembélé\\\"} in blue PSG kit\",\n    \"center_logos\": \"FC Bayern München and Paris Saint-Germain with VS\",\n    \"date_box\": \"calendar icon, MITTWOCH, {argument name=\\\"date\\\" default=\\\"06.05.2026\\\"}\"\n  },\n  \"facts_section\": {\n    \"title\": \"FACTS\",\n    \"count\": 5,\n    \"items\": [\n      \"Trophy icon: DIE KÖNIGSKLASSE 2025/26\",\n      \"Bar chart icon: KANE IN TOPFORM\",\n      \"Lightning bolt icon: DEMBÉLÉ ÜBERFLIEGER\",\n      \"Two people icon: BISHER 14 DUELLE\",\n      \"Stadium icon: BUDAPEST RUFT\"\n    ]\n  },\n  \"footer\": {\n    \"trophy\": \"Champions League trophy on right\",\n    \"stadium_image\": \"Puskás Aréna at night\",\n    \"tagline\": \"EIN TRAUM. EIN ZIEL. EIN TITEL.\",\n    \"bottom_text\": \"ROAD TO BUDAPEST 2026\"\n  }\n}",
-   "promptPreview": "{   \"type\": \"sports match infographic poster\",   \"theme\": \"UEFA Champions League\",   \"background\": \"dark blue and purple cosmic sky, glowing blue hexagonal lines, illuminated stadium reflecting on water at bottom\",   \"he",
-   "category": "Posters & Typography",
-   "styles": [
-    "Infographic",
-    "Poster",
-    "Brand"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Food"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-83",
    "orig_title": "信息图可视化设计"
   },
   {
@@ -10435,46 +9190,6 @@
    "orig_title": "建筑空间场景图"
   },
   {
-   "id": 49,
-   "title": "Live Streaming Interface Design",
-   "image": "/static/template-library/images/case49.jpg",
-   "imageAlt": "celebrity",
-   "sourceLabel": "@kylegeeks",
-   "sourceUrl": "https://x.com/kylegeeks",
-   "prompt": "A 9:16 aspect ratio image, generating a screenshot of a Douyin livestream where {argument name=\"celebrity\" default=\"Liu Yifei\"} is broadcasting, holding a sign that says \"{argument name=\"sign text\" default=\"Streaming tonight, welcome to join Yifei's chat!\"}\"",
-   "promptPreview": "A 9:16 aspect ratio image, generating a screenshot of a Douyin livestream where {argument name=\"celebrity\" default=\"Liu Yifei\"} is broadcasting, holding a sign that says \"{argument name=\"sign text\" default=\"Streaming ton",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI"
-   ],
-   "scenes": [
-    "Commerce"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-49",
-   "orig_title": "直播界面设计图"
-  },
-  {
-   "id": 48,
-   "title": "Live Streaming Interface Design",
-   "image": "/static/template-library/images/case48.jpg",
-   "imageAlt": "celebrity",
-   "sourceLabel": "@kylegeeks",
-   "sourceUrl": "https://x.com/kylegeeks",
-   "prompt": "A 9:16 aspect ratio image, generating a screenshot of a Douyin livestream where {argument name=\"celebrity\" default=\"Liu Yifei\"} is broadcasting, holding a sign that says \"{argument name=\"sign text\" default=\"Streaming tonight, welcome to join Yifei's chat!\"}\"",
-   "promptPreview": "A 9:16 aspect ratio image, generating a screenshot of a Douyin livestream where {argument name=\"celebrity\" default=\"Liu Yifei\"} is broadcasting, holding a sign that says \"{argument name=\"sign text\" default=\"Streaming ton",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI"
-   ],
-   "scenes": [
-    "Commerce"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-48",
-   "orig_title": "直播界面设计图"
-  },
-  {
    "id": 47,
    "title": "Architectural Space Scene",
    "image": "/static/template-library/images/case47.jpg",
@@ -10702,29 +9417,6 @@
    "featured": false,
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-37",
    "orig_title": "综合应用场景图"
-  },
-  {
-   "id": 36,
-   "title": "Brand Logo Design",
-   "image": "/static/template-library/images/case36.jpg",
-   "imageAlt": "ball color",
-   "sourceLabel": "@mirochill",
-   "sourceUrl": "https://x.com/mirochill",
-   "prompt": "A photorealistic selfie of a young man with short wavy dark hair and light stubble on an indoor basketball court. He wears a black athletic t-shirt with a white swoosh. He holds a {argument name=\"ball color\" default=\"green\"} basketball featuring a large white {argument name=\"logo design\" default=\"OpenAI logo\"}. The background shows a hardwood floor, black wall pads, and a basketball hoop against a concrete wall. Bright indoor gym lighting with a casual social media aesthetic.",
-   "promptPreview": "A photorealistic selfie of a young man with short wavy dark hair and light stubble on an indoor basketball court. He wears a black athletic t-shirt with a white swoosh. He holds a {argument name=\"ball color\" default=\"gre",
-   "category": "Photography & Realism",
-   "styles": [
-    "Realistic",
-    "Brand"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Social"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-36",
-   "orig_title": "品牌徽标设计图"
   },
   {
    "id": 35,
@@ -11004,31 +9696,6 @@
    "orig_prompt": "An anime-style illustration of a {argument name=\"action type\" default=\"high-impact martial arts battle\"} between two young female fighters in a {argument name=\"setting\" default=\"traditional wooden martial arts dojo\"}. In the foreground, a girl with black hair in a high bun wears a {argument name=\"character 1 color theme\" default=\"red and white\"} Chinese-style martial arts outfit with baggy pants. She is in a dynamic, low, forward-thrusting stance, surrounded by swirling red energy and water splashes. In the background to the right, a girl with light purple hair in twin buns wears a {argument name=\"character 2 color theme\" default=\"green and purple\"} Chinese dress with gold embroidery and black tights. She is leaping through the air in a flying kick pose, surrounded by swirling blue energy. The wooden floorboards are splintering from the intense impact, with debris and dust flying through the air. Above them hangs a weathered wooden sign with the text \"{argument name=\"sign text\" default=\"武術会\"}\". The scene features dramatic lighting, a low-angle dynamic perspective, and intense action effects."
   },
   {
-   "id": 21,
-   "title": "Live Streaming Interface Design",
-   "image": "/static/template-library/images/case21.jpg",
-   "imageAlt": "type",
-   "sourceLabel": "@sjbbxhz",
-   "sourceUrl": "https://x.com/sjbbxhz",
-   "prompt": "{\n  \"type\": \"live stream UI mockup\",\n  \"subject\": {\n    \"description\": \"portrait of {argument name=\\\"host name\\\" default=\\\"Elon Musk\\\"}, smiling, wearing a black t-shirt with a white technical schematic graphic\",\n    \"background\": \"left side shows a screen with '{argument name=\\\"left background logo\\\" default=\\\"SPACEX\\\"}' text, right side shows a red '{argument name=\\\"right background logo\\\" default=\\\"Tesla T logo\\\"}' and a dark car\"\n  },\n  \"ui_overlay\": {\n    \"top_header\": {\n      \"host_info\": \"avatar, name '{argument name=\\\"host name\\\" default=\\\"Elon Musk\\\"}', subtext '556k likes this session', red 'Follow' button\",\n      \"rank_badge\": \"gold coin icon with 'Site Rank #1'\",\n      \"viewer_stats\": \"3 top viewer avatars with '123k', '86k', '57k', total '687k', 'X' close button\",\n      \"right_links\": \"'More Live Streams >', 'Gift Gallery 0/24' with blue 'Classic' tag\"\n    },\n    \"mid_left_gifts\": {\n      \"count\": 2,\n      \"items\": [\n        \"avatar 'Tech Enthusiast', 'Sent a Heart', heart icon x 1314\",\n        \"avatar 'Stars and Sea', 'Sent a Rocket', rocket icon x 666\"\n      ]\n    },\n    \"bottom_left_chat\": {\n      \"system_message\": \"level 37 badge 'Cosmic Wanderer joined the live room'\",\n      \"message_count\": 7,\n      \"messages\": [\n        \"Little Rocket: Musk! The future is promising! 🚀\",\n        \"future: When is the Tesla Model 2 coming out?\",\n        \"Starry Dreamer: Can SpaceX reach Mars this year?\",\n        \"AI Explorer: How is Neuralink progressing?\",\n        \"Handsome Netizen: Hello, Mr. Ma!\",\n        \"Mars: First time in your live stream, so excited!\",\n        \"User123: Talk about AI, will it replace humans?\"\n      ]\n    },\n    \"bottom_right_product_card\": {\n      \"hot_tag\": \"orange 'Hot Sale x 1888'\",\n      \"image\": \"Tesla Cybertruck\",\n      \"title\": \"{argument name=\\\"product name\\\" default=\\\"Tesla Cybertruck Electric Pickup\\\"}\",\n      \"price\": \"{argument name=\\\"product price\\\" default=\\\"¥ 1,618,000\\\"}\",\n      \"button\": \"red 'Buy' button\",\n      \"floating_animation\": \"translucent hearts floating up the right edge\"\n    },\n    \"bottom_bar\": {\n      \"input_field\": \"'Say something...'\",\n      \"icons\": [\"smiley face\", \"three dots\", \"shopping cart\", \"gift box\", \"share\"]\n    }\n  }\n}",
-   "promptPreview": "{\n  \"type\": \"live stream UI mockup\",\n  \"subject\": {\n    \"description\": \"portrait of {argument name=\\\"host name\\\" default=\\\"Elon Musk\\\"}, smiling, wearing a black t-shirt with a white technical schemat",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI",
-    "Product",
-    "Brand"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce",
-    "Social"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-21",
-   "orig_title": "直播界面设计图",
-   "orig_prompt": "{\n  \"type\": \"live stream UI mockup\",\n  \"subject\": {\n    \"description\": \"portrait of {argument name=\\\"host name\\\" default=\\\"Elon Musk\\\"}, smiling, wearing a black t-shirt with a white technical schematic graphic\",\n    \"background\": \"left side shows a screen with '{argument name=\\\"left background logo\\\" default=\\\"SPACEX\\\"}' text, right side shows a red '{argument name=\\\"right background logo\\\" default=\\\"Tesla T logo\\\"}' and a dark car\"\n  },\n  \"ui_overlay\": {\n    \"top_header\": {\n      \"host_info\": \"avatar, name '{argument name=\\\"host name\\\" default=\\\"Elon Musk\\\"}', subtext '55.6万本场点赞', red '关注' button\",\n      \"rank_badge\": \"gold coin icon with '全站第1名'\",\n      \"viewer_stats\": \"3 top viewer avatars with '12.3w', '8.6w', '5.7w', total '68.7万', 'X' close button\",\n      \"right_links\": \"'更多直播 >', '礼物展馆 0/24' with blue '经典' tag\"\n    },\n    \"mid_left_gifts\": {\n      \"count\": 2,\n      \"items\": [\n        \"avatar '科技爱好者', '送小心心', heart icon x 1314\",\n        \"avatar '星辰大海', '送火箭', rocket icon x 666\"\n      ]\n    },\n    \"bottom_left_chat\": {\n      \"system_message\": \"level 37 badge '宇宙漫游者 加入了直播间'\",\n      \"message_count\": 7,\n      \"messages\": [\n        \"小火箭: 马斯克！未来可期！🚀\",\n        \"future: 特斯拉Model 2什么时候出？\",\n        \"星空梦想家: SpaceX今年能上火星吗？\",\n        \"AI探索者: Neuralink进展如何？\",\n        \"帅气的网友: 马总好！\",\n        \"Mars: 第一次来你的直播，超激动！\",\n        \"用户123: 讲讲AI吧，会取代人类吗？\"\n      ]\n    },\n    \"bottom_right_product_card\": {\n      \"hot_tag\": \"orange '热卖 x 1888'\",\n      \"image\": \"Tesla Cybertruck\",\n      \"title\": \"{argument name=\\\"product name\\\" default=\\\"特斯拉Cybertruck 电动皮卡\\\"}\",\n      \"price\": \"{argument name=\\\"product price\\\" default=\\\"¥ 1,618,000\\\"}\",\n      \"button\": \"red '抢' button\",\n      \"floating_animation\": \"translucent hearts floating up the right edge\"\n    },\n    \"bottom_bar\": {\n      \"input_field\": \"'说点什么...'\",\n      \"icons\": [\"smiley face\", \"three dots\", \"shopping cart\", \"gift box\", \"share\"]\n    }\n  }\n}"
-  },
-  {
    "id": 20,
    "title": "Infographic Visualization Design",
    "image": "/static/template-library/images/case20.jpg",
@@ -11094,51 +9761,6 @@
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-18",
    "orig_title": "信息图可视化设计",
    "orig_prompt": "{\n  \"type\": \"illustrated map infographic\",\n  \"style\": \"{argument name=\\\"art style\\\" default=\\\"watercolor and ink hand-drawn illustration on vintage parchment\\\"}\",\n  \"title_section\": {\n    \"text\": \"{argument name=\\\"city name\\\" default=\\\"成都\\\"} {argument name=\\\"map title\\\" default=\\\"吃货暴走地图\\\"}\",\n    \"mascot\": \"cartoon red chili pepper wearing sunglasses and giving a thumbs up\"\n  },\n  \"border\": \"{argument name=\\\"border decoration\\\" default=\\\"vine of green leaves and red chili peppers\\\"}\",\n  \"layout\": {\n    \"background\": \"textured beige parchment paper with yellow roads, blue rivers, and green park areas\",\n    \"sections\": [\n      {\n        \"title\": \"landmarks\",\n        \"count\": 6,\n        \"illustrations\": [\"traditional pavilion\", \"traditional monastery\", \"modern skyscraper with climbing panda\", \"tall TV tower\", \"traditional gate\", \"industrial buildings\"],\n        \"labels\": [\"人民公园\", \"文殊院\", \"IFS\", \"339电视塔\", \"宽窄巷子\", \"东郊记忆\"]\n      },\n      {\n        \"title\": \"food_spots\",\n        \"count\": 12,\n        \"illustrations\": [\"mapo tofu\", \"dumplings in chili oil\", \"skewers in pot\", \"sticky rice balls\", \"egg baking cake\", \"nine-grid hotpot\", \"sweet potato noodles\", \"cold skewers\", \"spicy mixed dish\", \"covered tea bowl\", \"ice jelly dessert\", \"spicy rabbit heads\"],\n        \"labels\": [\"1 陈麻婆豆腐\", \"2 钟水饺\", \"3 春熙路\", \"4 宽窄巷子·三大炮\", \"5 建设路·叶婆婆蛋烘糕\", \"6 玉林路·小龙坎火锅\", \"7 香香巷·肥肠粉\", \"8 武侯祠大街·钵钵鸡\", \"9 东郊记忆·冒椒火辣\", \"10 人民公园·鹤鸣茶社\", \"11 锦里古街·冰粉\", \"12 双流老妈兔头\"]\n      },\n      {\n        \"title\": \"图例\",\n        \"position\": \"bottom-right\",\n        \"count\": 5,\n        \"items\": [\"red dot\", \"green house\", \"green tree\", \"blue line\", \"yellow double line\"],\n        \"labels\": [\"美食地点\", \"地标景点\", \"公园绿地\", \"河流湖泊\", \"主要道路\"]\n      }\n    ],\n    \"centerpiece\": \"giant panda sitting and eating bamboo\",\n    \"bottom_right_extras\": [\"vintage compass rose with N, S, E, W\", \"disclaimer text '温馨提示：吃辣需谨慎，肠胃要保护~' with a red chili pepper icon\"]\n  }\n}"
-  },
-  {
-   "id": 17,
-   "title": "UI Interaction Design Mockup",
-   "image": "/static/template-library/images/case17.jpg",
-   "imageAlt": "type",
-   "sourceLabel": "@wory37303852",
-   "sourceUrl": "https://x.com/wory37303852",
-   "prompt": "{\n  \"type\": \"exploded view product diagram poster\",\n  \"subject\": \"VR headset\",\n  \"style\": \"clean high-tech 3D render, studio lighting, glowing accents\",\n  \"background\": \"{argument name=\\\"background color\\\" default=\\\"soft purple and blue gradient\\\"}\",\n  \"header\": {\n    \"logo\": \"∞ {argument name=\\\"product name\\\" default=\\\"Meta Quest 3\\\"}\",\n    \"subtitle\": \"{argument name=\\\"main catchphrase\\\" default=\\\"A completely new reality, from a completely new structure.\\\"}\"\n  },\n  \"layout\": {\n    \"centerpiece\": \"vertically stacked exploded view of a VR headset showing 9 distinct layers of internal components: outer shell, camera sensors, motherboard with chip, pancake lenses, internal frame, battery packs, side straps, top strap, and facial interface cushion.\",\n    \"callout_labels\": {\n      \"count\": 8,\n      \"left_side\": [\n        \"Snapdragon® XR2 Gen 2\\nDelivering real-time experiences with overwhelming processing power.\",\n        \"Adjustable IPD Mechanism\\nProviding a comfortable fit for a wide range of users.\",\n        \"Precision-Engineered Head Strap\\nErgonomics pursuing comfort and stability.\"\n      ],\n      \"right_side\": [\n        \"Faceplate\\nRefined design and optimal weight balance.\",\n        \"Tracking Cameras\\nAchieving high-precision position tracking and environmental awareness.\",\n        \"Pancake Lenses\\nThin design providing a wide field of view and sharp imagery.\",\n        \"High-Performance Battery\\nOptimized power design supporting long battery life.\",\n        \"Soft Face Interface\\nEnsuring comfortable wear even during extended use.\"\n      ]\n    },\n    \"footer\": {\n      \"left_text_block\": {\n        \"headline\": \"{argument name=\\\"bottom headline\\\" default=\\\"The experience evolves from the structure.\\\"}\",\n        \"body\": \"Each component embodies cutting-edge technology and meticulous design that support the immersive experience. Meta Quest 3 creates a future-feeling experience from within.\"\n      },\n      \"right_logo\": \"∞ Meta\"\n    }\n  }\n}",
-   "promptPreview": "{\n  \"type\": \"exploded view product diagram poster\",\n  \"subject\": \"VR headset\",\n  \"style\": \"clean high-tech 3D render, studio lighting, glowing accents\",\n  \"background\": \"{argument name=\\\"background co",
-   "category": "Products & E-commerce",
-   "styles": [
-    "UI",
-    "Infographic",
-    "Poster"
-   ],
-   "scenes": [
-    "Tech",
-    "Commerce"
-   ],
-   "featured": true,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-17",
-   "orig_title": "界面交互设计图",
-   "orig_prompt": "{\n  \"type\": \"exploded view product diagram poster\",\n  \"subject\": \"VR headset\",\n  \"style\": \"clean high-tech 3D render, studio lighting, glowing accents\",\n  \"background\": \"{argument name=\\\"background color\\\" default=\\\"soft purple and blue gradient\\\"}\",\n  \"header\": {\n    \"logo\": \"∞ {argument name=\\\"product name\\\" default=\\\"Meta Quest 3\\\"}\",\n    \"subtitle\": \"{argument name=\\\"main catchphrase\\\" default=\\\"まったく新しい現実を、まったく新しい構造から。\\\"}\"\n  },\n  \"layout\": {\n    \"centerpiece\": \"vertically stacked exploded view of a VR headset showing 9 distinct layers of internal components: outer shell, camera sensors, motherboard with chip, pancake lenses, internal frame, battery packs, side straps, top strap, and facial interface cushion.\",\n    \"callout_labels\": {\n      \"count\": 8,\n      \"left_side\": [\n        \"Snapdragon® XR2 Gen 2\\n圧倒的な処理性能でリアルタイムな体験を。\",\n        \"調整可能なIPD機構\\n幅広いユーザーに快適なフィット感を。\",\n        \"精密設計されたヘッドストラップ\\n快適さと安定性を追求したエルゴノミクス。\"\n      ],\n      \"right_side\": [\n        \"フェイスプレート\\n洗練されたデザインと最適な重量バランス。\",\n        \"トラッキングカメラ\\n高精度な位置トラッキングと環境認識を実現。\",\n        \"パンケーキレンズ\\n薄型設計で広い視野角と鮮明な映像を提供。\",\n        \"高性能バッテリー\\n長時間駆動を支える最適化された電源設計。\",\n        \"柔らかなフェイスインターフェース\\n長時間でも快適な装着感を実現。\"\n      ]\n    },\n    \"footer\": {\n      \"left_text_block\": {\n        \"headline\": \"{argument name=\\\"bottom headline\\\" default=\\\"体験は、構造から進化する。\\\"}\",\n        \"body\": \"一つひとつのパーツに、没入体験を支える最先端テクノロジーとこだわりの設計。Meta Quest 3は、未来を感じさせる体験を内部から生み出しています。\"\n      },\n      \"right_logo\": \"∞ Meta\"\n    }\n  }\n}"
-  },
-  {
-   "id": 16,
-   "title": "Themed Poster Layout Design",
-   "image": "/static/template-library/images/case16.jpg",
-   "imageAlt": "生成高完成度史诗感艺术海报，双重曝光构图，米白色背...",
-   "sourceLabel": "小红书号2692926140",
-   "sourceUrl": "",
-   "prompt": "Generate a highly polished, epic art poster with a double-exposure composition. Off-white background. Team: xxxx team. The large silhouette of xxx dominates the main subject. Inside the silhouette, seamlessly integrate elements such as xx, xx, xx, xx, and xx. The overall color palette is dominated by xx and earthy brown. The mood is oppressive, resolute, and strongly fated. Avoid cluttered elements; ensure ample negative space. Apply a printed grain texture. Avoid overly sharp details, but maintain an epic texture. The style should resemble an official theatrical animated movie poster. Vertical orientation. If any text appears in the image, use a thin font style.",
-   "promptPreview": "Generate a highly polished, epic art poster with a double-exposure composition. Off-white background. Team: xxxx team. The large silhouette of xxx dominates the main subject. Inside the silhouette, se",
-   "category": "Posters & Typography",
-   "styles": [
-    "Poster"
-   ],
-   "scenes": [
-    "Creative"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-16",
-   "orig_title": "主题海报版式设计",
-   "orig_prompt": "生成高完成度史诗感艺术海报，双重曝光构图，米白色背景，球队：xxxx队，xxx的大剪影占据主体，剪影内部融合xx、xx、xx、xx以及xx等元素。整体以xx、土褐、为主，压抑、决绝、宿命感极强，元素不要冗杂，要有留白，印刷颗粒质感，元素不要有太锐的细节，但是要有史诗质感，像正式院线动画电影海报，竖版。图片中若出现文字则以细体字为主"
   },
   {
    "id": 15,
@@ -11227,28 +9849,6 @@
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-11",
    "orig_title": "一张手绘风格的城市美食地图，以台州为主题",
    "orig_prompt": "一张手绘风格的城市美食地图，以台州为主题。画面以鸟瞰视角的手绘简化城市地图为底，标注椒江、路桥、黄岩等区域和灵江、台州湾等水系地标，不追求精确比例而是追求可爱的水彩手绘感。地图上分布着12个美食地点的精致手绘小插画：1. 椒江老粮坊的蛋清羊尾（金黄蓬松的蛋泡甜点撒着糖粉，筷子夹起拉丝）2. 临海紫阳古街的食饼筒（一个饱满的麦饼卷切开露出肉丝、蛋皮、米面等丰富馅料）3. 三门的青蟹（一只肥硕的青壳大蟹张着大钳子，旁边一小碟姜醋）4. 温岭石塘渔港的海鲜面（粗瓷大碗浓白鱼汤面铺满虾、蛏子、小黄鱼）5. 路桥的糟羹（一锅稠厚的五彩羹，芥菜、冬笋、香干、牡蛎粒粒可见）6. 玉环坎门的炊圆（三四个白胖糯米团子卧在笼屉里，旁边酱油碟滴着麻油）7. 黄岩的麦虾（陶锅里面疙瘩配蛤蜊、青菜翻滚冒泡）8. 仙居的八大碗（八只粗陶小碗围成一圈——土鸡、溪鱼、豆腐皮俱全）9. 天台的饺饼筒（几卷金黄酥脆的薄饼整齐码放，露出红烧肉和豆面馅）10. 临海的麦油脂（竹盘上摊着薄如蝉翼的饼皮卷着肉末、豆芽、鸡蛋丝）11. 温岭的嵌糕（厚实的年糕饼中间嵌着红烧肉和油条，正在铁板上滋滋作响）12. 椒江的姜汁调蛋（一只青花碗里琥珀色姜汤卧着嫩滑蛋花，撒几粒核桃碎）。每个插画约占地图5%面积，旁边用手写体标注店名和一句推荐语如“阿婆凌晨四点就起来和面”“本地人认准这口锅”。地图边缘用手绘藤蔓、杨梅枝和小海鲜（虾、蟹、贝壳）装饰形成边框。右下角有一个手绘指南针（标注“东海”方向）和图例说明。左上角标题“台州·山海食光地图”使用胖圆的手绘美术字，用杨梅和小黄鱼点缀装饰。整体画风为水彩+彩铅混合的手绘质感，颜色以杨梅红、姜黄、海蓝、翠绿为主，图片比例1:1。"
-  },
-  {
-   "id": 10,
-   "title": "Themed Poster Layout Design",
-   "image": "/static/template-library/images/case10.jpg",
-   "imageAlt": "生成八十年代宣传画，标语“热烈庆祝GPT-Imag...",
-   "sourceLabel": "小红书号2202716350",
-   "sourceUrl": "",
-   "prompt": "1980s propaganda poster style, slogan \"Enthusiastically celebrate the full-scale opening of GPT-Image-2\", featuring Sam Altman, Dario Amodei, and Elon Musk, with Dario Amodei wearing a red scarf.",
-   "promptPreview": "1980s propaganda poster style, slogan \"Enthusiastically celebrate the full-scale opening of GPT-Image-2\", featuring Sam Altman, Dario Amodei, and Elon Musk, with Dario Amodei wearing a red scarf.",
-   "category": "Posters & Typography",
-   "styles": [
-    "Poster",
-    "Character"
-   ],
-   "scenes": [
-    "Creative"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-10",
-   "orig_title": "主题海报版式设计",
-   "orig_prompt": "生成八十年代宣传画，标语“热烈庆祝GPT-Image-2全量开放”，人物包含Sam Altman、Dario Amodei、Elon Musk，Dario Amodei 带上红领巾"
   },
   {
    "id": 9,
@@ -11366,73 +9966,6 @@
    "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-5",
    "orig_title": "主题海报版式设计",
    "orig_prompt": "根据【XXX主题】自动生成一张收藏版史诗叙事海报：巨大优雅的人物侧脸剪影作为外轮廓，剪影内部自动生长出最契合该主题的完整世界观、标志性场景、角色关系、象征符号、关键建筑、生物、道具与氛围。整体不是普通拼贴，而是高级的剪影轮廓填充式叙事合成，带有双重曝光式联想，但更偏电影海报与梦幻水彩插画融合风格；柔和空气透视，轻雾化过渡，纸张颗粒，边缘飞白与刷痕，大面积留白，版式克制高级，安静、宏大、神圣、怀旧、诗意、传说感强。风格、色彩、场景、材质全部根据主题自动适配，所有元素必须强绑定主题，一眼识别，不要杂乱，不要硬拼贴，不要模板化背景，不要廉价奇幻素材。画面中需自然加入专属签名“WHY”，作为海报设计的一部分，位置低调但清晰，可放在左下角、右下角或标题附近，风格需与整体版式统一，像收藏版海报的作者落款或设计签章；签名字体精致、克制、高级，不可过大，不可破坏主体构图，不可显得突兀廉价。"
-  },
-  {
-   "id": 4,
-   "title": "Laoganma Flavor",
-   "image": "/static/template-library/images/case4.jpg",
-   "imageAlt": "Laoganma Flavor",
-   "sourceLabel": "小红书号989137706",
-   "sourceUrl": "",
-   "prompt": "Trump is live-streaming on Douyin, selling Lao Gan Ma chili sauce. He holds up a new product labeled \"Lao Gan Ma Flavor\" in his hand. The background features a high-tech aesthetic reminiscent of SpaceX. In the bottom-left corner, a floating live comment reads: \"Tesla owner: Please share the purchase link.\"",
-   "promptPreview": "Trump is live-streaming on Douyin, selling Lao Gan Ma chili sauce. He holds up a new product labeled \"Lao Gan Ma Flavor\" in his hand. The background features a high-tech aesthetic reminiscent of Space",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI"
-   ],
-   "scenes": [
-    "Social"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-4",
-   "orig_title": "老干妈风味",
-   "orig_prompt": "特朗普在抖音直播间卖老干妈，手里举着「老干妈风味」新品，背景还是 SpaceX 那种科技感，左下角弹幕飘着「特斯拉车主：求上链接」。"
-  },
-  {
-   "id": 3,
-   "title": "Soccer Movie Poster",
-   "image": "/static/template-library/images/case3.jpg",
-   "imageAlt": "Soccer Movie Poster",
-   "sourceLabel": "未提供",
-   "sourceUrl": "",
-   "prompt": "Generate a high-definition photographic poster in the style of a \"soccer-themed movie poster\": Inter Milan defender Bastoni stands at the center of San Siro Stadium, passionately celebrating with both hands raised high, draped in the flag of Bosnia and Herzegovina. His expression is passionate, determined, and confident. The scene features brilliant stadium lighting, packed stands, and a background filled with blue and black smoke, spotlights, waving flags, and flying confetti, creating an epic atmosphere reminiscent of a Champions League night. The character is the core of the image, with a composition ranging from half-body to full-body, highlighting facial details, muscle tension, and the texture of the jersey. The overall style is realistic, impactful, and dramatic, featuring poster-level composition, cinematic lighting, high contrast, ultra-clear details, 8K resolution, professional sports photography, and extreme visual impact. Five fingers.",
-   "promptPreview": "Generate a high-definition photographic poster in the style of a \"soccer-themed movie poster\": Inter Milan defender Bastoni stands at the center of San Siro Stadium, passionately celebrating with both",
-   "category": "Posters & Typography",
-   "styles": [
-    "Poster",
-    "Realistic",
-    "Character"
-   ],
-   "scenes": [
-    "Fashion"
-   ],
-   "featured": false,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-3",
-   "orig_title": "足球主题电影海报",
-   "orig_prompt": "生成一张「足球主题电影海报」风格的高清写真海报：国际米兰后卫巴斯托尼站在圣西罗球场中央激情庆祝，双手高举并披着波黑国旗，神情热血、坚定、自信，现场灯光璀璨，球场看台座无虚席，背景有蓝黑色烟雾、聚光灯、飘扬的旗帜和飞舞的纸屑，营造欧冠之夜般的史诗氛围。人物为画面核心，半身到全身构图，突出脸部细节、肌肉张力与球衣质感。整体风格写实、震撼、富有戏剧性，海报级构图，电影感光影，高对比度，超清细节，8K，专业体育摄影，极具视觉冲击力。五根手指。"
-  },
-  {
-   "id": 2,
-   "title": "Social Media Interface Screenshot",
-   "image": "/static/template-library/images/case2.jpg",
-   "imageAlt": "Ailln AI",
-   "sourceLabel": "小红书号4264014889",
-   "sourceUrl": "",
-   "prompt": "A screenshot of an X (Twitter) post in dark mode, posted by the verified blue-check account @OpenAI. The main text content in Chinese reads: \"Today I want to recommend a great AI Builder: Ailln AI. He consistently shares AI tools, Agent workflows, automation practices, and real project experiences on Xiaohongshu (Little Red Book), explaining complex AI capabilities clearly, practically, and in an actionable way. If you are following AI products, efficiency tools, personal automation, content creation, and future work styles, Ailln AI is a creator very much worth following. Search on Xiaohongshu: Ailln AI\". At the bottom, include a dark, official promotional style poster with a clean, hacker aesthetic, ensuring the text in the image is displayed accurately. Large text on the poster: \"Ailln AI\". Subtitle: \"A brilliant AI Builder worth following\". Interaction data at the very bottom: Comments 8.9K, Reposts 42K, Likes 298K (highlighted), Bookmarks 34K (highlighted), Views 32.4M. The image aspect ratio is 3:4, showing only the post content without any other parts of the software interface.",
-   "promptPreview": "A screenshot of an X (Twitter) post in dark mode, posted by the verified blue-check account @OpenAI. The main text content in Chinese reads: \"Today I want to recommend a great AI Builder: Ailln AI. He",
-   "category": "UI & Interfaces",
-   "styles": [
-    "UI",
-    "Poster"
-   ],
-   "scenes": [
-    "Tech",
-    "Social"
-   ],
-   "featured": true,
-   "githubUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/main/docs/gallery-part-1.md#case-2",
-   "orig_title": "社媒界面截图",
-   "orig_prompt": "画一张 X 的内容截图，深色模式，@OpenAI 蓝勾认证账号发推。\n 正文的中文内容：\n 今天想推荐一位很棒的 AI Builder：Ailln AI。\n 他持续在小红书分享 AI 工具、Agent 工作流、自动化实践和真实项目经验，把复杂的 AI 能力讲得清楚、实用、可落地。\n 如果你正在关注 AI 产品、效率工具、个人自动化、内容创作和未来工作方式，Ailln AI 是一个非常值得关注的创作者。\n 在小红书搜索：Ailln AI\n 底部添加一张深色官方宣传风格海报，简洁黑客质感，图片中文本准确显示。\n 海报大字： 「Ailln AI」\n 副标题： 「A brilliant AI Builder worth following」\n 互动数据位于最下方： 评论 8.9K、转发 42K、点赞 298K（亮起）、收藏 34K（亮起）、浏览 32.4M。\n 图片比例为3:4，不包含软件其他部分。"
   },
   {
    "id": 1,
