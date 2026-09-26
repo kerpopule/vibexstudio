@@ -252,7 +252,7 @@ def produce(board: dict, out_dir: Path, studio: Studio, *, rounds: int = 2, stil
         receipt = stitch.render(plan, cut_path)
         (out_dir / f"cut-r{round_no}.receipt.json").write_text(json.dumps(receipt, indent=2))
         report = seam_critic.review(cut_path, receipt, frames_dir=out_dir / f"seams-r{round_no}",
-                                    bible=bible, chat=vision)
+                                    bible=bible, chat=vision, syncnet=seam_critic.syncnet_runner())
         (out_dir / f"critic-r{round_no}.json").write_text(json.dumps(report, indent=2))
         (out_dir / f"critic-r{round_no}.md").write_text(seam_critic.markdown(report, f"Critic, round {round_no}"))
         journal["rounds"].append({"round": round_no, "cut": cut_path.name, "summary": report["summary"],
@@ -346,7 +346,8 @@ def main(argv: list[str] | None = None) -> int:
             report = seam_critic.verdicts(measured, vision, receipt.get("plan") or receipt)
             report["schema"] = seam_critic.REPORT_SCHEMA
         else:
-            report = seam_critic.review(args.cut, receipt, frames_dir=args.frames, bible=bible, chat=chat)
+            report = seam_critic.review(args.cut, receipt, frames_dir=args.frames, bible=bible, chat=chat,
+                                        syncnet=seam_critic.syncnet_runner())
         Path(args.frames, "critic.json").write_text(json.dumps(report, indent=2))
         Path(args.frames, "critic.md").write_text(seam_critic.markdown(report))
         _dump({"summary": report["summary"], "rerender": report["rerender"],

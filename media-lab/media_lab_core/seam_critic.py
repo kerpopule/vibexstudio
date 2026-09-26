@@ -25,7 +25,9 @@ import base64
 import io
 import json
 import math
+import os
 import re
+import subprocess
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -365,6 +367,58 @@ def look(measured: Mapping[str, Any], frames_dir: str | Path, bible: Mapping[str
     return answers
 
 
+# --------------------------------------------------------------- lip-sync
+
+LIPSYNC_PASS_OFFSET = 1       # frames; the private delivery gate's bar
+LIPSYNC_PASS_CONFIDENCE = 5.0
+LIPSYNC_FAIL_OFFSET = 3
+LIPSYNC_FAIL_CONFIDENCE = 2.5
+
+
+def syncnet_runner() -> Callable[[str], dict] | None:
+    """SyncNet on the CPU through a LatentSync checkout, when the host has one
+    (MEDIA_LAB_SYNCNET_PYTHON + MEDIA_LAB_LATENTSYNC_ROOT); None otherwise."""
+    python = os.environ.get("MEDIA_LAB_SYNCNET_PYTHON", "").strip()
+    root = os.environ.get("MEDIA_LAB_LATENTSYNC_ROOT", "").strip()
+    if not python or not root or not Path(python).exists() or not Path(root).is_dir():
+        return None
+    script = Path(__file__).resolve().parents[1] / "runner" / "syncnet_measure.py"
+
+    def run(video: str) -> dict:
+        result = subprocess.run([python, str(script), video, "--root", root], capture_output=True,
+                                text=True, timeout=900, check=False)
+        lines = [ln for ln in (result.stdout or "").splitlines() if ln.strip().startswith("{")]
+        if result.returncode != 0 or not lines:
+            return {"error": (result.stderr or "syncnet failed").strip()[-200:]}
+        return json.loads(lines[-1])
+    return run
+
+
+def lipsync(plan: Mapping[str, Any], runner: Callable[[str], dict] | None) -> list[dict[str, Any]]:
+    """Source-level lip-sync for every shot that speaks (SyncNet offset/confidence)."""
+    rows = []
+    for i, shot in enumerate(plan["shots"], 1):
+        if not shot.get("dialogue"):
+            continue
+        row = {"shot": i}
+        if runner is None:
+            row["verdict"] = "not measured"
+        else:
+            m = runner(str(shot.get("source_path") or shot.get("source")))
+            row.update(m)
+            off, conf = m.get("av_offset_frames"), m.get("confidence")
+            if m.get("error") or not m.get("face_track", True):
+                row["verdict"] = "not measured" if m.get("error") else "no face found"
+            elif abs(off) >= LIPSYNC_FAIL_OFFSET or conf < LIPSYNC_FAIL_CONFIDENCE:
+                row["verdict"] = "off"
+            elif abs(off) <= LIPSYNC_PASS_OFFSET and conf >= LIPSYNC_PASS_CONFIDENCE:
+                row["verdict"] = "in sync"
+            else:
+                row["verdict"] = "borderline"
+        rows.append(row)
+    return rows
+
+
 # ---------------------------------------------------------------- verdicts
 
 _RERENDER_WORDS = ("different person", "different clothes", "different set", "looks into the camera",
@@ -373,7 +427,7 @@ _RERENDER_WORDS = ("different person", "different clothes", "different set", "lo
 
 
 def verdicts(measured: Mapping[str, Any], vision: Sequence[Mapping[str, Any]] | None,
-             plan: Mapping[str, Any]) -> dict[str, Any]:
+             plan: Mapping[str, Any], lips: Sequence[Mapping[str, Any]] | None = None) -> dict[str, Any]:
     """Merge both halves into per-seam verdicts and a re-render list."""
     by_seam = {v["seam"]: v for v in (vision or []) if "seam" in v}
     seams = []
@@ -407,6 +461,10 @@ def verdicts(measured: Mapping[str, Any], vision: Sequence[Mapping[str, Any]] | 
     for i, shot in enumerate(plan["shots"], 1):
         if shot.get("mid_cuts"):
             rerender.setdefault(i, []).append("the take contains a cut the director did not ask for")
+    for row in lips or []:
+        if row.get("verdict") == "off":
+            rerender.setdefault(row["shot"], []).append(
+                f"lip-sync off by {row.get('av_offset_frames')} frames (SyncNet confidence {row.get('confidence', 0):.1f})")
     film = measured.get("film") or {}
     for c in film.get("unplanned_cuts") or []:
         idx = _shot_at(plan, c["time"])
@@ -416,7 +474,7 @@ def verdicts(measured: Mapping[str, Any], vision: Sequence[Mapping[str, Any]] | 
     ok = not rerender and all(s["verdict"] == "ok" for s in seams)
     return {"seams": seams,
             "rerender": [{"shot": k, "reasons": sorted(set(v))} for k, v in sorted(rerender.items())],
-            "film": film, "vision_ran": vision_ran,
+            "film": film, "vision_ran": vision_ran, "lipsync": list(lips or []),
             "pass": ok and vision_ran,
             "summary": ("clean" if ok else f"{len(rerender)} shot(s) to re-render, "
                         f"{sum(1 for s in seams if s['verdict'] != 'ok')} seam(s) flagged")
@@ -432,12 +490,14 @@ def _shot_at(plan: Mapping[str, Any], t: float) -> int | None:
 
 def review(cut: str | Path, receipt: Mapping[str, Any], *, frames_dir: str | Path,
            bible: Mapping[str, Any] | None = None,
-           chat: Callable[[str, str, bytes], str] | None = None) -> dict[str, Any]:
+           chat: Callable[[str, str, bytes], str] | None = None,
+           syncnet: Callable[[str], dict] | None = None) -> dict[str, Any]:
     """Measure, optionally look, and decide. Writes seam frames to ``frames_dir``."""
     measured = measure(cut, receipt, frames_dir)
     vision = look(measured, frames_dir, bible, chat) if chat else None
     plan = receipt.get("plan") or receipt
-    report = verdicts(measured, vision, plan)
+    lips = lipsync(plan, syncnet) if any(s.get("dialogue") for s in plan["shots"]) else []
+    report = verdicts(measured, vision, plan, lips)
     report["schema"] = REPORT_SCHEMA
     report["cut"] = str(cut)
     return report
@@ -524,6 +584,12 @@ def markdown(report: Mapping[str, Any], title: str = "Seam critique") -> str:
         lines.append(f"| {s['seam']} | {s['from_shot']}→{s['to_shot']} | {s['kind'].replace('_', ' ')} | "
                      f"{s['verdict']} | {m.get('colour_delta_e')} | {m.get('framing_similarity')} | "
                      f"{m.get('audio_jump_db')} | {'; '.join(s['reasons'])[:300]} |")
+    if report.get("lipsync"):
+        lines += ["", "Lip-sync (SyncNet, source takes):"]
+        for row in report["lipsync"]:
+            detail = ("" if row.get("av_offset_frames") is None else
+                      f": offset {row['av_offset_frames']} frames, confidence {row.get('confidence', 0):.1f}")
+            lines.append(f"- shot {row['shot']}: {row['verdict']}{detail}")
     if report.get("rerender"):
         lines += ["", "Re-render:"]
         for r in report["rerender"]:

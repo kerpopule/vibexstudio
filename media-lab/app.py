@@ -6945,7 +6945,8 @@ def _run_assemble_director(j, board, boards, sources, song):
     try:
         j["stage"] = "checking every cut"
         critic = seam_critic.review(final, receipt, frames_dir=jd / "seams",
-                                    bible=board.get("bible"), chat=_critic_chat())
+                                    bible=board.get("bible"), chat=_critic_chat(),
+                                    syncnet=seam_critic.syncnet_runner())
         (jd / "critic.json").write_text(json.dumps(critic, indent=1))
     except Exception as exc:   # the critic never blocks a delivery silently: it says it did not run
         critic = {"summary": f"critic did not run ({type(exc).__name__})", "rerender": [], "seams": []}

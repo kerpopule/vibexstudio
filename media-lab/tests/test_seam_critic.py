@@ -124,3 +124,21 @@ def test_produce_films_a_board_with_one_seed_and_edits_of_the_master(tmp_path):
     assert all("overall_soundscape" not in t["prompt"] for t in takes)   # the old studio wraps it itself
     assert (tmp_path / "prod" / journal["final_cut"]).is_file()
     assert (tmp_path / "prod" / "critic-r0.md").is_file()
+
+
+def test_lipsync_off_becomes_a_rerender_and_unmeasured_is_said():
+    plan = {"shots": [{"dialogue": True, "source_path": "/x/a.mp4"}, {"dialogue": False},
+                      {"dialogue": True, "source_path": "/x/c.mp4"}]}
+    fake = {"/x/a.mp4": {"face_track": True, "av_offset_frames": 0, "confidence": 7.1},
+            "/x/c.mp4": {"face_track": True, "av_offset_frames": -5, "confidence": 1.9}}
+    rows = seam_critic.lipsync(plan, lambda v: fake[v])
+    assert [(r["shot"], r["verdict"]) for r in rows] == [(1, "in sync"), (3, "off")]
+    report = seam_critic.verdicts({"seams": [], "film": {}}, None, plan, rows)
+    assert report["rerender"][0]["shot"] == 3 and "lip-sync off by -5" in report["rerender"][0]["reasons"][0]
+    assert [r["verdict"] for r in seam_critic.lipsync(plan, None)] == ["not measured", "not measured"]
+    assert "Lip-sync" in seam_critic.markdown(report)
+
+
+def test_syncnet_runner_needs_a_configured_checkout(monkeypatch):
+    monkeypatch.delenv("MEDIA_LAB_SYNCNET_PYTHON", raising=False)
+    assert seam_critic.syncnet_runner() is None

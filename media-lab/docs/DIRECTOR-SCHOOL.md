@@ -146,6 +146,12 @@ model; `MEDIA_LAB_CRITIC_VISION=off` skips it. An agent that can see (for
 example Sparky with a vision tool) can look at `seams/seamNN-pair.jpg` itself
 and hand its answers to `tools/director critic ... --verdicts answers.json`.
 
+Lip-sync, when the host has a LatentSync checkout (`MEDIA_LAB_SYNCNET_PYTHON`,
+`MEDIA_LAB_LATENTSYNC_ROOT`): every shot that speaks is measured with SyncNet
+on the CPU (`runner/syncnet_measure.py`). In sync means an offset of at most
+one frame at confidence 5 or more (the private delivery gate's bar); three
+frames or more, or confidence under 2.5, is a re-render.
+
 Output: `critic.json`, `critic.md`, the seam frames, and on the job
 `critic.summary` / `critic.rerender`.
 

@@ -1020,7 +1020,8 @@ def _public_plan(resolved: Mapping[str, Any]) -> dict[str, Any]:
     shots = []
     for s in resolved["shots"]:
         shots.append({
-            "id": s["id"], "source": Path(s["path"]).name, "scene": s["scene"],
+            "id": s["id"], "source": Path(s["path"]).name, "source_path": s["path"], "scene": s["scene"],
+            "dialogue": s["dialogue"],
             "in": _r6(s["in_frame"] / fps), "out": _r6(s["out_frame"] / fps),
             "kept_seconds": _r6(s["length_frames"] / fps),
             "source_seconds": _r6(s["source_duration"]),
