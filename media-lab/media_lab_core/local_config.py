@@ -68,6 +68,30 @@ DEFAULTS: dict[str, str] = {
     "SOL_H3_SPARK_RUNTIME_ROOT": "",
     "SOL_H3_SPARK_QWEN_WEIGHTS_ROOT": "~/.local/share",
     "SOL_H3_SPARK_QWEN_IMAGE": "sol-h3-spark-qwen",
+    # Real / Long: the H3 Singularity dual-sampling engine (runner/h3_singularity.py),
+    # a load-on-demand variant of the H3 unit. It needs its own isolated ComfyUI
+    # (with the MiniMax H3, KJNodes, rgthree, VideoHelperSuite and H3 latent
+    # upscaler nodes) and the lean weight set under H3_SINGULARITY_MODELS_ROOT
+    # (diffusion_models/, text_encoders/, vae/, loras/). Personal licence: it is
+    # also gated by MEDIA_LAB_PERSONAL_ENGINES=h3,h3-singularity.
+    "H3_SINGULARITY_COMFY_DIR": "",
+    "H3_SINGULARITY_MODELS_ROOT": "",
+    "H3_SINGULARITY_EXTRA_LORAS": "",
+    "H3_SINGULARITY_UPSCALERS": "",
+    "H3_SINGULARITY_PORT": "18188",
+    "H3_SINGULARITY_MAX_FRAMES": "362",
+    # how long a loaded Real / Long engine waits for the next take before the
+    # studio stands it down and brings the warm Sol engine back
+    "MEDIA_LAB_H3_SINGULARITY_LINGER_S": "600",
+    # Lip-sync check after each Real / Long take (media_lab_core/av_sync.py):
+    # a SyncNet environment (python with torch/opencv/scipy/python_speech_features)
+    # and a checkout holding eval/syncnet, eval/detectors and
+    # checkpoints/auxiliary/{syncnet_v2.model,sfd_face.pth}. auto = on when both
+    # exist; off disables it.
+    "MEDIA_LAB_AV_SYNC": "auto",
+    "MEDIA_LAB_AV_SYNC_PYTHON": "",
+    "MEDIA_LAB_AV_SYNC_ROOT": "",
+    "MEDIA_LAB_AV_SYNC_THREADS": "8",
     # YuE2 music engine (runner/yue2_engine_server.py): the isolated kit
     # (venv, YuE checkout, SheetSage2 venv), the weights root holding
     # YuE2-3B / YuE2-Vae / SheetSage2 / MERT-v2-FullSong, and the loopback port
@@ -96,7 +120,9 @@ DEFAULTS: dict[str, str] = {
 _PATH_KEYS = {"MEDIA_LAB_HOME", "MEDIA_LAB_MODELS_ROOT", "MEDIA_LAB_RUNTIME_ROOT",
               "SOL_PKG", "SOL_ROOT", "SOL_H3_SPARK_RUNTIME_ROOT",
               "SOL_H3_SPARK_QWEN_WEIGHTS_ROOT", "YUE2_KIT", "YUE2_MODELS_ROOT",
-              "MELBAND_ROFORMER_ROOT"}
+              "MELBAND_ROFORMER_ROOT", "H3_SINGULARITY_COMFY_DIR", "H3_SINGULARITY_MODELS_ROOT",
+              "H3_SINGULARITY_EXTRA_LORAS", "H3_SINGULARITY_UPSCALERS",
+              "MEDIA_LAB_AV_SYNC_PYTHON", "MEDIA_LAB_AV_SYNC_ROOT"}
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 
@@ -285,6 +311,21 @@ def sol() -> dict[str, str]:
 
 def sol_configured() -> bool:
     return bool(sol().get("SOL_PKG"))
+
+
+def singularity() -> dict[str, str]:
+    """The H3_SINGULARITY_* and MEDIA_LAB_AV_SYNC* keys, resolved, for the Real /
+    Long engine's per-load runtime environment."""
+    values = load()
+    return {k: values[k] for k in values
+            if k.startswith("H3_SINGULARITY_") or k.startswith("MEDIA_LAB_AV_SYNC")}
+
+
+def singularity_configured() -> bool:
+    values = singularity()
+    comfy = values.get("H3_SINGULARITY_COMFY_DIR", "")
+    return bool(sol_configured() and comfy and values.get("H3_SINGULARITY_MODELS_ROOT")
+                and (Path(comfy) / "main.py").is_file())
 
 
 def yue2() -> dict[str, str]:

@@ -75,10 +75,13 @@ def make_fixture_video(request):
     maker = controller_functions(
         "make_video_job", normalize_video_source=lambda r: r,
         STYLES={"none": {"prefix": ""}},
-        _h3ref=SimpleNamespace(required_turbo_preset=lambda r: None),
+        _h3ref=SimpleNamespace(required_turbo_preset=lambda r: None,
+                               wants_singularity=lambda r: False,
+                               H3_SINGULARITY_VARIANT="singularity"),
         engine_frames=lambda *a: 121, SIZES={"landscape": (1280, 720)},
         H3_SIZES={"landscape": (1280, 720)}, cast_lines=lambda *a: [],
-        engine_up=lambda *a: False, engine_licences=engine_licences,
+        engine_up=lambda *a: False, h3_variant_warm=lambda singularity: False,
+        engine_licences=engine_licences,
         submit_job=lambda kind, request, extra: dict(kind=kind, request=request, **extra))
     return maker["make_video_job"](request)
 

@@ -26,7 +26,19 @@ import math
 H3_REF2VA_VARIANT = "ref2va"
 H3_FL2VA_VARIANT = "fl2va"
 H3_FUSED_R1024_VARIANT = "fused_r1024"
-H3_VARIANTS = (H3_FL2VA_VARIANT, H3_REF2VA_VARIANT, H3_FUSED_R1024_VARIANT)
+# "Real / Long": the H3 Singularity dual-sampling engine (runner/h3_singularity.py),
+# a load-on-demand variant of the same H3 unit with its own single task family.
+H3_SINGULARITY_VARIANT = "singularity"
+H3_SINGULARITY_TASK = "singularity"
+H3_VARIANTS = (H3_FL2VA_VARIANT, H3_REF2VA_VARIANT, H3_FUSED_R1024_VARIANT,
+               H3_SINGULARITY_VARIANT)
+H3_TASKS = ("t2va", "fl2va", "ref2va", H3_SINGULARITY_TASK)
+H3_SINGULARITY_REF_MAX = 9
+H3_SINGULARITY_AUDIO_REF_MAX = 3
+# Set once by the app from local.env: True when this host has the Real / Long
+# engine enabled and installed. H3 reference jobs then route to it, because
+# Sol's Ref2VA needs more memory than a 128 GB box has (120 GiB row vs ~117).
+ROUTE_REFERENCES_TO_SINGULARITY = False
 H3_VIDEO_REF_MAX = 3
 H3_VIDEO_EXTENSIONS = {".avi", ".m4v", ".mkv", ".mov", ".mp4", ".webm"}
 
@@ -150,6 +162,35 @@ def normalize_video_references(references):
     return out
 
 
+H3_AUDIO_EXTENSIONS = {".flac", ".m4a", ".mp3", ".ogg", ".wav"}
+
+
+def normalize_audio_references(references):
+    """Validate Real / Long reference-audio descriptors ({source:/media/..., role,
+    start_sec}). Pixels and samples stay on disk; the worker stages them."""
+    out = []
+    for raw in (references or []):
+        if not isinstance(raw, dict):
+            continue
+        source = str(raw.get("source") or "").strip()[:500]
+        path_only = source.split("?", 1)[0]
+        suffix = "." + path_only.rsplit(".", 1)[-1].lower() if "." in path_only else ""
+        if not source.startswith("/media/") or suffix not in H3_AUDIO_EXTENSIONS:
+            continue
+        try:
+            start = float(raw.get("start_sec") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if start < 0 or not math.isfinite(start):
+            continue
+        out.append({"source": source,
+                    "role": str(raw.get("role") or "voice and sound")[:500],
+                    "start_sec": start})
+    if len(out) > H3_SINGULARITY_AUDIO_REF_MAX:
+        raise ValueError(f"Real / Long accepts at most {H3_SINGULARITY_AUDIO_REF_MAX} audio references.")
+    return out
+
+
 def required_variant(references=None):
     """Return the only H3 checkpoint compatible with this request.
 
@@ -188,9 +229,41 @@ def turbo_steps(preset):
     return H3_TURBO_PRESETS[preset]
 
 
+def wants_singularity(request=None):
+    """True when this request must run on the Real / Long (Singularity) engine:
+    it asked for it (``h3_engine: "singularity"``), or it carries references
+    and this host routes H3 reference work there. A fused-r1024 request keeps
+    its own explicit checkpoint."""
+    request = request or {}
+    if request.get("h3_fused_r1024"):
+        return False
+    if str(request.get("h3_engine") or "").strip().lower() == H3_SINGULARITY_VARIANT:
+        return True
+    return bool(ROUTE_REFERENCES_TO_SINGULARITY and (
+        request.get("references") or request.get("video_references")
+        or request.get("audio_references")))
+
+
+def task_for(request=None):
+    """The H3 task family (GPU lease task) a request runs as."""
+    request = request or {}
+    if wants_singularity(request):
+        return H3_SINGULARITY_TASK
+    if request.get("references") or request.get("video_references"):
+        return "ref2va"
+    if request.get("source") or request.get("start_image") or request.get("start_image_b64"):
+        return "fl2va"
+    return "t2va"
+
+
 def required_runtime_config(request=None):
     """Return the exact H3 checkpoint+adapter residency needed by a job."""
     request = request or {}
+    if wants_singularity(request):
+        if required_turbo_preset(request):
+            raise ValueError("Real / Long runs its own pinned dual-sampling recipe; "
+                             "the managed H3 Turbo preset does not apply to it")
+        return {"variant": H3_SINGULARITY_VARIANT, "turbo_preset": None}
     video_refs = normalize_video_references(request.get("video_references") or [])
     if request.get("h3_fused_r1024"):
         if not has_usable_reference(request.get("references") or []):
@@ -240,6 +313,15 @@ def validate_h3_reference_request(engine, variant, references, reference_detail=
         return str(exc)
     variant = variant or H3_FL2VA_VARIANT
     usable = has_usable_reference(references)
+    if variant == H3_SINGULARITY_VARIANT:
+        # Real / Long takes text alone or up to nine pictures; it is never an
+        # actorless actor-cloning run because it is a text+reference model.
+        if references and engine != "h3":
+            return ("H3 reference conditioning requires the h3 ENGINE, but the "
+                    f"resident engine is {engine!r}. Refusing a silent fallback.")
+        if references and not usable:
+            return "references were requested but none carried a decodable image"
+        return None
     # INVARIANT: ref2va resident + no usable reference == hard fail. This must
     # be checked before the generic empty-list check below.
     if variant in (H3_REF2VA_VARIANT, H3_FUSED_R1024_VARIANT) and not usable:
@@ -261,9 +343,15 @@ def validate_h3_reference_request(engine, variant, references, reference_detail=
     return None
 
 
-def assert_ref_count_ok(reference_count):
+def assert_ref_count_ok(reference_count, singularity=False):
     """Refuse more separate reference pictures than the engine can take, rather
     than ever concatening people into a contact-sheet input."""
+    if singularity:
+        if reference_count > H3_SINGULARITY_REF_MAX:
+            raise ValueError(
+                f"Real / Long accepts at most {H3_SINGULARITY_REF_MAX} separate reference "
+                f"pictures (got {reference_count}).")
+        return
     if reference_count > H3_REF_MAX:
         raise ValueError(
             f"H3 Ref2VA accepts at most {H3_REF_MAX} separate reference pictures "
