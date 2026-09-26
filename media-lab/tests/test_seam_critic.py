@@ -130,6 +130,13 @@ def test_produce_films_a_board_with_one_seed_and_edits_of_the_master(tmp_path):
     assert (tmp_path / "prod" / journal["final_cut"]).is_file()
     assert (tmp_path / "prod" / "critic-r0.md").is_file()
 
+    # one take per engine load: every take is preceded by an image job (which
+    # makes the studio reload H3), so no engine process films two prompts
+    studio = FakeStudio()
+    director_cli.produce(board, tmp_path / "prod1", studio, rounds=0, log=lambda m: None, takes_per_load=1)
+    paths = [p for p, _ in studio.calls]
+    assert paths == ["/api/image"] * 3 + ["/api/generate", "/api/image", "/api/generate"]
+
 
 def test_lipsync_off_becomes_a_rerender_and_unmeasured_is_said():
     plan = {"shots": [{"dialogue": True, "source_path": "/x/a.mp4"}, {"dialogue": False},

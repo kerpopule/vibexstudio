@@ -190,7 +190,7 @@ def settle_memory(*, need_gib: float = 24.5, limit_s: float = 90.0, log=None) ->
 
 def produce(board: dict, out_dir: Path, studio: Studio, *, rounds: int = 2, stills: bool = True,
             seed: int | None = None, vision=None, studio_wraps_h3: bool = False,
-            log=print) -> dict[str, Any]:
+            takes_per_load: int | None = None, log=print) -> dict[str, Any]:
     """Film a planned board on H3 with continuity, stitch it, critique it,
     re-render rejected shots (bounded), and leave every receipt in ``out_dir``."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -222,11 +222,12 @@ def produce(board: dict, out_dir: Path, studio: Studio, *, rounds: int = 2, stil
                                                  "reference_source": body.get("reference_source")})
         return j["url"]
 
-    if stills:
+    master_idx = next((b["index"] for b in beats if b["shot_size"] in ds.WIDE_SIZES), 0)
+
+    def make_master() -> None:
         # the master: the establishing wide defines the room, the light and the
         # layout; each character's reference picture then fixes that person's
         # face in it; every other still is an edit of the master
-        master_idx = next((b["index"] for b in beats if b["shot_size"] in ds.WIDE_SIZES), 0)
         mb = beats[master_idx]
         master = image({"prompt": ds.still_prompt(bible, mb), "orientation": orientation, "seed": seed,
                         "engine": "auto"}, f"master still (shot {master_idx + 1})")
@@ -239,26 +240,49 @@ def produce(board: dict, out_dir: Path, studio: Studio, *, rounds: int = 2, stil
                                 "seed": seed, "engine": "auto"}, f"master identity pass: {c['name']}")
         still_urls[master_idx] = master
         studio.fetch(master, out_dir / f"still-{master_idx + 1:02d}{Path(master).suffix}")
-        for b in beats:
-            i = b["index"]
-            if i == master_idx:
-                continue
-            refs = [c["reference"] for c in characters if c["name"] in b["characters"] and c["reference"]]
-            body = {"prompt": ("Same place, same light, same people and the same clothes as this picture. "
-                               "New camera set-up: " + ds.still_prompt(bible, b)),
-                    "source": master, "orientation": orientation, "seed": seed, "engine": "auto"}
-            if len(refs) == 1:
-                body["reference_source"] = refs[0]
-            still_urls[i] = image(body, f"still for shot {i + 1}")
-            studio.fetch(still_urls[i], out_dir / f"still-{i + 1:02d}{Path(still_urls[i]).suffix}")
+
+    def make_still(i: int, still_seed: int, note: str = "") -> None:
+        if i == master_idx and i not in still_urls:
+            make_master()
+            return
+        if master_idx not in still_urls:
+            make_master()
+        if i == master_idx:
+            return
+        b = beats[i]
+        refs = [c["reference"] for c in characters if c["name"] in b["characters"] and c["reference"]]
+        body = {"prompt": ("Same place, same light, same people and the same clothes as this picture. "
+                           "New camera set-up: " + ds.still_prompt(bible, b) + (" " + note if note else "")),
+                "source": still_urls[master_idx], "orientation": orientation, "seed": still_seed, "engine": "auto"}
+        if len(refs) == 1:
+            body["reference_source"] = refs[0]
+        still_urls[i] = image(body, f"still for shot {i + 1}")
+        studio.fetch(still_urls[i], out_dir / f"still-{i + 1:02d}-s{still_seed}{Path(still_urls[i]).suffix}")
+
     # 2) takes
     patches: dict[int, str] = {}
+    reasons_for: dict[int, list] = {}
     take_seed: dict[int, int] = {b["index"]: seed for b in beats}
     pending = [b["index"] for b in beats]
     clips: dict[int, Path] = {}
     report = None
     for round_no in range(rounds + 1):
-        for i in pending:
+        # Batches: each batch's stills are image jobs, which also make the
+        # studio reload H3 before the batch's takes. takes_per_load bounds how
+        # many different takes one H3 engine process films (Sol-H3 today hard-
+        # fails on its third distinct prompt: docs/DIRECTOR-SCHOOL.md).
+        batch = takes_per_load or len(pending)
+        order: list[tuple[str, int]] = []
+        for k in range(0, len(pending), batch):
+            group = pending[k:k + batch]
+            if stills:
+                order.extend(("still", i) for i in group)
+            order.extend(("take", i) for i in group)
+        for step, i in order:
+            if step == "still":
+                if round_no or i not in still_urls:
+                    make_still(i, take_seed[i], seam_critic.rerender_patch(reasons_for.get(i, [])) if round_no else "")
+                continue
             b = beats[i]
             prompt = ds.compose_h3_prompt(bible, b, start_frame=i in still_urls)
             if patches.get(i):
@@ -299,6 +323,7 @@ def produce(board: dict, out_dir: Path, studio: Studio, *, rounds: int = 2, stil
         pending = [r["shot"] - 1 for r in report["rerender"]]
         for r in report["rerender"]:
             i = r["shot"] - 1
+            reasons_for[i] = r["reasons"]
             patches[i] = seam_critic.rerender_patch(r["reasons"])
             take_seed[i] = take_seed[i] + 1000 * (round_no + 1)
     journal["final_cut"] = journal["rounds"][-1]["cut"]
@@ -333,6 +358,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--studio", default=os.environ.get("MEDIA_LAB_URL", "http://127.0.0.1:7863"))
     p.add_argument("--media-dir"); p.add_argument("--rounds", type=int, default=2)
     p.add_argument("--no-stills", action="store_true"); p.add_argument("--seed", type=int)
+    p.add_argument("--takes-per-load", type=int,
+                   help="film at most N different takes per H3 engine load (2 on today's Sol-H3)")
     p.add_argument("--studio-wraps-h3", action="store_true",
                    help="the studio predates director school and wraps H3 prompts itself")
     p.add_argument("--vision-url", default=os.environ.get("MEDIA_LAB_CRITIC_VISION_URL"))
@@ -395,7 +422,7 @@ def main(argv: list[str] | None = None) -> int:
         studio = Studio(args.studio, args.media_dir)
         journal = produce(_load(args.board), Path(args.out), studio, rounds=args.rounds,
                           stills=not args.no_stills, seed=args.seed, vision=chat,
-                          studio_wraps_h3=args.studio_wraps_h3)
+                          studio_wraps_h3=args.studio_wraps_h3, takes_per_load=args.takes_per_load)
         _dump({"final_cut": journal["final_cut"], "open_rerenders": journal["open_rerenders"]})
     return 0
 

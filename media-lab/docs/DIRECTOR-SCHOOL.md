@@ -169,6 +169,23 @@ tools/director produce board.json --out prod/ [--rounds 2] [--seed 4242]
 `produce` signs in with the studio's local token on the studio machine, or
 with `MEDIA_LAB_CODE` elsewhere. It never publishes.
 
+## Sol-H3 today: at most two different takes per engine load
+
+Measured 2026-09-26: the Sol-H3 stage-1 transformer is compiled with
+`fullgraph=True` and a recompile limit of 16 (set in the vendored FastVideo),
+and its sparse-attention tile buffer guard recompiles for every new text length.
+A warm engine process films its warm-up and two different prompts; the third
+different prompt fails with `FailOnRecompileLimitHit`, which writes the sticky
+`safety-stop.json` and a recovery hold that needs an operator. The 09-18 diner
+session hit the same stop. No Sol-H3 process on record has completed three
+renders.
+
+Until the runtime is fixed (raise the limit or stop guarding the buffer shape),
+`tools/director produce --takes-per-load 2` films in batches: each batch's start
+frames are image jobs, which make the studio reload H3 fresh before the batch's
+takes. The storyboard and the queue do not batch by themselves; a person or an
+agent queueing a third different H3 take on the same load will trip the stop.
+
 ## Limits, honestly
 
 - Colour matching corrects drift, not a different room. Continuity of set and
