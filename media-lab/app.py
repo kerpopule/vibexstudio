@@ -14,6 +14,7 @@ from media_lab_core import studio_library, studio_jobs, studio_inputs, backgroun
 from media_lab_core import local_config
 from media_lab_core import engine_licences, local_overlay
 from media_lab_core import embed_gate
+from media_lab_core import studio_health as _studio_health
 from media_lab_core import door_lockout, family_code, local_token, secret_files
 from media_lab_core.job_store import JobStore
 from media_lab_core.director_context import project_context_message
@@ -21,7 +22,6 @@ from media_lab_core import installer as engine_installer
 from media_lab_core import cut as cut_core
 from media_lab_core.durable_gpu_protocol import CapacityUnqualified, LeaseBusy, StaleFence
 from media_lab_core.gpu_lease_runtime import delegation_env, delegation_headers, open_protocol
-from media_lab_core import studio_health as _studio_health
 from media_lab_core.solh3_control_guard import (current_heartbeat_allows_h3, read_pressure_sample,
                                                 write_runtime_environment)
 from runner.audio_signal_gate import audio_signal_metrics
