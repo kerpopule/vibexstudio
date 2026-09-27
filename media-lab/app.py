@@ -22,6 +22,7 @@ from media_lab_core import installer as engine_installer
 from media_lab_core import cut as cut_core
 from media_lab_core.durable_gpu_protocol import CapacityUnqualified, LeaseBusy, StaleFence
 from media_lab_core.gpu_lease_runtime import delegation_env, delegation_headers, open_protocol
+from media_lab_core import gpu_handoff as _gpu_handoff
 from media_lab_core.solh3_control_guard import (current_heartbeat_allows_h3, read_pressure_sample,
                                                 write_runtime_environment)
 from runner.audio_signal_gate import audio_signal_metrics
@@ -880,6 +881,9 @@ async def _studio_lifespan(application):
     try:
         yield
     finally:
+        # A planned stop (systemctl stop/restart, a deploy) runs this; a crash or
+        # SIGKILL never does, so only a graceful stop can hand warm residency on.
+        _gpu_write_handoff_on_shutdown()
         await _stop_studio_background_host()
 
 
@@ -2052,16 +2056,97 @@ def _gpu_restart_adoption_proof(recovered):
             "pid": identity[0], "process_identity": identity[1], **warm}
 
 
+def _gpu_graceful_handoff_enabled():
+    """MEDIA_LAB_GRACEFUL_HANDOFF=1 (config/local.env): planned restarts hand an
+    idle parked residency to the next controller instead of holding the GPU."""
+    return local_config.int_value(_gpu_handoff.FLAG, 0) == 1
+
+
+def _gpu_resident_config(engine):
+    """What the engine says it has loaded, compared verbatim across a handoff."""
+    return h3_resident_config() if engine == "h3" else None
+
+
+def _gpu_handoff_warm(engine, resident):
+    healthy = _gpu_exact_idle(engine) and (engine != "h3" or resident is not None)
+    return {"healthy": bool(healthy), "busy": engine_busy(engine) if engine in ENGINES else True}
+
+
+def _gpu_write_handoff_on_shutdown():
+    """Planned stop: record an exact idle parked residency for the next start.
+
+    Takes the controller's protocol mutex and never releases it, so no fenced
+    GPU operation can begin after the record is written. If an operation is
+    running the mutex is busy and nothing is written: the next start holds, as
+    it always has. Every refusal is logged and harmless.
+    """
+    if os.getenv("MEDIA_LAB_DISABLE_BACKGROUND_WORKERS") == "1" or not _gpu_graceful_handoff_enabled():
+        return None
+    if not _gpu_protocol_mutex.acquire(timeout=5):
+        print("[gpu-lease] planned-stop handoff skipped: a GPU operation is running", flush=True)
+        return None
+    try:
+        protocol = gpu_protocol()
+        row = protocol.snapshot().get("lease")
+        lease = _gpu_active_lease
+        if lease is None or row is None or row.get("fence") != lease.fence:
+            raise _gpu_handoff.HandoffRefused("this controller does not own the durable lease")
+        engine, task = row["engine"], row["task"]
+        resident = _gpu_resident_config(engine)
+        record = _gpu_handoff.plan(
+            row, owner=f"media-lab-simple:{os.getpid()}", boot_id=protocol._boot_id(),
+            live_identity=_gpu_process_identity(engine),
+            warm=_gpu_handoff_warm(engine, resident), resident_config=resident,
+            running_jobs=sum(1 for j in jobs.values() if j.get("status") == "running"),
+            hold_exists=gpu_recovery_pending())
+        _gpu_handoff.write(GPU_HANDOFF, record)
+        print(f"[gpu-lease] planned stop: handed {engine}/{task} fence {record['fence']} "
+              f"to the next controller", flush=True)
+        return record
+    except Exception as exc:
+        print(f"[gpu-lease] planned-stop handoff skipped: {exc}", flush=True)
+        return None
+
+
+def _gpu_adopt_handoff(protocol, recovered, row, record):
+    """Adopt exactly the residency a graceful stop handed over, then re-park it."""
+    engine, task = row["engine"], row["task"]
+    resident = _gpu_resident_config(engine)
+    proof = _gpu_handoff.validate(
+        record, row, boot_id=protocol._boot_id(),
+        live_identity=_gpu_process_identity(engine),
+        warm=_gpu_handoff_warm(engine, resident), resident_config=resident,
+        running_jobs=sum(1 for j in jobs.values() if j.get("status") == "running"),
+        hold_exists=gpu_recovery_pending())
+    return _gpu_handoff.adopt(
+        protocol, recovered, owner=f"media-lab-simple:{os.getpid()}", proof=proof,
+        park_proof={"engine": engine, "task": task, "healthy": True, "busy": False})
+
+
 def initialize_gpu_cutover():
     """Adopt only exact idle ownership; quarantine every ambiguous restart."""
     global _gpu_active_lease, _gpu_cutover_ready
     protocol = gpu_protocol()
+    # Consumed on every start, used or not: a record can never be replayed.
+    handoff_record = _gpu_handoff.consume(GPU_HANDOFF)
     recovered = protocol.recover_startup()
     _gpu_active_lease = recovered
     lease = protocol.snapshot().get("lease")
     _gpu_cutover_ready = lease is None
     if lease is None:
         return True
+    if (recovered is not None and recovered._fd is not None and not GPU_RECOVERY_HOLD.exists()
+            and handoff_record is not None and _gpu_graceful_handoff_enabled()):
+        try:
+            _gpu_adopt_handoff(protocol, recovered, lease, handoff_record)
+            _gpu_active_lease = recovered
+            _gpu_cutover_ready = True
+            print(f"[gpu-lease] planned restart: adopted parked {recovered.engine}/"
+                  f"{recovered.task} for {recovered.job_id} (no hold)", flush=True)
+            return True
+        except Exception as exc:
+            print(f"[gpu-lease] planned-restart handoff refused: {exc}", flush=True)
+            lease = protocol.snapshot().get("lease") or lease
     if recovered is not None and recovered._fd is not None and not GPU_RECOVERY_HOLD.exists():
         try:
             proof = _gpu_restart_adoption_proof(recovered)
@@ -2390,6 +2475,7 @@ def gpu_render_ready(engine, task):
     return lease
 
 GPU_RECOVERY_HOLD = POOL_DIR / "gpu-recovery-hold.json"
+GPU_HANDOFF = POOL_DIR / "gpu-handoff.json"
 _gpu_recovery_blocked = False
 
 def gpu_recovery_pending():
@@ -2526,7 +2612,38 @@ H3_BATCH_MAX_WAIT_S = max(0, local_config.int_value("MEDIA_LAB_H3_BATCH_MAX_WAIT
 H3_LOAD_SETTLE_MAX_PSI = max(0.0, _float_setting("MEDIA_LAB_H3_LOAD_SETTLE_MAX_PSI", 2.0))
 H3_LOAD_SETTLE_MAX_WAIT_S = max(0.0, _float_setting("MEDIA_LAB_H3_LOAD_SETTLE_MAX_WAIT_S", 120.0))
 H3_LOAD_SETTLE_STEADY_GIB = 0.5
-H3_LOAD_SETTLE_SAMPLES = 3
+# 10 steady seconds (was 3) and a calm last minute (PSI full avg60): on
+# 2026-09-26 02:41 an fl2va cold load started 30 s after three back-to-back
+# image jobs, passed the old 3-sample check in 3 s, and tripped the guard at
+# PSI 52-60. The guard's own limits are unchanged; this only waits longer
+# (bounded by H3_LOAD_SETTLE_MAX_WAIT_S) before a load starts.
+H3_LOAD_SETTLE_SAMPLES = max(1, int(_float_setting("MEDIA_LAB_H3_LOAD_SETTLE_SAMPLES", 10)))
+H3_LOAD_SETTLE_MAX_PSI60 = max(0.0, _float_setting("MEDIA_LAB_H3_LOAD_SETTLE_MAX_PSI60", 3.0))
+
+
+def read_psi_full_avg60(path=Path("/proc/pressure/memory")):
+    """PSI full avg60 (the last minute), or None when the kernel has no PSI."""
+    try:
+        for line in path.read_text().splitlines():
+            if line.startswith("full"):
+                return float(dict(f.split("=", 1) for f in line.split()[1:])["avg60"])
+    except (OSError, ValueError, KeyError):
+        pass
+    return None
+
+
+def read_preload_memory(path=Path("/proc/meminfo")):
+    """Page cache, dirty pages and swap just before a load (evidence only)."""
+    try:
+        info = {}
+        for line in path.read_text().splitlines():
+            key, _, rest = line.partition(":")
+            info[key] = int(rest.split()[0])
+        return {"cached_gib": round(info.get("Cached", 0) / 1048576, 2),
+                "dirty_mib": round(info.get("Dirty", 0) / 1024, 1),
+                "swap_used_gib": round((info.get("SwapTotal", 0) - info.get("SwapFree", 0)) / 1048576, 2)}
+    except (OSError, ValueError, IndexError):
+        return {}
 _pool_mutex = threading.Lock()
 _idle_restore_mutex = threading.Lock()
 _last_ltx_attempt = 0.0
@@ -2834,7 +2951,7 @@ def sol_h3_control_guard_ready():
 
 
 def wait_for_h3_load_headroom(j=None, *, read=None, sleep=time.sleep,
-                              clock=time.monotonic):
+                              clock=time.monotonic, read_avg60=None, flush=None):
     """Hold an H3 cold load until memory has settled; bounded, never blocking.
 
     Settled means memory pressure (PSI full avg10, the signal the guard trips
@@ -2846,28 +2963,37 @@ def wait_for_h3_load_headroom(j=None, *, read=None, sleep=time.sleep,
     so: an admitted lease is never abandoned here.
     """
     read = read or read_pressure_sample
+    read_avg60 = read_avg60 or read_psi_full_avg60
     started = clock()
     deadline = started + H3_LOAD_SETTLE_MAX_WAIT_S
     steady = 0
     last = None
+    # Write dirty pages out now, not while the load is claiming memory.
+    try:
+        (flush or os.sync)()
+    except Exception:
+        pass
     while True:
         try:
             sample = read()
         except Exception as exc:
             return {"settled": None, "waited_s": round(clock() - started, 1),
                     "detail": f"no memory-pressure data: {type(exc).__name__}"}
-        calm = sample.psi_full_avg10 <= H3_LOAD_SETTLE_MAX_PSI
+        avg60 = read_avg60()
+        calm = (sample.psi_full_avg10 <= H3_LOAD_SETTLE_MAX_PSI
+                and (avg60 is None or avg60 <= H3_LOAD_SETTLE_MAX_PSI60))
         still = (last is not None and abs(sample.available_kib - last.available_kib)
                  <= H3_LOAD_SETTLE_STEADY_GIB * 1048576)
         steady = steady + 1 if (calm and still) else 0
         last = sample
         result = {"waited_s": round(clock() - started, 1),
                   "available_gib": round(sample.available_kib / 1048576, 2),
-                  "psi_full_avg10": sample.psi_full_avg10}
+                  "psi_full_avg10": sample.psi_full_avg10,
+                  "psi_full_avg60": avg60}
         if steady >= H3_LOAD_SETTLE_SAMPLES:
-            return {"settled": True, **result}
+            return {"settled": True, **result, **read_preload_memory()}
         if clock() >= deadline:
-            return {"settled": False, **result}
+            return {"settled": False, **result, **read_preload_memory()}
         if j is not None and j.get("cancel"):
             return {"settled": None, **result, "detail": "cancelled"}
         sleep(1.0)
