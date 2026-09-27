@@ -56,7 +56,9 @@ class DurableGpuProtocol:
         "drain": {"unload"},
         "unload": {"reclaim"},
         "reclaim": {"load", "released"},
-        "load": {"render"},
+        # A load refused before any engine started goes back through unload and
+        # reclaim; release still needs exact process and memory proof.
+        "load": {"render", "unload"},
         "render": {"unload"},
         "parked": {"drain", "render"},
     }

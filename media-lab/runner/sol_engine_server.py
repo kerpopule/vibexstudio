@@ -38,6 +38,10 @@ GPU_PROTOCOL = open_protocol()
 # A request already owns LOCK when it calls ensure_pipeline().
 LOCK = threading.RLock()
 def log(*a): print(time.strftime("%H:%M:%S"), *a, flush=True)
+def stage1_geometry():
+    """'patched' when tools/sol-h3-runtime-patch.py is installed in SOL_PKG (a new
+    prompt no longer adds compiled-region cache entries), else 'stock'."""
+    return "patched" if (Path(PKG) / "runtime/stage1_ops/geometry.py").is_file() else "stock"
 def _png(path, size, color):
     from PIL import Image
     Image.new("RGB", size, color).save(path); return path
@@ -176,7 +180,7 @@ class H(BaseHTTPRequestHandler):
         if self.path.startswith("/health"):
             blocked = safety_latched()
             loading = STATE.get("loading", False)
-            return self._send(503 if blocked else 200, {"ok": not blocked, "blocked": blocked, "loading": loading, "engine": "h3", "impl": "sol-h3-spark", "loaded": STATE["loaded"] and not blocked, "busy": STATE["busy"] or loading, "variant": VARIANT, "task": STATE["task"], "turbo_preset": TURBO, "fused_combined": False, "attention": "sol", "cache": {"renders": STATE["renders"], "errors": STATE["errors"], "last_error": STATE["last_error"]}, "uptime": int(time.time()-STATE["started"]), **({"label": singularity.LABEL, "max_frames": int(os.environ.get("H3_SINGULARITY_MAX_FRAMES") or singularity.TRAINED_MAX_FRAMES), "warm_s": getattr(STATE["pipe"], "warm_s", None)} if SINGULARITY else {})})
+            return self._send(503 if blocked else 200, {"ok": not blocked, "blocked": blocked, "loading": loading, "engine": "h3", "impl": "sol-h3-spark", "loaded": STATE["loaded"] and not blocked, "busy": STATE["busy"] or loading, "variant": VARIANT, "task": STATE["task"], "turbo_preset": TURBO, "fused_combined": False, "attention": "sol", "cache": {"renders": STATE["renders"], "errors": STATE["errors"], "last_error": STATE["last_error"]}, "uptime": int(time.time()-STATE["started"]), "stage1_geometry": None if SINGULARITY else stage1_geometry(), **({"label": singularity.LABEL, "max_frames": int(os.environ.get("H3_SINGULARITY_MAX_FRAMES") or singularity.TRAINED_MAX_FRAMES), "warm_s": getattr(STATE["pipe"], "warm_s", None)} if SINGULARITY else {})})
         self._send(404, {"ok": False, "error": "not found"})
     def do_POST(self):
         if not self.path.startswith("/generate"): return self._send(404, {"ok": False, "error": "not found"})
@@ -264,7 +268,8 @@ class H(BaseHTTPRequestHandler):
             singularity.sweep_inputs(RUNTIME, rid)
 
 if __name__ == "__main__":
-    log(f"sol engine server :{PORT} variant={VARIANT} pkg={PKG}")
+    log(f"sol engine server :{PORT} variant={VARIANT} pkg={PKG}"
+        + ("" if SINGULARITY else f" stage1_geometry={stage1_geometry()}"))
     pre = os.environ.get("SOL_PRELOAD", "").strip()
     if pre:
         if authorize_environment(GPU_PROTOCOL, engine="h3", task=pre, phases=("load",)):

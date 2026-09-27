@@ -55,6 +55,42 @@ switch.
 Every H3 reload is still a full cold load with the same guard exposure, and a
 guard trip still leaves a recovery hold for an operator.
 
+## Different prompts on one warm load (stage-1 geometry patch)
+
+Until 2026-09-27 a warm Sol process filmed its warm-up and two different
+prompts; the third different prompt failed with `FailOnRecompileLimitHit`,
+wrote the sticky `safety-stop.json` and left a recovery hold (09-18 20:08,
+09-26 01:44). The same prompt twice was fine.
+
+**Cause.** Stage 1 runs as 52 transformer regions compiled with
+`fullgraph=True`, and the vendored FastVideo caps Dynamo at 16 cache entries
+per code object. Stock tracing specializes the regions on per-request values:
+the denoising step and the prompt's tile counts (Python ints handed to the
+opaque VSA body op), the packed sequence length (compared with an int inside
+FastVideo's `tile()`), and `tile_buf_holder.buffer is None` (the denoising
+stage builds a fresh metadata builder, so a fresh empty buffer, per request).
+Every different text length therefore added 5 entries: warm-up + 2 prompts =
+15, and the next one is the 16th recompile, a hard failure under `fullgraph`.
+`tools/sol_h3_recompile_probe.py stock` reproduces it on CPU in seconds with
+the host's own FastVideo code: 5, 10, 15 entries, then the same error.
+
+**Fix.** `patches/sol-h3-spark/geometry.py`, installed into the Sol package by
+`tools/sol-h3-runtime-patch.py apply` (five pinned edits to
+`runtime/stage1_ops/regional.py`, sha256-checked both ways; `revert` undoes it;
+it refuses any file it does not recognise). The three scalars travel as one CPU
+int64 tensor read only inside the eager body op (as the layer index already
+did), one process-lifetime tile buffer replaces the per-request one and is
+re-zeroed eagerly when the geometry changes, and a per-instance
+`preprocess_qkv` scatters into it without int comparisons. Attention math, the
+FastVideo files (the VSA source stays sha-pinned) and the recompile limit are
+unchanged. The probe in `patched` mode shows 2, 3, 4, 4, 4 ... entries over 14
+different prompts with the padded buffer byte-identical to stock `tile()`.
+A running Sol process keeps the code it loaded; the patch takes effect at the
+next Sol load. `/health` reports `stage1_geometry`.
+
+    .venv/bin/python tools/sol-h3-runtime-patch.py status|apply|revert
+    ~/.local/share/sol-h3-spark/envs/stage1/bin/python tools/sol_h3_recompile_probe.py stock|patched --sol-pkg "$SOL_PKG"
+
 ## Real / Long (H3 Singularity), the load-on-demand H3
 
 Sol stays the always-warm, fast H3 (about 70 s a clip, always 5.04 s at
