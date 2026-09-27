@@ -24,3 +24,15 @@ def test_rollback_pointer_is_the_absolute_backup_path():
     assert 'f"~/{backup}"' not in script
     assert '"rollback": backup,' in script
     assert 'BACKUP="$REMOTE_ABS_HOME/' in script
+
+
+def test_every_repo_config_json_is_shipped_or_owned_by_the_box():
+    """A config table the code reads must reach the box: render-eta.json shipped
+    in #44 but was not allowlisted, so the model picker on the studio host
+    showed no estimates at all."""
+    text = DEPLOY.read_text()
+    unshipped_by_design = {"qwen-image-21-weights.json"}
+    for path in sorted((ROOT / "config").glob("*.json")):
+        shipped = f"'+ /config/{path.name}'" in text
+        owned = f"'/config/{path.name}'" in text
+        assert shipped or owned or path.name in unshipped_by_design, path.name
