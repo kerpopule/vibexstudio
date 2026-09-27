@@ -479,6 +479,10 @@ def _sentence(text: str) -> str:
     return text
 
 
+SPEECH_LEAD = re.compile(r"[^.!?\"\u201c]*\b(?:says|asks|shouts|whispers|replies|adds|answers)\b[^.!?\"\u201c]*[:,]?\s*(?=[\"\u201c])",
+                         re.IGNORECASE)
+
+
 def compose_h3_prompt(bible: Mapping[str, Any], beat: Mapping[str, Any], *,
                       soundscape: str | None = None, music: str | None = None,
                       start_frame: bool = False) -> str:
@@ -507,7 +511,10 @@ def compose_h3_prompt(bible: Mapping[str, Any], beat: Mapping[str, Any], *,
     sides = [f"{name} is on the {side} of the frame" for name, side in b["screen_side"].items() if side != "center"]
     if sides:
         parts.append(_sentence("; ".join(sides)))
-    action = QUOTE.sub("", b["prompt"]).strip()
+    # the line is re-sent as a <d> block below; drop the words that introduced it
+    # ("She says in a calm, weary voice: ...") or the model reads a dangling "says:"
+    action = SPEECH_LEAD.sub("", b["prompt"])
+    action = QUOTE.sub("", action).strip()
     action = re.sub(r"\b(says|asks|shouts|whispers|replies)\s*[:,]?\s*$", "", action, flags=re.IGNORECASE).strip()
     action = re.sub(r"\s{2,}", " ", action)
     if action:

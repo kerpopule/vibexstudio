@@ -181,3 +181,12 @@ def test_board_prompt_teaches_the_grammar():
     for must in ("shot_size", "screen_side", "180-degree", "j_cut", "ONE speaker per shot",
                  "Never dissolve inside one continuous moment", "No legible lettering"):
         assert must in ds.BOARD_SYS, must
+
+
+def test_the_words_that_introduce_a_line_are_dropped_with_it():
+    beat = {"shot_size": "MS", "characters": ["Maya"], "screen_side": {"Maya": "left"},
+            "video_prompt": 'Maya folds towels. She says in a calm, weary voice: "It\'s always the left one." Static camera.',
+            "dialogue": [{"speaker": "Maya", "line": "It\'s always the left one."}], "duration": 4}
+    p = ds.compose_h3_prompt(BIBLE, beat)
+    assert "weary voice:" not in p and "Maya folds towels." in p and "Static camera." in p
+    assert "(S1) says <d>[English] It\'s always the left one.</d>" in p
