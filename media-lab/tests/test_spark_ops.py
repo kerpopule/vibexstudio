@@ -169,7 +169,7 @@ def test_outbox_then_deliver_exactly_once_and_watch_the_watcher(tmp_path, monkey
 
 def test_outbox_mode_prints_nothing_and_dry_run_deliver_sends_nothing(tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("SPARK_HEALTH_DRY_RUN", raising=False)
-    cfg = _cfg(tmp_path, dry_run=False)
+    cfg = _cfg(tmp_path, dry_run=False, quiet_hours=[])   # real clock: never quiet
     path = tmp_path / "cfg.json"
     path.write_text(json.dumps(cfg))
     monkeypatch.setattr(watch.run, "__kwdefaults__",
