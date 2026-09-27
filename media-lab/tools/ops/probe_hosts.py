@@ -176,6 +176,8 @@ def studio(root):
         "safety_stop_reason": (read_json(sol_root / "safety-stop.json") or {}).get("reason"),
         "guard": {"state": guard.get("state"), "age_s": age(guard.get("written_at"))},
         "autorecover_gaveup": (pool / "autorecover-gaveup.json").exists(),
+        "autorecover_gaveup_why": (read_json(pool / "autorecover-gaveup.json") or {}).get("why"),
+        "autorecover_last": (read_json(pool / "autorecover-state.json") or {}).get("last_logged"),
         "handoff_pending": (pool / "gpu-handoff.json").exists(),
         "sol": sol, "sol_answered": scode == 200,
         "text": text_listed("http://127.0.0.1:8004"),

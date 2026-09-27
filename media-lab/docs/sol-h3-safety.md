@@ -14,7 +14,7 @@ The memory watchdog retains its marker but can stop a newly active service under
 
 ## Boot quarantine
 
-The wrapper also requires an operator-issued `boot-clearance.json` under `SOL_ROOT`, with `approved: true` and the exact current Linux `boot_id`. No clearance, malformed clearance, or a reboot denies new allocation. Clearance never overrides a sticky stop. See [boot-safe recovery](boot-safe-recovery.md) for the system-level rescue boundary, synthetic supervisor policy, limitations and approval gates. Do not automate issuance of this token.
+The wrapper also requires an operator-issued `boot-clearance.json` under `SOL_ROOT`, with `approved: true` and the exact current Linux `boot_id`. No clearance, malformed clearance, or a reboot denies new allocation. Clearance never overrides a sticky stop. See [boot-safe recovery](boot-safe-recovery.md) for the system-level rescue boundary, synthetic supervisor policy, limitations and approval gates. Since 2026-09-27 (owner decision) the token is issued automatically after a reboot by `runner/hold_autorecover.py` when `MEDIA_LAB_BOOT_AUTOCLEAR=1`, only after it has preserved the previous boot's evidence and checked memory, GPU, this boot's kernel log, the guard, and that no latch or safety stop is from this boot; otherwise it gives up with a reason and the health watch alerts. An operator can still issue it by hand (`spark1-clear-h3`).
 
 ## Operator maintenance hold
 

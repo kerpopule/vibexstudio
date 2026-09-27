@@ -68,7 +68,7 @@ below are documentation examples):
 | a stuck queue, or a job past 3x its estimate | action |
 | the studio units | action if not active for 10 min |
 | the text bridge lists `media-lab-text` | action after 15 min |
-| H3 boot clearance after a reboot | action |
+| H3 boot clearance after a reboot (the studio clears it itself since 2026-09-27; alerts only if it gave up or is not cleared 50 min after boot) | warn, then action |
 | H3 cold | warn after 30 min |
 | disk free | warn under 15%, action under 8% |
 | GPU thermal slowdown rising | warn |

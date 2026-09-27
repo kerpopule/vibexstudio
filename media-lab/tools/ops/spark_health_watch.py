@@ -62,6 +62,8 @@ SSH_TOTAL_S = 30
 COMPLETION_EVERY_S = 15 * 60
 HOLD_GRACE_S = 20 * 60           # the harmless restart hold clears itself at 10 min
 TRIP_GRACE_S = 40 * 60           # a cold-load guard trip clears itself at 15 min + reload
+BOOT_GRACE_S = 50 * 60           # after a reboot the studio clears H3 + the carried-over hold
+                                 # by itself (2 min .. 45 min, then it gives up with a reason)
 GUARD_TRIP_REASONS = ("memory-psi", "low-memavailable", "swap-growth")
 STALE_S = 20 * 60                # the watch itself has not run for this long
 
@@ -159,23 +161,37 @@ def studio_findings(name: str, p: dict, cfg: dict) -> list:
     # once memory recovers (15 min + a ~6 min reload), at most once a day.
     guard_trip = (bool(p.get("safety_stop")) and reason.startswith("operation-uncertain:")
                   and p.get("safety_stop_reason") in GUARD_TRIP_REASONS)
+    gaveup_why = p.get("autorecover_gaveup_why")
+    gave_up = ("; auto-recover gave up" + (f": {gaveup_why}" if gaveup_why else "")
+               if p.get("autorecover_gaveup") else "")
+    uptime = p.get("uptime_s")
+    after_reboot = reason == "durable-lease-recovery:boot-changed"
     if hold.get("exists"):
         age = float(hold.get("age_s") or 0)
         harmless = reason in (
             "durable-lease-recovery:owner-exited", "durable-lease-recovery:controller-restarted")
         grace = TRIP_GRACE_S if guard_trip else HOLD_GRACE_S
-        level = "action" if (p.get("autorecover_gaveup") or age >= grace
-                             or not (harmless or guard_trip)) else "warn"
+        if after_reboot:
+            # 2026-09-27: the studio clears a carried-over hold by itself after a reboot.
+            level = "action" if (p.get("autorecover_gaveup") or uptime is None
+                                 or float(uptime) >= BOOT_GRACE_S) else "warn"
+        else:
+            level = "action" if (p.get("autorecover_gaveup") or age >= grace
+                                 or not (harmless or guard_trip)) else "warn"
+        last = p.get("autorecover_last")
         what = (f"Media Lab is on a GPU recovery hold for {age / 60:.0f} min "
                 f"({reason or 'unknown reason'}"
                 + (f", guard {p.get('safety_stop_reason')} trip" if guard_trip else "") + ")"
-                + ("; auto-recover gave up" if p.get("autorecover_gaveup") else "")
+                + gave_up
+                + ("; the host rebooted and the studio did not clear it by itself"
+                   + (f" (last check: {last})" if last and not p.get("autorecover_gaveup") else "")
+                   if after_reboot and level == "action" and not p.get("autorecover_gaveup") else "")
                 + ("; it did not clear itself" if guard_trip and level == "action"
                    and not p.get("autorecover_gaveup") else ""))
         out.append(Finding("hold", name, level, what, step_hold))
     elif p.get("autorecover_gaveup"):
         out.append(Finding("autorecover", name, "action",
-                           "Hold auto-recovery gave up earlier",
+                           "Hold auto-recovery gave up earlier" + (f": {gaveup_why}" if gaveup_why else ""),
                            "Read pool/autorecover.log, then remove pool/autorecover-gaveup.json."))
     # With a hold, the stop and the latch are part of it (one message, not three).
     if p.get("safety_stop") and not hold.get("exists"):
@@ -215,9 +231,21 @@ def studio_findings(name: str, p: dict, cfg: dict) -> list:
                            "Check the text host first; then text-upstream-bridge on the studio host."))
     sol = p.get("sol") or {}
     if sol.get("configured") and not sol.get("boot_cleared"):
-        out.append(Finding("h3_clearance", name, "action",
-                           "The studio host rebooted: H3 stays cold until it is cleared for this boot",
-                           cfg.get("step_clearance") or "Clear H3 for this boot after checking the box."))
+        # Since 2026-09-27 the studio clears H3 for a new boot by itself once its
+        # checks pass (runner/hold_autorecover.py); only a give-up or a slow clear speaks.
+        late = uptime is None or float(uptime) >= BOOT_GRACE_S
+        if not (p.get("autorecover_gaveup") or late):
+            out.append(Finding("h3_clearance", name, "warn",
+                               "The studio host rebooted; the studio is clearing H3 for this boot "
+                               "by itself", ""))
+        elif not (hold.get("exists") and after_reboot):     # else the hold line already speaks
+            last = p.get("autorecover_last")
+            out.append(Finding("h3_clearance", name, "action",
+                               "The studio host rebooted and H3 was not cleared automatically"
+                               + (f": {gaveup_why}" if gaveup_why else
+                                  (f" (last check: {last})" if last else "")),
+                               cfg.get("step_clearance") or
+                               "Read pool/autorecover.log on the studio host; then spark1-clear-h3."))
     elif sol.get("configured") and not sol.get("loaded") and not hold.get("exists") \
             and not q.get("running"):
         out.append(Finding("h3_cold", name, "warn", "H3 is cold (not warm in t2va)", ""))

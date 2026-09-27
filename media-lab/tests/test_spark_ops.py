@@ -403,3 +403,27 @@ def test_precheck_waits_then_gives_up(monkeypatch):
         backup.wait_for_precheck({"ssh": "x", "precheck": "false", "precheck_wait_s": 0},
                                  runner=lambda c, **k: type("R", (), {"returncode": 1})(),
                                  sleep=lambda s: None)
+
+
+def test_after_a_reboot_the_self_clear_gets_its_time_then_alerts_with_the_reason():
+    # 2026-09-27 (owner decision): after any reboot the studio clears H3 and the carried-over hold by itself.
+    base = {"queue": {"answered": True, "queued": 0, "running": 0}, "units": {},
+            "text": {"listed": True}, "sol": {"configured": True, "boot_cleared": False, "loaded": False},
+            "disk_free_pct": 50, "uptime_s": 300,
+            "hold": {"exists": True, "reason": "durable-lease-recovery:boot-changed", "age_s": 300}}
+    found = watch.studio_findings("s1", base, {})
+    assert {f["level"] for f in found} == {"warn"}                  # nothing sent yet
+    late = {**base, "uptime_s": 51 * 60, "autorecover_last": "MemAvailable 60.0 GiB is below 90 GiB"}
+    found = [f for f in watch.studio_findings("s1", late, {}) if f["level"] == "action"]
+    assert [f["key"] for f in found] == ["hold"]                    # one message, not two
+    assert "did not clear it by itself" in found[0]["text"] and "MemAvailable" in found[0]["text"]
+    gave = {**base, "autorecover_gaveup": True,
+            "autorecover_gaveup_why": "the GPU does not answer nvidia-smi"}
+    found = [f for f in watch.studio_findings("s1", gave, {}) if f["level"] == "action"]
+    assert [f["key"] for f in found] == ["hold"] and "nvidia-smi" in found[0]["text"]
+    no_hold = {**base, "hold": {"exists": False}}
+    assert [(f["key"], f["level"]) for f in watch.studio_findings("s1", no_hold, {})
+            if f["key"] == "h3_clearance"] == [("h3_clearance", "warn")]
+    no_hold_gave = {**no_hold, "autorecover_gaveup": True, "autorecover_gaveup_why": "latch set"}
+    found = [f for f in watch.studio_findings("s1", no_hold_gave, {}) if f["key"] == "h3_clearance"]
+    assert found[0]["level"] == "action" and "latch set" in found[0]["text"]
