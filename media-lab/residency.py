@@ -99,7 +99,15 @@ def _model_state(actual: Mapping[str, Any], model: str) -> Mapping[str, Any]:
 
 
 def plan_residency(policy: Mapping[str, Any], actual: Mapping[str, Any], profile: str,
-                   custom_slots: Mapping[str, Any] | None = None) -> dict[str, Any]:
+                   custom_slots: Mapping[str, Any] | None = None,
+                   phase_overrides: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
+    """Plan a residency change. ``phase_overrides`` prices one transaction's load
+    of a model with another measured phase row (Real / Long is a variant of the
+    ``h3`` slot with its own, smaller envelope); the policy itself is unchanged."""
+    if phase_overrides:
+        policy = dict(policy)
+        policy["models"] = {m: (dict(row, phases_gb=dict(phase_overrides[m])) if m in phase_overrides else row)
+                            for m, row in policy["models"].items()}
     desired = resolve_profile(policy, profile, custom_slots)
     desired_set = set(desired["models"])
     actual_set = {m for m in policy["models"] if _model_state(actual, m).get("resident")}
@@ -218,8 +226,9 @@ class ResidencyController:
                 "operational_floor_gb": self.policy["operational_floor_gb"],
                 "profiles": self.policy["profiles"], "models": self.policy["models"]}
 
-    def plan(self, profile: str, slots: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        return plan_residency(self.policy, self.snapshot(), profile, slots)
+    def plan(self, profile: str, slots: Mapping[str, Any] | None = None,
+             phase_overrides: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
+        return plan_residency(self.policy, self.snapshot(), profile, slots, phase_overrides)
 
     def state(self) -> dict[str, Any]:
         actual = self.snapshot()
@@ -250,7 +259,8 @@ class ResidencyController:
             _atomic_json(self.receipts_dir / f"{receipt['started_at']}-{receipt['id']}.json", receipt)
 
     def apply(self, profile: str, slots: Mapping[str, Any] | None = None,
-              *, commit_desired: bool = True) -> dict[str, Any]:
+              *, commit_desired: bool = True,
+              phase_overrides: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
         if not self._lock.acquire(blocking=False):
             raise ResidencyError("another residency transaction is active")
         inference_token = None
@@ -260,7 +270,7 @@ class ResidencyController:
                 if old.get("status") not in ("committed", "rolled-back", "failed"):
                     raise ResidencyError(f"unfinished residency transaction {old.get('id')} requires recovery")
             actual = self.snapshot()
-            plan = plan_residency(self.policy, actual, profile, slots)
+            plan = plan_residency(self.policy, actual, profile, slots, phase_overrides)
             if not plan["admitted"]:
                 raise ResidencyError("; ".join(b["reason"] for b in plan["blockers"]))
             # The pool lease establishes ownership; this separate non-blocking

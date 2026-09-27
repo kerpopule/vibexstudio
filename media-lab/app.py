@@ -3904,6 +3904,20 @@ RESIDENCY = ResidencyController(_residency_policy,
                                 POOL_DIR / "residency", _ResidencyRuntime())
 
 
+def singularity_residency_phases():
+    """The residency phase row for a Real / Long load, from its measured GPU
+    capacity row (config/gpu-capacity-receipts.json, h3/singularity: peak 97 GiB
+    on the 2026-09-25 eval). The box's residency policy prices the h3 slot with
+    Sol-H3's whole-box row (decode 115 GiB), which refused a Real / Long load
+    at 116.7 GiB free although it needs about 97."""
+    rows = json.loads(GPU_CAPACITY_RECEIPTS.read_text()).get("qualifications", [])
+    row = next(r for r in rows if r["engine"] == "h3" and r["task"] == _h3ref.H3_SINGULARITY_TASK)
+    peak = float(row["peak_gib"])
+    warm = max(1.0, peak - float(row.get("warm_render_gib") or 0))
+    return {"cold_load": peak, "warm_idle": warm, "sampler": peak, "decode": peak,
+            "mux": 1, "handoff_overlap": warm}
+
+
 def ensure_video_residency(name, j=None):
     """Admit a video transaction without changing the user's desired profile."""
     try:
@@ -3957,7 +3971,13 @@ def ensure_video_residency(name, j=None):
             )
             if released is None:
                 raise ResidencyError("image engine would not release weights before video admission")
-        RESIDENCY.apply(target, slots, commit_desired=False)
+        overrides = None
+        if name == "h3" and j is not None and _h3ref.wants_singularity(j.get("request") or {}):
+            overrides = {"h3": singularity_residency_phases()}
+        if overrides:
+            RESIDENCY.apply(target, slots, commit_desired=False, phase_overrides=overrides)
+        else:
+            RESIDENCY.apply(target, slots, commit_desired=False)
         return "up"
     except ResidencyError as exc:
         print(f"[residency] refusing {name}: {exc}", flush=True)
