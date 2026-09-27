@@ -475,7 +475,7 @@ def test_cli_status_probes_the_bound_address(tmp_path, monkeypatch):
 # ------------------------------------------------ after a reboot (2026-09-27)
 # Modelled on 2026-09-27 10:56: Spark 1 reset itself while idle; the warm H3
 # lease of finished take 5f569bb64ce9 carried over as boot-changed, and H3
-# waited for a person. Steve: after any reboot it must come back by itself.
+# waited for a person. Owner decision: after any reboot it must come back by itself.
 
 def boot_facts(**over):
     base = facts(

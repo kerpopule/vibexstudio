@@ -406,13 +406,13 @@ def test_precheck_waits_then_gives_up(monkeypatch):
 
 
 def test_after_a_reboot_the_self_clear_gets_its_time_then_alerts_with_the_reason():
-    # 2026-09-27: after any reboot the studio clears H3 and the carried-over hold by itself.
+    # 2026-09-27 (owner decision): after any reboot the studio clears H3 and the carried-over hold by itself.
     base = {"queue": {"answered": True, "queued": 0, "running": 0}, "units": {},
             "text": {"listed": True}, "sol": {"configured": True, "boot_cleared": False, "loaded": False},
             "disk_free_pct": 50, "uptime_s": 300,
             "hold": {"exists": True, "reason": "durable-lease-recovery:boot-changed", "age_s": 300}}
     found = watch.studio_findings("s1", base, {})
-    assert {f["level"] for f in found} == {"warn"}                  # nothing to Steve yet
+    assert {f["level"] for f in found} == {"warn"}                  # nothing sent yet
     late = {**base, "uptime_s": 51 * 60, "autorecover_last": "MemAvailable 60.0 GiB is below 90 GiB"}
     found = [f for f in watch.studio_findings("s1", late, {}) if f["level"] == "action"]
     assert [f["key"] for f in found] == ["hold"]                    # one message, not two

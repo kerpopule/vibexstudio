@@ -87,7 +87,7 @@ evidence a person saw in ``spark1-clear-h3`` (MEDIA_LAB_BOOT_AUTOCLEAR=1):
 * limits: 3 tries per boot with a 5 / 15 min backoff, at most 3 cleared boots
   per 24 h (a reboot loop gives up), and if it is still not cleared 45 min
   after boot it gives up. Giving up writes ``pool/autorecover-gaveup.json``
-  with the reason, and the health watch alerts Steve with that reason; it
+  with the reason, and the health watch alerts the owner with that reason; it
   never waits silently. ``spark1-clear-h3`` stays as the manual override.
 
     runner/hold_autorecover.py            # one pass (the timer)
@@ -819,7 +819,7 @@ def write_boot_clearance(paths: Paths, boot_id: str, evidence: Path, why: str) -
             f"boot-clearance.pre-{boot_id[:8]}-{int(time.time())}.json"))
     _save(paths.boot_clearance, {
         "approved": True, "boot_id": boot_id, "at": time.time(),
-        "approved_by": "auto: runner/hold_autorecover.py (Steve's rule, 2026-09-27)",
+        "approved_by": "auto: runner/hold_autorecover.py (owner decision, 2026-09-27)",
         "evidence": str(evidence), "why": why})
 
 

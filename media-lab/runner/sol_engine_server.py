@@ -54,7 +54,7 @@ def warm_case(task):
         return {"case_id": "warm", "task": task, "seed": 1, "references": [{"type": "image", "path": fp}], "prompt": "subject_definitions: <Subject 1> is the shape in <Picture 1>. detailed_description: <Subject 1> stays still. overall_soundscape: silence."}
     return {"case_id": "warm", "task": "t2va", "seed": 1, "prompt": "A calm wide shot of a quiet meadow at dawn. overall_soundscape: soft wind."}
 def boot_cleared():
-    """Clearance is tied to one Linux boot. Since 2026-09-27 (Steve's decision) it is
+    """Clearance is tied to one Linux boot. Since 2026-09-27 (owner decision) it is
     written after a reboot by runner/hold_autorecover.py once its evidence checks pass
     (or by an operator with spark1-clear-h3); this server only honours it."""
     try:
