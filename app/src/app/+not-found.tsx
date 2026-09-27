@@ -5,6 +5,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Button } from '@/components/ui/button';
 import { MaxContentWidth, Radii, Spacing } from '@/constants/theme';
+import { useHasHydrated } from '@/hooks/use-has-hydrated';
 import { webEnter } from '@/lib/motion';
 
 const APP_ICON = require('../../assets/images/icon.png');
@@ -12,6 +13,9 @@ const APP_ICON = require('../../assets/images/icon.png');
 /** Branded 404 — unknown links (web) or stale deep links (native). */
 export default function NotFoundScreen() {
   const pathname = usePathname();
+  // The exported page is rendered for "/+not-found"; show the visitor's real
+  // path only once the client owns the page, so hydration matches.
+  const hasHydrated = useHasHydrated();
   const goHome = () => {
     if (router.canDismiss()) router.dismissAll();
     router.replace('/');
@@ -36,9 +40,13 @@ export default function NotFoundScreen() {
           </ThemedText>
           <ThemedText themeColor="textSecondary" style={styles.center}>
             There’s nothing at{' '}
-            <ThemedText type="code" themeColor="textSecondary">
-              {pathname}
-            </ThemedText>
+            {hasHydrated ? (
+              <ThemedText type="code" themeColor="textSecondary">
+                {pathname}
+              </ThemedText>
+            ) : (
+              'this address'
+            )}
             . Your projects are safe — head back to the studio.
           </ThemedText>
           <Button title="Back to the studio" onPress={goHome} style={styles.button} />
