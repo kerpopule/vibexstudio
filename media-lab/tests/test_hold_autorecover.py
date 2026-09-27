@@ -470,3 +470,167 @@ def test_cli_status_probes_the_bound_address(tmp_path, monkeypatch):
     monkeypatch.delenv("MEDIA_LAB_BIND_HOST", raising=False)
     assert cli._bind_from_local_env(tmp_path) == "100.64.0.9"
     assert cli._bind_from_local_env(tmp_path / "nowhere") is None
+
+
+# ------------------------------------------------ after a reboot (2026-09-27)
+# Modelled on 2026-09-27 10:56: Spark 1 reset itself while idle; the warm H3
+# lease of finished take 5f569bb64ce9 carried over as boot-changed, and H3
+# waited for a person. Steve: after any reboot it must come back by itself.
+
+def boot_facts(**over):
+    base = facts(
+        boot_id="boot-new", hold={"reason": har.BOOT_HOLD_REASON, "job_id": None, "created": NOW - 300},
+        lease={"state": "recovery", "reason": "boot-changed", "boot_id": "boot-old",
+               "job_id": "5f569bb64ce9", "engine": "h3", "task": "t2va", "phase": "parked",
+               "fence": 172, "pid": 3105509},
+        lease_job_status="done", sol_configured=True, boot_cleared=False, uptime_s=600.0,
+        studio_active=(0, 0), studio_running=0, h3_active=False, guard_state="ready",
+        mem_available_gib=117.0, psi_full_avg60=0.0, gpu_ok=True, kernel_trouble_boot=0,
+        owner_is_controller=True)   # a recycled pid from the old boot must not matter
+    for key, value in over.items():
+        if key.startswith("lease_") and key != "lease_job_status":
+            base["lease"] = {**base["lease"], key[6:]: value}
+        elif key.startswith("hold_") and key != "hold_exists":
+            base["hold"] = {**base["hold"], key[5:]: value}
+        else:
+            base[key] = value
+    return base
+
+
+def bdecide(f, state=None, boot=True):
+    return har.decide(f, state or {}, enabled=True, gaveup=False, boot_enabled=boot)
+
+
+def test_after_reboot_h3_and_the_carried_over_hold_clear_themselves():
+    assert bdecide(boot_facts())[0] == "boot-clear"
+    assert bdecide(boot_facts(lease_job_id="idle-restore-h3", lease_job_status=None))[0] == "boot-clear"
+    # a take the reboot interrupted: the tool ends it as an error, never re-runs it
+    assert bdecide(boot_facts(lease_phase="load", lease_job_status="running"))[0] == "boot-clear"
+    # no hold at all, H3 just not cleared for this boot
+    assert bdecide(boot_facts(hold_exists=False, hold=None, lease=None))[0] == "boot-clear"
+    # an old boot's safety stop is evidence, not a reason to wait for a person
+    old_stop = {"reason": "memory-psi", "boot_id": "boot-old", "incident_id": "i"}
+    assert bdecide(boot_facts(safety_stop=True, safety_record=old_stop,
+                              guard_state="quarantined"))[0] == "boot-clear"
+
+
+@pytest.mark.parametrize("over,action", [
+    ({"uptime_s": 30.0}, "wait"),
+    ({"studio_active": None}, "wait"),
+    ({"studio_active": (1, 0)}, "wait"),
+    ({"baton": True}, "wait"),
+    ({"h3_active": True}, "wait"),
+    ({"guard_fresh": False}, "wait"),
+    ({"guard_state": "quarantined"}, "wait"),          # quarantined with no old stop
+    ({"mem_available_gib": 60.0}, "wait"),
+    ({"psi_full_avg60": 9.0}, "wait"),
+    ({"kernel_trouble_boot": None}, "wait"),
+    ({"mem_available_gib": 60.0, "uptime_s": 2800.0}, "giveup"),   # 45 min: alert, never silent
+    ({"latch": True}, "giveup"),
+    ({"safety_stop": True, "safety_record": {"reason": "memory-psi", "boot_id": "boot-new"}}, "giveup"),
+    ({"safety_stop": True, "safety_record": {"reason": "x"}}, "giveup"),
+    ({"gpu_ok": False}, "giveup"),
+    ({"kernel_trouble_boot": 2}, "giveup"),
+    ({"lease_job_status": "queued", "lease_phase": "parked", "lease_job_id": "j"}, "boot-clear"),
+    ({"lease_job_status": None, "lease_job_id": "abc"}, "giveup"),     # not exactly reconcilable
+    ({"hold_job_id": "someone-else"}, "giveup"),
+    ({"lease_boot_id": "boot-new"}, "giveup"),
+])
+def test_after_reboot_checks(over, action):
+    assert bdecide(boot_facts(**over))[0] == action
+
+
+def test_after_reboot_flag_off_keeps_the_old_rule():
+    assert bdecide(boot_facts(), boot=False) == (
+        "skip", f"{har.BOOT_FLAG} is off; H3 waits for spark1-clear-h3")
+    assert bdecide(boot_facts(hold_exists=False, hold=None, lease=None, boot_cleared=True))[0] == "idle"
+
+
+def test_after_reboot_limits_retries_backoff_and_reboot_loop():
+    f = boot_facts()
+    one = {"attempts": [{"ts": NOW - 60, "kind": "boot", "boot": "boot-new", "ok": False}]}
+    assert bdecide(f, one)[0] == "wait"                              # 5 min backoff
+    one["attempts"][0]["ts"] = NOW - 400
+    assert bdecide(f, one)[0] == "boot-clear"
+    three = {"attempts": [{"ts": NOW - 5000 + i, "kind": "boot", "boot": "boot-new", "ok": False}
+                          for i in range(3)]}
+    assert bdecide(f, three)[0] == "giveup"
+    loop = {"attempts": [{"ts": NOW - 3600 * i, "kind": "boot", "boot": f"b{i}", "ok": True}
+                         for i in (1, 2, 3)]}
+    assert bdecide(f, loop)[0] == "giveup"
+    loop["attempts"][0]["ts"] = NOW - 90000
+    assert bdecide(f, loop)[0] == "boot-clear"
+
+
+def _boot_pass(paths, **kw):
+    return har.main([], paths=paths, boot_set_aside=lambda p, e: har.set_aside_boot_stop(
+        p, e, sleep=lambda _s: None, guard_state=lambda _p: "ready"), **kw)
+
+
+def test_after_reboot_pass_keeps_evidence_writes_clearance_and_reconciles(tmp_path, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setenv(har.BOOT_FLAG, "1")
+    paths = FakePaths(tmp_path)
+    paths.sol_root.mkdir(parents=True)
+    paths.hold.write_text(json.dumps({"reason": har.BOOT_HOLD_REASON, "job_id": None}))
+    paths.boot_clearance.write_text(json.dumps({"approved": True, "boot_id": "boot-old"}))
+    paths.safety_stop.write_text(json.dumps({"reason": "memory-psi", "boot_id": "boot-old"}))
+    seen = {}
+
+    def fake_reconcile(p, job_id):
+        permit = json.loads(p.boot_clearance.read_text())
+        seen.update(job=job_id, cleared=permit["boot_id"], stop_gone=not p.safety_stop.exists())
+        return True, {"rc": 0, "result": {"hold_exists": False}}
+
+    old_stop = {"reason": "memory-psi", "boot_id": "boot-old"}
+    out = _boot_pass(paths, reconcile=fake_reconcile,
+                     facts=boot_facts(safety_stop=True, safety_record=old_stop))
+    assert out["action"] == "boot-clear" and out["ok"] is True
+    assert seen == {"job": "5f569bb64ce9", "cleared": "boot-new", "stop_gone": True}
+    permit = json.loads(paths.boot_clearance.read_text())
+    assert permit["approved"] is True and permit["approved_by"].startswith("auto:")
+    assert list(paths.sol_root.glob("boot-clearance.pre-boot-new-*.json"))
+    ev = Path(out["evidence"])
+    for name in ("gpu-recovery-hold.json", "boot-clearance.json", "safety-stop.json",
+                 "set-aside-safety-stop.json", "facts.json", "previous-boot-journal-tail.txt"):
+        assert (ev / name).exists(), name
+    state = json.loads(paths.state.read_text())
+    assert state["attempts"][-1]["kind"] == "boot" and state["attempts"][-1]["boot"] == "boot-new"
+    assert not paths.gaveup.exists()
+
+
+def test_after_reboot_pass_without_hold_only_writes_clearance(tmp_path, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setenv(har.BOOT_FLAG, "1")
+    paths = FakePaths(tmp_path)
+    boom = lambda p, j: pytest.fail("no hold: nothing to reconcile")
+    out = _boot_pass(paths, reconcile=boom, facts=boot_facts(hold_exists=False, hold=None, lease=None))
+    assert out["ok"] is True and json.loads(paths.boot_clearance.read_text())["boot_id"] == "boot-new"
+
+
+def test_after_reboot_failures_retry_then_give_up_with_a_reason(tmp_path, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setenv(har.BOOT_FLAG, "1")
+    paths = FakePaths(tmp_path)
+    paths.sol_root.mkdir(parents=True)
+    paths.safety_stop.write_text(json.dumps({"reason": "memory-psi", "boot_id": "boot-old"}))
+    fail = lambda p, j: (False, {"rc": 1, "error": "memory did not recover"})
+    old_stop = {"reason": "memory-psi", "boot_id": "boot-old"}
+    t = NOW
+    for n in range(3):
+        out = _boot_pass(paths, reconcile=fail, facts=boot_facts(
+            now=t, safety_stop=True, safety_record=old_stop))
+        assert out["action"] == "boot-clear" and out["ok"] is False
+        assert paths.safety_stop.exists()                      # put back after a failure
+        t += 1000
+    gave = json.loads(paths.gaveup.read_text())
+    assert "3 tries after the reboot failed" in gave["why"] and "spark1-clear-h3" in gave["next_step"]
+    out = _boot_pass(paths, reconcile=fail, facts=boot_facts(now=t))
+    assert out["action"] == "skip"
+
+
+def test_boot_clearance_file_matches_what_the_sol_engine_reads(tmp_path, monkeypatch):
+    paths = FakePaths(tmp_path)
+    har.write_boot_clearance(paths, "0f7b7a77-2676-40ce-ba41-9520c30efb6c", tmp_path, "why")
+    assert har.boot_cleared(paths, "0f7b7a77-2676-40ce-ba41-9520c30efb6c")
+    assert not har.boot_cleared(paths, "another")

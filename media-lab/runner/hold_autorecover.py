@@ -66,6 +66,30 @@ of the way (sync + drop the CLEAN page cache, `vm.drop_caches=1`) so the
 restore's next try fits. At most every 30 min and 12 times a day. It needs
 `sudo -n` for exactly `tee /proc/sys/vm/drop_caches`.
 
+A fourth class (owner decision, 2026-09-27: "it's supposed to come back by
+itself"): **after any reboot**, planned or not, the studio clears H3 for the
+new boot and the carried-over ``boot-changed`` hold itself, with the same
+evidence a person saw in ``spark1-clear-h3`` (MEDIA_LAB_BOOT_AUTOCLEAR=1):
+
+* it first preserves the previous boot's evidence (the end of its journal and
+  kernel log, pstore, the hold, the lease row, any safety stop and the newest
+  guard incident) in ``.backups/autorecover-boot-<time>/``;
+* only when: the box has been up 2 min, no memwatch latch and no safety stop
+  from THIS boot, the control-plane guard is current and ready, the GPU answers
+  ``nvidia-smi``, the kernel log of this boot has no Xid / hung task / soft
+  lockup / OOM kill, MemAvailable >= 90 GiB and PSI full avg60 <= 2, no job is
+  running, no operator baton, and the hold (if any) is one the reconcile tool
+  can clear exactly (jobless, a finished parked take, or a take the reboot
+  interrupted, which the tool ends as an error and never re-runs);
+* its action: write ``boot-clearance.json`` for this boot (the old one is kept)
+  and, when a hold carried over, run the same reconcile tool. A safety stop
+  from the PREVIOUS boot is moved into the evidence folder first.
+* limits: 3 tries per boot with a 5 / 15 min backoff, at most 3 cleared boots
+  per 24 h (a reboot loop gives up), and if it is still not cleared 45 min
+  after boot it gives up. Giving up writes ``pool/autorecover-gaveup.json``
+  with the reason, and the health watch alerts Steve with that reason; it
+  never waits silently. ``spark1-clear-h3`` stays as the manual override.
+
     runner/hold_autorecover.py            # one pass (the timer)
     runner/hold_autorecover.py --dry-run  # print the decision, change nothing
 """
@@ -125,6 +149,16 @@ TRIM_EVERY_S = 1800
 TRIM_DAILY_CAP = 12
 DEGRADED = re.compile(r"idle reconciliation degraded: h3 \S+ requires ([\d.]+) GiB"
                       r".*?; ([\d.]+) GiB would be available")
+# After a reboot: clear H3 for the new boot and the carried-over hold (2026-09-27).
+BOOT_FLAG = "MEDIA_LAB_BOOT_AUTOCLEAR"
+BOOT_MIN_UPTIME_S = 120
+BOOT_MIN_AVAILABLE_GIB = 90.0
+BOOT_MAX_PSI_FULL_AVG60 = 2.0
+BOOT_GIVE_UP_AFTER_S = 2700          # still not cleared 45 min after boot: alert
+BOOT_TRIES_PER_BOOT = 3
+BOOT_BACKOFF_S = (300, 900)
+BOOT_DAILY_CAP = 3                   # cleared boots per 24 h; more is a reboot loop
+BOOT_HOLD_REASON = "durable-lease-recovery:boot-changed"
 JOB_OUTPUT_FIELDS = ("url", "poster", "sha256", "song_url", "video_url", "video_poster",
                      "final_url", "output", "outputs")
 
@@ -153,6 +187,7 @@ class Paths:
         self.sol_root = Path(sol_root or os.path.expanduser(
             local_config.get("SOL_ROOT") or "~/.local/share/sol-h3-spark"))
         self.safety_stop = self.sol_root / "safety-stop.json"
+        self.boot_clearance = self.sol_root / "boot-clearance.json"
         self.incidents = self.sol_root / "control-plane-incidents"
         self.load_log = self.pool / "h3-load-pressure.jsonl"
         self.evidence_root = self.root / ".backups"
@@ -193,6 +228,42 @@ def _psi_full_avg60() -> float | None:
     except (OSError, ValueError, KeyError):
         pass
     return None
+
+
+def _uptime_s() -> float | None:
+    try:
+        return float(Path("/proc/uptime").read_text().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def boot_cleared(paths: "Paths", boot_id: str) -> bool:
+    permit = _read_json(paths.boot_clearance)
+    return bool(boot_id) and isinstance(permit, dict) and permit.get("approved") is True \
+        and permit.get("boot_id") == boot_id
+
+
+def gpu_answers() -> bool:
+    """True when nvidia-smi names a GPU within 20 s (the driver is alive)."""
+    try:
+        r = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                           capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return r.returncode == 0 and bool(r.stdout.strip())
+
+
+def kernel_trouble_this_boot() -> int | None:
+    """Bad kernel lines (Xid / hung / lockup / OOM) since this boot; None if unreadable."""
+    try:
+        r = subprocess.run(["journalctl", "-k", "-b", "0", "--no-pager", "-q", "-o", "cat"],
+                           capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    return sum(1 for line in r.stdout.splitlines()
+               if any(bad in line.lower() for bad in KERNEL_BAD))
 
 
 def _last_load(path: Path) -> dict | None:
@@ -396,6 +467,19 @@ def gather(paths: Paths, *, now: float | None = None) -> dict:
             facts["studio_active"] = studio_active_jobs()
             facts["h3_active"] = _unit_active(H3_UNIT)
             facts["cached_gib"] = _cached_gib()
+    facts["sol_configured"] = local_config.sol_configured()
+    facts["boot_cleared"] = boot_cleared(paths, facts["boot_id"])
+    lease_boot = (lease or {}).get("reason") == "boot-changed"
+    if (facts["sol_configured"] and not facts["boot_cleared"]) or lease_boot:
+        # After a reboot (the fourth class): the evidence spark1-clear-h3 shows.
+        facts["uptime_s"] = _uptime_s()
+        facts["studio_active"] = studio_active_jobs()
+        facts["h3_active"] = _unit_active(H3_UNIT)
+        facts["psi_full_avg60"] = _psi_full_avg60()
+        facts["gpu_ok"] = gpu_answers()
+        facts["kernel_trouble_boot"] = kernel_trouble_this_boot()
+        stop = _read_json(paths.safety_stop) if facts["safety_stop"] else None
+        facts["safety_record"] = stop if isinstance(stop, dict) else None
     hold = facts["hold"] if isinstance(facts["hold"], dict) else {}
     if facts["safety_stop"] and str((lease or {}).get("reason") or "").startswith("operation-uncertain:"):
         # Only the guard-trip class needs these (and they cost a subprocess).
@@ -431,17 +515,25 @@ def _recent(state: dict, now: float) -> list[dict]:
 
 
 def decide(facts: dict, state: dict, *, enabled: bool, gaveup: bool,
-           min_age_s: float = MIN_AGE_S, min_available_gib: float = MIN_AVAILABLE_GIB) -> tuple[str, str]:
+           min_age_s: float = MIN_AGE_S, min_available_gib: float = MIN_AVAILABLE_GIB,
+           boot_enabled: bool = False) -> tuple[str, str]:
     """Return (action, reason). action is one of: idle, wait, skip, giveup, reconcile."""
     now = float(facts["now"])
-    if not facts.get("hold_exists"):
+    hold = facts.get("hold")
+    lease = facts.get("lease")
+    after_reboot = (
+        (facts.get("hold_exists") and isinstance(hold, dict) and hold.get("reason") == BOOT_HOLD_REASON
+         and isinstance(lease, dict) and lease.get("reason") == "boot-changed")
+        or (not facts.get("hold_exists") and facts.get("sol_configured")
+            and facts.get("boot_cleared") is False))
+    if not facts.get("hold_exists") and not after_reboot:
         return "idle", "no recovery hold"
     if not enabled:
         return "skip", f"{FLAG} is off"
     if gaveup:
         return "skip", "gave up earlier; a person must look (remove autorecover-gaveup.json after)"
-    hold = facts.get("hold")
-    lease = facts.get("lease")
+    if after_reboot:
+        return decide_boot(facts, state, enabled=boot_enabled)
     if not isinstance(hold, dict):
         return "skip", "hold marker is unreadable"
     if not lease:
@@ -589,6 +681,148 @@ def decide_trip(facts: dict, state: dict, *, min_age_s: float = TRIP_MIN_AGE_S) 
                               f"({avail:.0f} GiB free, PSI60 {psi60})")
 
 
+def boot_hold_job(facts: dict) -> tuple[str | None, str | None]:
+    """(lease job to reconcile, refusal). (None, None) when no hold carried over."""
+    if not facts.get("hold_exists"):
+        return None, None
+    hold, lease = facts.get("hold") or {}, facts.get("lease") or {}
+    if lease.get("state") != "recovery" or lease.get("reason") != "boot-changed":
+        return None, f"lease is {lease.get('state')}:{lease.get('reason')}, not a boot-changed recovery"
+    if not lease.get("boot_id") or lease.get("boot_id") == facts.get("boot_id"):
+        return None, "the boot-changed lease names this boot (inconsistent)"
+    job_id = str(lease.get("job_id") or "")
+    if hold.get("job_id") not in (None, job_id):
+        return None, f"hold marker names job {hold.get('job_id')}, the lease {job_id}"
+    status = facts.get("lease_job_status")
+    if job_id.startswith(JOBLESS_PREFIXES):
+        return job_id, None
+    if lease.get("phase") == "parked" and status in TERMINAL:
+        return job_id, None                   # a finished take left parked
+    if status in ("running", "queued"):
+        return job_id, None                   # a take the reboot interrupted: ends as an error
+    return None, f"lease job {job_id or '?'} is {status or 'unknown'} in phase {lease.get('phase')}"
+
+
+def decide_boot(facts: dict, state: dict, *, enabled: bool) -> tuple[str, str]:
+    """After a reboot: (action, reason); action boot-clear, wait, skip or giveup."""
+    now = float(facts["now"])
+    boot = str(facts.get("boot_id") or "")
+    if not enabled:
+        return "skip", f"{BOOT_FLAG} is off; H3 waits for spark1-clear-h3"
+    if not boot:
+        return "skip", "cannot read this boot's id"
+    job_id, refusal = boot_hold_job(facts)
+    if refusal:
+        return "giveup", f"the carried-over hold is not one the reconcile tool clears exactly: {refusal}"
+    stop = facts.get("safety_record")
+    if facts.get("safety_stop"):
+        if not isinstance(stop, dict) or not stop.get("boot_id"):
+            return "giveup", "an H3 safety stop is set and does not say which boot it is from"
+        if stop.get("boot_id") == boot:
+            return "giveup", f"the H3 safety stop was set on THIS boot ({stop.get('reason')})"
+    if facts.get("latch"):
+        return "giveup", "the memwatch latch is set on this boot (memory ran low after the reboot)"
+    if facts.get("gpu_ok") is False:
+        return "giveup", "the GPU does not answer nvidia-smi"
+    trouble = facts.get("kernel_trouble_boot")
+    if trouble:
+        return "giveup", f"{trouble} kernel error line(s) this boot (Xid/hung task/OOM)"
+    mine = [a for a in state.get("attempts", []) if a.get("kind") == "boot" and a.get("boot") == boot]
+    if len(mine) >= BOOT_TRIES_PER_BOOT:
+        return "giveup", f"{BOOT_TRIES_PER_BOOT} tries on this boot did not clear it"
+    cleared = {a.get("boot") for a in _recent(state, now) if a.get("kind") == "boot" and a.get("ok")}
+    if len(cleared - {boot}) >= BOOT_DAILY_CAP:
+        return "giveup", f"{BOOT_DAILY_CAP} reboots cleared in 24 h already: a reboot loop needs a person"
+    waiting = _boot_wait_reason(facts, mine, now)
+    if waiting:
+        up = facts.get("uptime_s")
+        if up is not None and float(up) >= BOOT_GIVE_UP_AFTER_S:
+            return "giveup", f"still not cleared {float(up) / 60:.0f} min after the reboot: {waiting}"
+        return "wait", waiting
+    what = f"the carried-over hold ({job_id})" if job_id else "no hold carried over"
+    return "boot-clear", (f"reboot: clear H3 for boot {boot[:8]}; {what}; memory "
+                          f"{facts.get('mem_available_gib'):.0f} GiB free, PSI60 {facts.get('psi_full_avg60')}, "
+                          f"GPU answers, kernel log clean")
+
+
+def _boot_wait_reason(facts: dict, mine: list, now: float) -> str | None:
+    up = facts.get("uptime_s")
+    if up is None or float(up) < BOOT_MIN_UPTIME_S:
+        return f"the box has been up {0 if up is None else float(up):.0f} s; waiting {BOOT_MIN_UPTIME_S} s"
+    if mine and not mine[-1].get("ok"):
+        wait = BOOT_BACKOFF_S[min(len(mine), len(BOOT_BACKOFF_S)) - 1]
+        if now - float(mine[-1].get("ts", 0)) < wait:
+            return f"backing off {wait // 60} min after a failed try"
+    for key, what in (("baton", ".operator-baton"), ("engine_maintenance", ".engine-maintenance")):
+        if facts.get(key):
+            return f"{what} is present"
+    active = facts.get("studio_active")
+    if active is None:
+        return "the studio did not answer the queue probe"
+    if active[0] or facts.get("persisted_running"):
+        return "a job is running"
+    if facts.get("h3_active"):
+        return "the H3 unit is running"
+    prior_stop = bool(facts.get("safety_stop"))
+    ok_states = ("ready", "monitoring") + (("quarantined",) if prior_stop else ())
+    if not facts.get("guard_fresh") or facts.get("guard_state") not in ok_states:
+        return f"control-plane guard is not current/ready ({facts.get('guard_state')})"
+    if facts.get("gpu_ok") is None:
+        return "GPU state unknown"
+    if facts.get("kernel_trouble_boot") is None:
+        return "cannot read this boot's kernel log"
+    avail, psi60 = facts.get("mem_available_gib"), facts.get("psi_full_avg60")
+    if avail is None or avail < BOOT_MIN_AVAILABLE_GIB:
+        return f"MemAvailable {avail} GiB is below {BOOT_MIN_AVAILABLE_GIB:.0f} GiB"
+    if psi60 is None or psi60 > BOOT_MAX_PSI_FULL_AVG60:
+        return f"memory pressure has not settled: PSI full avg60 {psi60}"
+    return None
+
+
+def preserve_boot_evidence(paths: Paths, facts: dict) -> Path:
+    """Copy what the previous boot left behind before anything is changed."""
+    stamp = time.strftime("%Y%m%dT%H%M%S", time.localtime(float(facts["now"])))
+    evidence = paths.evidence_root / f"autorecover-boot-{stamp}"
+    evidence.mkdir(parents=True, exist_ok=False)
+    for src in (paths.hold, paths.boot_clearance, paths.safety_stop):
+        if src.exists():
+            shutil.copy2(src, evidence / src.name)
+    stop = facts.get("safety_record") or {}
+    incident = paths.incidents / f"{stop.get('incident_id')}.json" if stop.get("incident_id") else None
+    if incident is None and paths.incidents.is_dir():
+        found = sorted(paths.incidents.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        incident = found[-1] if found else None
+    if incident is not None and incident.exists():
+        shutil.copy2(incident, evidence / f"newest-incident-{incident.name}")
+    (evidence / "facts.json").write_text(json.dumps(facts, sort_keys=True, default=str))
+    for name, cmd in (
+            ("previous-boot-journal-tail.txt", ["journalctl", "-b", "-1", "-n", "400", "--no-pager", "-o", "short-iso"]),
+            ("previous-boot-kernel-warnings.txt", ["journalctl", "-b", "-1", "-k", "-p", "warning",
+                                                   "-n", "300", "--no-pager", "-o", "short-iso"]),
+            ("this-boot-kernel-warnings.txt", ["journalctl", "-b", "0", "-k", "-p", "warning",
+                                               "--no-pager", "-o", "short-iso"]),
+            ("boots.txt", ["journalctl", "--list-boots", "--no-pager"]),
+            ("pstore.txt", ["ls", "-la", "/var/lib/systemd/pstore"])):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            (evidence / name).write_text((r.stdout or "")[-2_000_000:] + (r.stderr or "")[-2000:])
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            (evidence / name).write_text(f"unavailable: {exc}\n")
+    return evidence
+
+
+def write_boot_clearance(paths: Paths, boot_id: str, evidence: Path, why: str) -> None:
+    """The same file spark1-clear-h3 writes, for THIS boot only; the old one is kept."""
+    paths.sol_root.mkdir(parents=True, exist_ok=True)
+    if paths.boot_clearance.exists():
+        os.replace(paths.boot_clearance, paths.boot_clearance.with_name(
+            f"boot-clearance.pre-{boot_id[:8]}-{int(time.time())}.json"))
+    _save(paths.boot_clearance, {
+        "approved": True, "boot_id": boot_id, "at": time.time(),
+        "approved_by": "auto: runner/hold_autorecover.py (Steve's rule, 2026-09-27)",
+        "evidence": str(evidence), "why": why})
+
+
 def _save(path: Path, value: dict) -> None:
     tmp = path.with_name(f".{path.name}.tmp")
     tmp.write_text(json.dumps(value, sort_keys=True))
@@ -704,7 +938,7 @@ def run_reconcile(paths: Paths, job_id: str) -> tuple[bool, dict]:
 def main(argv: list[str] | None = None, *, paths: Paths | None = None,
          reconcile=run_reconcile, facts: dict | None = None,
          set_aside=set_aside_trip_markers, restore=restore_trip_markers,
-         trim=None) -> dict:
+         trim=None, boot_set_aside=None) -> dict:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--dry-run", action="store_true", help="print the decision, change nothing")
     args = ap.parse_args(argv)
@@ -718,7 +952,9 @@ def main(argv: list[str] | None = None, *, paths: Paths | None = None,
         state.pop("gaveup_at", None)
         _save(paths.state, state)
     enabled = local_config.int_value(FLAG, 0) == 1
-    action, why = decide(facts, state, enabled=enabled, gaveup=paths.gaveup.exists())
+    boot_enabled = local_config.int_value(BOOT_FLAG, 0) == 1
+    action, why = decide(facts, state, enabled=enabled, gaveup=paths.gaveup.exists(),
+                         boot_enabled=boot_enabled)
     lease = facts.get("lease") or {}
     out = {"ts": facts["now"], "action": action, "why": why, "dry_run": args.dry_run,
            "lease_job": lease.get("job_id"), "lease_reason": lease.get("reason")}
@@ -758,11 +994,15 @@ def main(argv: list[str] | None = None, *, paths: Paths | None = None,
         _save(paths.gaveup, {"ts": facts["now"], "why": why, "lease_job": lease.get("job_id"),
                              "lease_reason": lease.get("reason"),
                              "next_step": "Look at the hold, clear it with "
-                                          "tools/reconcile-gpu-recovery.py --job-id <job>, "
+                                          "tools/reconcile-gpu-recovery.py --job-id <job> "
+                                          "(after a reboot: spark1-clear-h3 from VibeX), "
                                           "then remove pool/autorecover-gaveup.json"})
         log(f"GIVING UP: {why}")
         _audit(paths, out)
         return out
+    if action == "boot-clear":
+        return _boot_clear(paths, facts, state, out, why, reconcile=reconcile,
+                           set_aside=boot_set_aside or set_aside_boot_stop, restore=restore)
     log(f"RECONCILING: {why}")
     started = time.time()
     trip = action == "reconcile-trip"
@@ -796,6 +1036,75 @@ def main(argv: list[str] | None = None, *, paths: Paths | None = None,
         _save(paths.state, state)
         _save(paths.gaveup, {"ts": facts["now"], "why": f"{GIVE_UP_AFTER} failed attempts",
                              "lease_job": lease.get("job_id"), "receipt": receipt})
+    return out
+
+
+def set_aside_boot_stop(paths: Paths, evidence: Path, *, sleep=time.sleep,
+                        guard_state=_guard_state) -> list[tuple[Path, Path]]:
+    """Move a PREVIOUS boot's safety stop into the evidence and wait for the guard."""
+    moved: list[tuple[Path, Path]] = []
+    if not paths.safety_stop.exists():
+        return moved
+    dst = evidence / f"set-aside-{paths.safety_stop.name}"
+    shutil.copy2(paths.safety_stop, dst)
+    paths.safety_stop.unlink()
+    moved.append((dst, paths.safety_stop))
+    try:
+        deadline = time.time() + GUARD_READY_WAIT_S
+        while guard_state(paths) not in ("ready", "monitoring"):
+            if time.time() >= deadline:
+                raise RuntimeError(f"guard did not report ready after the old safety stop was "
+                                   f"set aside ({guard_state(paths)})")
+            sleep(1.0)
+    except Exception:
+        restore_trip_markers(moved)
+        raise
+    return moved
+
+
+def _boot_clear(paths: Paths, facts: dict, state: dict, out: dict, why: str, *,
+                reconcile, set_aside, restore) -> dict:
+    boot = str(facts["boot_id"])
+    job_id, _ = boot_hold_job(facts)
+    log(f"AFTER REBOOT: {why}")
+    started = time.time()
+    moved: list = []
+    receipt: dict = {}
+    try:
+        evidence = preserve_boot_evidence(paths, facts)
+        out["evidence"] = str(evidence)
+        moved = set_aside(paths, evidence)
+        write_boot_clearance(paths, boot, evidence, why)
+        receipt["boot_clearance"] = "written"
+        if job_id:
+            ok, rec = reconcile(paths, job_id)
+            receipt.update(rec)
+        else:
+            ok = True
+    except Exception as exc:                       # noqa: BLE001  recorded, then retried
+        ok = False
+        receipt["error"] = f"{type(exc).__name__}: {exc}"
+    if not ok and moved:
+        restore(moved)
+        receipt["markers_restored"] = True
+    attempt = {"ts": facts["now"], "hold": hold_key(facts), "ok": ok, "kind": "boot", "boot": boot,
+               "seconds": round(time.time() - started, 1)}
+    state.setdefault("attempts", []).append(attempt)
+    state["attempts"] = state["attempts"][-20:]
+    state["last_logged"] = None
+    mine = [a for a in state["attempts"] if a.get("kind") == "boot" and a.get("boot") == boot]
+    if not ok and len(mine) >= BOOT_TRIES_PER_BOOT:
+        state["gaveup_at"] = facts["now"]
+        _save(paths.gaveup, {"ts": facts["now"], "why": f"{BOOT_TRIES_PER_BOOT} tries after the reboot "
+                             f"failed: {receipt.get('error') or 'the hold is still there'}",
+                             "lease_job": job_id, "receipt": receipt,
+                             "next_step": "Read pool/autorecover.log, then spark1-clear-h3 from VibeX, "
+                                          "then remove pool/autorecover-gaveup.json"})
+    _save(paths.state, state)
+    out.update(ok=ok, receipt=receipt)
+    _audit(paths, out)
+    log(("cleared H3 for this boot" + (" and the carried-over hold" if job_id else "")
+         if ok else "after-reboot clear did NOT finish") + f": {receipt}")
     return out
 
 
