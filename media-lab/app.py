@@ -6468,7 +6468,11 @@ def still_prompt(p):
                 "no collage, no panels, no storyboard grid. Absolutely no on-screen text: "
                 "no subtitles, no captions, no words, no lettering, no watermarks, no logos.")
 
-H3_SCHEMA_RE = re.compile(r"^(For the target video[^\n]*\n+)?integrated_multimodal_description:", re.I)
+# The H3 three-field schema, or the Ref2VA schema Real / Long reads (the realism
+# LoRA trigger word and/or subject_definitions / summary / detailed_description).
+H3_SCHEMA_RE = re.compile(r"^(For the target video[^\n]*\n+)?(integrated_multimodal_description:"
+                          r"|(r34l1sm\s+)?(subject_definitions|summary|detailed_description):"
+                          r"|r34l1sm\b)", re.I)
 
 def h3_prompt(text, speaker_desc="", music="none", start_image=False, line=""):
     """MiniMax H3's OFFICIAL prompt schema — three named fields, in this order,

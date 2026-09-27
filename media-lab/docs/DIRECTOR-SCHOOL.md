@@ -166,6 +166,13 @@ tools/director critic out.mp4 out.receipt.json --frames seams/ --board board.jso
 tools/director produce board.json --out prod/ [--rounds 2] [--seed 4242]
 ```
 
+With `--real-long` (the studio has the Real / Long engine), every shot whose
+characters have reference pictures films on Real / Long: its start frame is the
+opening-frame picture and each visible character's reference picture holds that
+face for the whole take. All stills are made before the first take and a
+re-take keeps its start frame, so the studio loads the video engine once. Real /
+Long has no per-load prompt limit, so `--takes-per-load` does not apply to it.
+
 `produce` signs in with the studio's local token on the studio machine, or
 with `MEDIA_LAB_CODE` elsewhere. It never publishes.
 

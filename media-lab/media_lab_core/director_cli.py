@@ -18,6 +18,7 @@ reasons written into the next take. It never publishes anything.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import sys
@@ -190,9 +191,15 @@ def settle_memory(*, need_gib: float = 24.5, limit_s: float = 90.0, log=None) ->
 
 def produce(board: dict, out_dir: Path, studio: Studio, *, rounds: int = 2, stills: bool = True,
             seed: int | None = None, vision=None, studio_wraps_h3: bool = False,
-            takes_per_load: int | None = None, log=print) -> dict[str, Any]:
+            takes_per_load: int | None = None, real_long: bool = False,
+            log=print) -> dict[str, Any]:
     """Film a planned board on H3 with continuity, stitch it, critique it,
-    re-render rejected shots (bounded), and leave every receipt in ``out_dir``."""
+    re-render rejected shots (bounded), and leave every receipt in ``out_dir``.
+
+    ``real_long``: the studio has the Real / Long engine, so identity-critical
+    shots (a character with a reference picture) film there, from their start
+    frame plus every visible character's reference picture, and all stills are
+    made before the first take so the studio loads the video engine once."""
     out_dir.mkdir(parents=True, exist_ok=True)
     bible = board.get("bible") or {}
     beats = [ds.normalize_beat(b, i) for i, b in enumerate(board.get("beats") or [])]
@@ -259,6 +266,20 @@ def produce(board: dict, out_dir: Path, studio: Studio, *, rounds: int = 2, stil
         still_urls[i] = image(body, f"still for shot {i + 1}")
         studio.fetch(still_urls[i], out_dir / f"still-{i + 1:02d}-s{still_seed}{Path(still_urls[i]).suffix}")
 
+    ref_b64: dict[str, str] = {}
+
+    def reference_b64(url: str) -> str:
+        if url not in ref_b64:
+            tmp = out_dir / f".ref-{Path(urllib.parse.urlsplit(url).path).name}"
+            studio.fetch(url, tmp)
+            ref_b64[url] = base64.b64encode(tmp.read_bytes()).decode()
+            tmp.unlink(missing_ok=True)
+        return ref_b64[url]
+
+    routes = {b["index"]: ds.route_engine(b, bible, real_long_available=real_long) for b in beats}
+    journal["routes"] = {str(i + 1): {k: r[k] for k in ("variant", "why", "estimate_s")}
+                         for i, r in routes.items()}
+
     # 2) takes
     patches: dict[int, str] = {}
     reasons_for: dict[int, list] = {}
@@ -271,20 +292,26 @@ def produce(board: dict, out_dir: Path, studio: Studio, *, rounds: int = 2, stil
         # studio reload H3 before the batch's takes. takes_per_load bounds how
         # many different takes one H3 engine process films (Sol-H3 today hard-
         # fails on its third distinct prompt: docs/DIRECTOR-SCHOOL.md).
-        batch = takes_per_load or len(pending)
+        batch = len(pending) if real_long else (takes_per_load or len(pending))
         order: list[tuple[str, int]] = []
         for k in range(0, len(pending), batch):
             group = pending[k:k + batch]
             if stills:
                 order.extend(("still", i) for i in group)
-            order.extend(("take", i) for i in group)
+            # Real / Long takes first, then any Sol takes: one engine switch at most
+            order.extend(("take", i) for i in sorted(group, key=lambda n: routes[n]["variant"] != "real-long"))
         for step, i in order:
             if step == "still":
+                # on Real / Long a re-take keeps its start frame (the references
+                # hold the faces), so no image job evicts the loaded engine
+                if real_long and round_no and i in still_urls:
+                    continue
                 if round_no or i not in still_urls:
                     make_still(i, take_seed[i], seam_critic.rerender_patch(reasons_for.get(i, [])) if round_no else "")
                 continue
             b = beats[i]
-            prompt = ds.compose_h3_prompt(bible, b, start_frame=i in still_urls)
+            on_real_long = routes[i]["variant"] == "real-long"
+            prompt = ds.compose_h3_prompt(bible, b, start_frame=i in still_urls and not on_real_long)
             if patches.get(i):
                 prompt = prompt.replace("\n\noverall_soundscape:", " " + patches[i] + "\n\noverall_soundscape:", 1)
             if studio_wraps_h3:
@@ -296,6 +323,16 @@ def produce(board: dict, out_dir: Path, studio: Studio, *, rounds: int = 2, stil
                     "seed": take_seed[i], "style": "none"}
             if i in still_urls:
                 body["source"] = still_urls[i]
+            if on_real_long:
+                # the start frame becomes the opening-frame picture; each visible
+                # character's reference picture holds that face for the whole take
+                by_name = {c["name"]: c for c in characters}
+                body["h3_engine"] = "singularity"
+                body["reference_detail"] = "match"
+                body["references"] = [{"b64": reference_b64(by_name[n]["reference"]), "role": f"person called {n}"}
+                                      for n in b["characters"] if n in by_name and by_name[n]["reference"]]
+                if b["seconds"] > 5.5:
+                    body["duration"] = str(int(min(15, round(b["seconds"]))))
             j = studio.run("/api/generate", body, label=f"round {round_no}: shot {i + 1} take", log=log)
             jid = j["id"]
             if j.get("status") != "done" or not j.get("url"):
@@ -305,6 +342,7 @@ def produce(board: dict, out_dir: Path, studio: Studio, *, rounds: int = 2, stil
             clips[i] = dest
             journal["shots"].setdefault(str(i + 1), []).append(
                 {"round": round_no, "job": jid, "seed": take_seed[i], "prompt": prompt,
+                 "engine": routes[i]["variant"],
                  "start_frame": still_urls.get(i), "file": dest.name})
         plan = ds.cut_plan(board, [str(clips[b["index"]]) for b in beats], width=1344, height=768,
                            quality="high")
@@ -360,6 +398,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-stills", action="store_true"); p.add_argument("--seed", type=int)
     p.add_argument("--takes-per-load", type=int,
                    help="film at most N different takes per H3 engine load (2 on today's Sol-H3)")
+    p.add_argument("--real-long", action="store_true",
+                   help="the studio has Real / Long: film identity-critical shots there, one engine load")
     p.add_argument("--studio-wraps-h3", action="store_true",
                    help="the studio predates director school and wraps H3 prompts itself")
     p.add_argument("--vision-url", default=os.environ.get("MEDIA_LAB_CRITIC_VISION_URL"))
@@ -422,7 +462,8 @@ def main(argv: list[str] | None = None) -> int:
         studio = Studio(args.studio, args.media_dir)
         journal = produce(_load(args.board), Path(args.out), studio, rounds=args.rounds,
                           stills=not args.no_stills, seed=args.seed, vision=chat,
-                          studio_wraps_h3=args.studio_wraps_h3, takes_per_load=args.takes_per_load)
+                          studio_wraps_h3=args.studio_wraps_h3, takes_per_load=args.takes_per_load,
+                          real_long=args.real_long)
         _dump({"final_cut": journal["final_cut"], "open_rerenders": journal["open_rerenders"]})
     return 0
 
