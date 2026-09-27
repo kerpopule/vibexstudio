@@ -22,6 +22,17 @@ The app's existing `.engine-maintenance` marker now also gates `auto_requeue()` 
 
 ## Recovery requires an operator gate
 
+Two narrow exceptions were approved by the studio owner on 2026-09-26 and run
+only with `MEDIA_LAB_HOLD_AUTORECOVER=1`, through `runner/hold_autorecover.py`
+(which uses the same `tools/reconcile-gpu-recovery.py`): the harmless startup
+restart hold, and a control-plane guard pressure trip that happened during an
+H3 cold load (lease still in phase `load`, the load record says `guard-lost`,
+the job failed with no output, memory and PSI back to normal, no Xid / hung
+task / OOM kill in the kernel log since, at most once a day). It preserves the
+markers and incident in `.backups/autorecover-trip-*` before setting them
+aside, and puts them back if the reconcile fails. Everything else below still
+needs a person.
+
 Do not clear a marker merely because a TCP socket opens, systemd reports active, or MemAvailable momentarily rises. Preserve journal, worker diagnostics, memory/pressure samples and queue checkpoints first. Quiesce approved work through the controller. Verify worker groups are gone, driver allocation/hung-task errors are not continuing, and the exact task-family phase budget fits with the approved operating margin. Preserve markers before approved clearing; never delete jobs or media to recover memory.
 
 The app owns the cross-process inference transaction and pool lease. The reentrant lock here is only intra-process protection, not a replacement for those locks or protection against unmanaged GPU consumers. Do not acquire the app-held inference lock a second time inside this wrapper.

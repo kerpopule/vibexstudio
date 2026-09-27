@@ -43,10 +43,9 @@ class WatchdogMaestroSafetyTests(unittest.TestCase):
         self.assertIn("standing clear", log.call_args.args[0])
 
     def test_supervisor_media_lab_probe_uses_configured_studio_url_and_no_proxy(self):
-        self.assertIn(
-            ("media-lab-simple.service", QUEUE_URL, None),
-            service_supervisor.UNITS,
-        )
+        # The queue watchdog is the studio's one restart owner (2026-09-26);
+        # the supervisor still probes with the same client when asked.
+        self.assertNotIn("media-lab-simple.service", [u for u, _, _ in service_supervisor.UNITS])
         fake_response = mock.MagicMock()
         fake_response.__enter__.return_value.getcode.return_value = 200
         with mock.patch.object(service_supervisor.LOCAL_OPENER, "open", return_value=fake_response) as opened, \
