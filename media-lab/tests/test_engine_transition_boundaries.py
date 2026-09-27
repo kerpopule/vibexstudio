@@ -362,7 +362,8 @@ def test_render_body_task_is_bound_during_video_admission():
         return {'ok': True}
 
     generate = function('engine_generate', gpu_operation=operation,
-                        _engine_generate_authorized=authorized)
+                        _engine_generate_authorized=authorized,
+                        _h3ref=__import__('runner.h3_reference', fromlist=['h3_reference']))
     job = {'id': 'talk-1', 'request': {}}
     assert generate('h3', {'start_image_b64': 'frame'}, job)['ok'] is True
     assert seen == [('h3', 'fl2va', 'fl2va'), ('authorized', 'fl2va', 'fl2va')]

@@ -605,14 +605,16 @@ class H3QueueBatchingTests(unittest.TestCase):
                     "request": {"model": "h3"}, "ts": now - 10},
         }
 
-    def _drain(self, resident, keep_h3_warm, jobs, order):
+    def _drain(self, resident, keep_h3_warm, jobs, order, variant=None):
         queue = list(order)
         job_engine = self._source_function("job_engine")
         pick = self._source_function(
             "pick_next_job", queue=queue, jobs=jobs, VIDEO_ENGINE_NAMES=("ltx", "h3"),
             engine_up=lambda name: name == resident, job_engine=job_engine,
             h3_kept_warm=lambda: keep_h3_warm, time=time,
-            H3_BATCH_MAX_WAIT_S=studio.H3_BATCH_MAX_WAIT_S)
+            H3_BATCH_MAX_WAIT_S=studio.H3_BATCH_MAX_WAIT_S,
+            h3_resident_config=lambda: ({"variant": variant} if variant else None),
+            _h3ref=studio._h3ref)
         picked = []
         for _ in range(len(order) + 1):
             if not queue:
@@ -625,6 +627,20 @@ class H3QueueBatchingTests(unittest.TestCase):
         picked = self._drain("h3", True, self._jobs(time.time()),
                              ["img", "h3a", "ltx", "h3b"])
         self.assertEqual(["h3a", "h3b"], picked[:2])
+
+    def test_resident_real_long_runs_its_own_takes_before_switching_back_to_sol(self):
+        now = time.time()
+        jobs = self._jobs(now)
+        jobs["real1"] = {"id": "real1", "kind": "video", "status": "queued", "ts": now - 12,
+                         "request": {"model": "h3", "h3_engine": "singularity"}}
+        jobs["real2"] = {"id": "real2", "kind": "video", "status": "queued", "ts": now - 5,
+                         "request": {"model": "h3", "h3_engine": "singularity"}}
+        picked = self._drain("h3", True, jobs, ["h3a", "real1", "img", "h3b", "real2"],
+                             variant="singularity")
+        self.assertEqual(["real1", "real2", "h3a", "h3b"], picked[:4])
+        # and a resident Sol keeps its own takes first
+        picked = self._drain("h3", True, jobs, ["real1", "h3a", "real2", "h3b"], variant="fl2va")
+        self.assertEqual(["h3a", "h3b", "real1", "real2"], picked)
 
     def test_pushed_out_h3_finishes_other_work_before_reloading(self):
         picked = self._drain(None, True, self._jobs(time.time()),
