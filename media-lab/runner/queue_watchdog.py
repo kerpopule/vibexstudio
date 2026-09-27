@@ -16,6 +16,18 @@ What it protects against (each one has actually happened):
 
 State between runs lives in watchdog-state.json next to this script's data dir.
 Never restarts more often than RESTART_COOLDOWN_MIN.
+
+This watchdog is the ONE owner of studio restarts (2026-09-26): the service
+supervisor no longer restarts media-lab-simple, so two watchers can never both
+"repair" it. Limits, because on 2026-09-02 a probe failure that was not the
+studio's fault caused 189 restarts in 15.5 hours:
+  * "unreachable" needs UNREACHABLE_STRIKES consecutive failed probes;
+  * at most MAX_RESTARTS_PER_HOUR restarts in any hour, then it stops, sets
+    restart_capped in its state (the health check raises it) and waits;
+  * a queue still stalled after one restart is marked stuck for a person
+    (/api/health says "stuck"); it is never restarted a second time for it.
+A restart is a normal systemctl restart: with MEDIA_LAB_GRACEFUL_HANDOFF=1 an
+idle warm engine is handed to the new process instead of leaving a hold.
 """
 import json, os, subprocess, sys, time, urllib.error, urllib.request
 from pathlib import Path
@@ -29,7 +41,9 @@ STATE = os.path.join(ROOT, "watchdog-state.json")
 QUEUE_URL = local_config.studio_url() + "/api/queue"
 # First public hostname, if the studio is published (MEDIA_LAB_PUBLIC_HOSTS).
 _PUBLIC = sorted(local_config.public_hosts())
-TUNNEL_URL = f"https://{_PUBLIC[0]}/" if _PUBLIC else ""
+# The public-edge probe asks for a path the family door lets through without a
+# pass (/manifest.json), so it never adds a 401 to the studio's log.
+TUNNEL_URL = f"https://{_PUBLIC[0]}/manifest.json" if _PUBLIC else ""
 TUNNEL_METRICS_URL = "http://127.0.0.1:20241/metrics"
 TUNNEL_PROBE_UA = "MediaLabWatchdog/1.0"
 TUNNEL_ORIGIN_FAILURE_CODES = (0, 502, 503, 504, 521, 522, 523, 530)
@@ -46,6 +60,9 @@ STALL_RUNNING_MIN = 45       # minutes a running job may sit on one stage
 ENGINE_HEALTH = ("http://127.0.0.1:8290/health", "http://127.0.0.1:8291/health")
 STALL_HARD_MIN = 120
 RESTART_COOLDOWN_MIN = 10
+UNREACHABLE_STRIKES = 3
+MAX_RESTARTS_PER_HOUR = 3
+LEASE_PROBE = os.path.join(ROOT, "runner", "lease_owner_probe.py")
 
 ENV = dict(os.environ,
            XDG_RUNTIME_DIR="/run/user/1000",
@@ -72,17 +89,44 @@ def save_state(st):
     os.replace(tmp, STATE)
 
 
-def restart_app(st, reason):
+def restart_app(st, reason, now=None):
+    """Restart the studio, within the cooldown and the hourly cap. True if done."""
+    now = time.time() if now is None else now
     last = st.get("last_restart", 0)
-    if time.time() - last < RESTART_COOLDOWN_MIN * 60:
+    if now - last < RESTART_COOLDOWN_MIN * 60:
         log(f"WOULD restart ({reason}) but cooldown active — skipping")
-        return
+        return False
+    recent = [t for t in st.get("restarts", []) if now - float(t) < 3600]
+    if len(recent) >= MAX_RESTARTS_PER_HOUR:
+        if not st.get("restart_capped"):
+            log(f"RESTART CAP: {len(recent)} restarts in the last hour — not restarting "
+                f"({reason}); a person must look")
+        st["restart_capped"] = True
+        st["restarts"] = recent
+        return False
     log(f"RESTARTING media-lab-simple.service — {reason}")
     subprocess.run(["systemctl", "--user", "restart", "media-lab-simple.service"],
                    env=ENV, check=False)
-    st["last_restart"] = time.time()
+    st["last_restart"] = now
+    st["restarts"] = recent + [now]
+    st["restart_capped"] = False
     st["idle_strikes"] = 0
     st.pop("run_seen", None)
+    return True
+
+
+def controller_holds_gpu_lock():
+    """Read-only: does our own live studio controller hold the canonical lock?
+
+    Since the controller owns the lock itself for every fenced GPU operation
+    (and while a warm engine is parked), neither legacy holder unit is active in
+    the normal warm state. Asking pool_lock.sh then logged "pool holder was
+    missing — re-acquired: OK" every run (~720 misleading lines a day)."""
+    if not os.path.exists(LEASE_PROBE):
+        return False
+    r = subprocess.run(["/usr/bin/python3", LEASE_PROBE, "--lock", POOL_LOCK], env=ENV,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return r.returncode == 0
 
 
 def ensure_pool_lock():
@@ -94,6 +138,8 @@ def ensure_pool_lock():
         up = subprocess.run(["systemctl", "--user", "is-active", "--quiet", unit], env=ENV)
         if up.returncode == 0:
             return                  # warm pool OR intended idle reservation is healthy
+    if controller_holds_gpu_lock():
+        return                      # the studio itself owns the GPU: nothing is missing
     r = subprocess.run(["bash", POOL_SH, "acquire"], env=ENV,
                        capture_output=True, text=True)
     if r.returncode == 0:
@@ -221,6 +267,7 @@ def main():
             d = json.load(resp)
     except Exception as e:
         if api_refused(e):
+            st["unreachable_strikes"] = 0
             st["idle_strikes"] = 0
             log(f"/api/queue answered {e.code}: the studio is up but refused the watchdog's "
                 f"local token ({local_token.token_path()}) — standing clear, no restart")
@@ -239,7 +286,13 @@ def main():
         if active_state == "active" and maestro_queue_runner_active():
             log("API probe failed while a queue-owned Maestro runner is active — standing clear")
         elif active_state == "active":
-            restart_app(st, "service active but API unreachable")
+            st["unreachable_strikes"] = st.get("unreachable_strikes", 0) + 1
+            if st["unreachable_strikes"] >= UNREACHABLE_STRIKES:
+                if restart_app(st, f"service active but API unreachable for "
+                                   f"{st['unreachable_strikes']} checks"):
+                    st["unreachable_strikes"] = 0
+            else:
+                log(f"unreachable strike {st['unreachable_strikes']}/{UNREACHABLE_STRIKES} — waiting")
         else:
             subprocess.run(["systemctl", "--user", "restart",
                             "media-lab-simple.service"], env=ENV, check=False)
@@ -248,6 +301,7 @@ def main():
         save_state(st)
         return
 
+    st["unreachable_strikes"] = 0
     active = d.get("active", [])
     running = [j for j in active if j.get("status") == "running"]
     queued = [j for j in active if j.get("status") == "queued"]
@@ -273,11 +327,21 @@ def main():
         st["idle_strikes"] = st.get("idle_strikes", 0) + 1
         log(f"queued={len(queued)} running=0 — idle strike "
             f"{st['idle_strikes']}/{STALL_IDLE_CHECKS}")
-        if st["idle_strikes"] >= STALL_IDLE_CHECKS:
-            restart_app(st, f"worker stalled: {len(queued)} queued, none running "
-                            f"for {st['idle_strikes']} checks")
+        if st.get("stuck"):
+            log("queue is still stuck after one restart — left for a person (/api/health: stuck)")
+        elif st["idle_strikes"] >= STALL_IDLE_CHECKS:
+            if st.get("stall_restarted"):
+                # One restart did not help: a second one would not either, and
+                # each one costs a warm engine. Hand it to a person.
+                st["stuck"] = True
+                log("QUEUE STUCK: still stalled after a restart — not restarting again")
+            elif restart_app(st, f"worker stalled: {len(queued)} queued, none running "
+                                 f"for {st['idle_strikes']} checks"):
+                st["stall_restarted"] = True
     else:
         st["idle_strikes"] = 0
+        st.pop("stall_restarted", None)
+        st.pop("stuck", None)
 
     # --- case B: a running job frozen on one stage too long ---
     if running:

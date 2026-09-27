@@ -145,6 +145,21 @@ def manifest_up(port: int, bind: str = "0.0.0.0", timeout: float = 3.0) -> bool:
         return False
 
 
+def studio_health(port: int, bind: str = "0.0.0.0", timeout: float = 5.0):
+    """The studio's own /api/health (level, reasons, facts), or None.
+
+    Proves it runs on this machine with the local tool token, the same way the
+    watchdogs do; the token goes only to the studio's own address and port."""
+    from . import local_token
+    url = pairing.server_url(probe_host(bind), port) + "/api/health"
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(local_token.authorize(urllib.request.Request(url)), timeout=timeout) as r:
+            return json.load(r)
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
 def wait_for_manifest(port: int, bind: str = "0.0.0.0", timeout: float = 120,
                       alive=None) -> bool:
     """Poll /manifest.json until it answers. ``alive`` (a callable) lets the
@@ -440,6 +455,7 @@ def build_status(cfg: dict, root: Path, with_engines: bool = True) -> dict:
         "engines": (engines or {}).get("engines") if engines else None,
         "first_run": (engines or {}).get("first_run") if engines else None,
         "fal_configured": (engines or {}).get("fal_configured") if engines else None,
+        "health": studio_health(port, bind) if up else None,
         "platform": {"system": platform.system(), "machine": platform.machine(),
                      "python": platform.python_version()},
     }
@@ -456,6 +472,10 @@ def print_status(st: dict) -> None:
     else:
         tag = "" if svc.get("managed") else "  (not managed by install.sh)"
         print(f"Service        {svc['name']} — {svc['state']}{tag}")
+    health = st.get("health")
+    if health:
+        print(f"Health         {health.get('level', '?').upper()}"
+              + (f" — {'; '.join(health.get('reasons') or [])}" if health.get("reasons") else ""))
     g = st["gpu"]
     print(f"GPU            {', '.join(g['names']) if g['names'] else ('present' if g['present'] else 'none')}")
     print(f"               {g['note']}")

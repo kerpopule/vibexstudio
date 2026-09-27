@@ -210,9 +210,10 @@ print(json.dumps({
     "repository": repo, "branch": branch, "tag": tag, "commit": commit,
     "source_subdir": subdir,
     "deployed_at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
-    "rollback": f"~/{backup}",
+    # BACKUP is already absolute ($REMOTE_ABS_HOME/...): "~/" + it made "~//home/...".
+    "rollback": backup,
     "files_list": [l.strip() for l in open(files) if l.strip()],
 }, indent=1))
 PY
 rssh "cat > '$REMOTE_HOME/deployed-source.json'" < "$WORK/deployed-source.json"
-say "deployed $TAG ($COMMIT). rollback: ~/$BACKUP"
+say "deployed $TAG ($COMMIT). rollback: $BACKUP"
