@@ -63,6 +63,8 @@ DEFAULTS: dict[str, str] = {
     "MEDIA_LAB_HOLD_AUTORECOVER": "0",
     "MEDIA_LAB_H3_BATCH_MAX_WAIT_S": "900",
     "MEDIA_LAB_H3_LOAD_SETTLE_MAX_PSI": "2",
+    "MEDIA_LAB_H3_LOAD_SETTLE_MAX_PSI60": "3",
+    "MEDIA_LAB_H3_LOAD_SETTLE_SAMPLES": "10",
     "MEDIA_LAB_H3_LOAD_SETTLE_MAX_WAIT_S": "120",
     # Sol-H3-Spark (the whole-box H3 video engine). Empty SOL_PKG = not installed.
     "SOL_PKG": "",
