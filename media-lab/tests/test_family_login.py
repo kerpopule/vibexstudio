@@ -91,6 +91,20 @@ def legacy(tmp_path_factory):
     return _load_app(tmp_path_factory, "legacy", seed)
 
 
+@pytest.fixture(autouse=True)
+def _open_door(request):
+    """The module-scoped studios share one client identity ("anon": a test
+    client has no address), and 3 wrong codes lock it for an hour. Every case
+    starts with the door open."""
+    yield
+    for name in ("fresh", "legacy"):
+        if name in request.fixturenames:
+            app, _ = request.getfixturevalue(name)
+            with app._attempt_lock:
+                for table in app._lockouts.values():
+                    table.clear()
+
+
 def _family(app):
     return app.ACCESS_CODE_FILE.read_text().strip()
 
@@ -100,8 +114,9 @@ def _admin(app):
 
 
 def _client(app, base="https://studio.example", code=None):
-    """A browser-like client: it loads a public file first, so it holds its own
-    signed device cookie (its own backoff key) before it ever types a code."""
+    """A browser-like client: it loads a public file first, as a browser does.
+    (The lockout keys on the client's network, not on any cookie: see
+    tests/test_door_lockout.py.)"""
     client = TestClient(app.app, base_url=base)
     assert client.get("/manifest.json").status_code == 200
     if code is not None:
@@ -358,15 +373,16 @@ def test_an_ipv6_visitor_cannot_rotate_through_its_own_64(fresh, monkeypatch):
         client = TestClient(app.app, base_url="https://studio.example.com")   # no device cookie
         codes.append(client.post("/api/gate", json={"code": f"wrong-guess-v6-{i}"},
                                  headers={"cf-connecting-ip": f"2a01:4f8:c0c:7777::{i + 1:x}"}).status_code)
-    assert codes.count(403) <= 2 and codes[-1] == 429, codes
+    assert codes == [403, 403, 429, 429, 429], codes
 
 
-def test_backoff_still_guards_the_family_code(fresh):
+def test_the_lockout_still_guards_the_family_code(fresh):
     app, _ = fresh
-    client = _client(app)                                 # holds a device cookie
+    client = _client(app)
     codes = [client.post("/api/gate", json={"code": f"wrong-guess-{i}"}).status_code
              for i in range(4)]
-    assert codes[:2] == [403, 403] and 429 in codes[2:]
+    assert codes == [403, 403, 429, 429]                  # 3 wrong in 10 min: shut for 1 h
+    assert client.post("/api/gate", json={"code": _family(app)}).status_code == 429
 
 
 # ---------------------------------------------------------------- existing installs
