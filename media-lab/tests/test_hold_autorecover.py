@@ -387,3 +387,86 @@ def test_last_load_reads_the_newest_record(tmp_path):
     log.write_text(json.dumps({"outcome": "ready"}) + "\n" + json.dumps({"outcome": "guard-lost"}) + "\n")
     assert har._last_load(log)["outcome"] == "guard-lost"
     assert har._last_load(tmp_path / "missing") is None
+
+
+# ------------------------------------ page-cache trim for an idle H3 restore
+# 2026-09-26 20:38-20:48: after a clean recovery the idle restore was refused
+# every minute: "h3 decode requires 117.0 GiB including the 2.0 GiB floor;
+# 116.9 GiB would be available". Dropping the clean page cache fixed it.
+
+def trim_facts(**over):
+    base = {"now": NOW, "hold_exists": False, "hold": None, "lease": None,
+            "h3_shortfall_gib": 0.1, "studio_active": (0, 0), "persisted_running": 0,
+            "h3_active": False, "cached_gib": 24.5, "safety_stop": False, "latch": False,
+            "baton": False, "engine_maintenance": False}
+    base.update(over)
+    return base
+
+
+def test_degraded_line_is_parsed_and_success_wins(monkeypatch):
+    class R:
+        stdout = ("[residency] idle reconciliation degraded: h3 decode requires 117.0 GiB including "
+                  "the 2.0 GiB floor; 116.9 GiB would be available\n")
+    monkeypatch.setattr(har.subprocess, "run", lambda *a, **k: R())
+    assert har.h3_restore_shortfall_gib() == 0.1
+    R.stdout += "[residency] reconciled idle profile qwen-h3 (abc)\n"
+    assert har.h3_restore_shortfall_gib() is None
+
+
+def test_trim_when_an_idle_restore_misses_by_a_hair():
+    action, why = har.decide_trim(trim_facts(), {}, enabled=True)
+    assert action == "trim" and "0.1 GiB short" in why
+
+
+@pytest.mark.parametrize("over,action", [
+    ({"h3_shortfall_gib": None}, "idle"),
+    ({"h3_shortfall_gib": 5.0}, "skip"),           # not a page-cache problem
+    ({"hold_exists": True}, "skip"),
+    ({"safety_stop": True}, "skip"),
+    ({"latch": True}, "skip"),
+    ({"baton": True}, "skip"),
+    ({"engine_maintenance": True}, "skip"),
+    ({"studio_active": None}, "wait"),
+    ({"studio_active": (1, 0)}, "wait"),
+    ({"studio_active": (0, 2)}, "wait"),
+    ({"persisted_running": 1}, "wait"),
+    ({"h3_active": True}, "skip"),
+    ({"h3_active": None}, "skip"),
+    ({"cached_gib": 0.3}, "skip"),
+])
+def test_trim_refusals(over, action):
+    assert har.decide_trim(trim_facts(**over), {}, enabled=True)[0] == action
+
+
+def test_trim_is_off_by_default_and_rate_limited():
+    assert har.decide_trim(trim_facts(), {}, enabled=False)[0] == "idle"
+    assert har.decide_trim(trim_facts(), {"trims": [NOW - 600]}, enabled=True)[0] == "wait"
+    assert har.decide_trim(trim_facts(), {"trims": [NOW - 1900]}, enabled=True)[0] == "trim"
+    many = {"trims": [NOW - 1900 - 60 * i for i in range(12)]}
+    assert har.decide_trim(trim_facts(), many, enabled=True)[0] == "skip"
+
+
+def test_trim_pass_runs_once_and_records(tmp_path, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setenv(har.TRIM_FLAG, "1")
+    paths = FakePaths(tmp_path)
+    calls = []
+    out = har.main([], paths=paths, facts=trim_facts(),
+                   trim=lambda p: calls.append(1) or (True, {"rc": 0}))
+    assert out["action"] == "cache-trim" and out["ok"] and calls == [1]
+    again = har.main([], paths=paths, facts=trim_facts(now=NOW + 60),
+                     trim=lambda p: pytest.fail("rate limited"))
+    assert again["action"] == "cache-wait"
+    monkeypatch.setenv(har.TRIM_FLAG, "0")
+    off = har.main([], paths=paths, facts=trim_facts(now=NOW + 4000),
+                   trim=lambda p: pytest.fail("flag off"))
+    assert off["action"] == "idle"
+
+
+def test_cli_status_probes_the_bound_address(tmp_path, monkeypatch):
+    from media_lab_core import cli
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "local.env").write_text('MEDIA_LAB_BIND_HOST="100.64.0.9"\n')
+    monkeypatch.delenv("MEDIA_LAB_BIND_HOST", raising=False)
+    assert cli._bind_from_local_env(tmp_path) == "100.64.0.9"
+    assert cli._bind_from_local_env(tmp_path / "nowhere") is None
