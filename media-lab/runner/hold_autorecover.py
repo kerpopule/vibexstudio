@@ -58,6 +58,14 @@ It never touches other ``operation-uncertain`` holds (a failure mid-render),
 safety stops from a render, ``boot-changed`` holds, or anything while a job
 runs. Off unless MEDIA_LAB_HOLD_AUTORECOVER=1 (config/local.env).
 
+A third, tiny job (MEDIA_LAB_H3_CACHE_TRIM=1): with no hold at all, when the
+idle H3 restore is refused for a hair of memory ("h3 decode requires 117.0 GiB
+...; 116.9 GiB would be available", seen 2026-09-26 20:38-20:48 after a clean
+recovery), the box is idle and H3 is not running, it writes the page cache out
+of the way (sync + drop the CLEAN page cache, `vm.drop_caches=1`) so the
+restore's next try fits. At most every 30 min and 12 times a day. It needs
+`sudo -n` for exactly `tee /proc/sys/vm/drop_caches`.
+
     runner/hold_autorecover.py            # one pass (the timer)
     runner/hold_autorecover.py --dry-run  # print the decision, change nothing
 """
@@ -66,6 +74,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -107,6 +116,15 @@ KERNEL_BAD = ("xid", "hung_task", "blocked for more than", "soft lockup", "hard 
               "invoked oom-killer", "out of memory: killed process", "oom-kill:",
               "fallen off the bus")
 KERNEL_CHECK_AFTER_TRIP_S = 60
+
+# Page-cache trim so an idle H3 restore that misses by a hair can fit.
+TRIM_FLAG = "MEDIA_LAB_H3_CACHE_TRIM"
+TRIM_MAX_SHORTFALL_GIB = 3.0
+TRIM_MIN_CACHED_GIB = 1.0
+TRIM_EVERY_S = 1800
+TRIM_DAILY_CAP = 12
+DEGRADED = re.compile(r"idle reconciliation degraded: h3 \S+ requires ([\d.]+) GiB"
+                      r".*?; ([\d.]+) GiB would be available")
 JOB_OUTPUT_FIELDS = ("url", "poster", "sha256", "song_url", "video_url", "video_poster",
                      "final_url", "output", "outputs")
 
@@ -243,8 +261,8 @@ def lease_row(db: Path) -> dict | None:
         con.close()
 
 
-def studio_running_jobs(timeout: float = 15.0) -> int | None:
-    """Running jobs as the studio itself reports them; None if it cannot answer."""
+def studio_active_jobs(timeout: float = 15.0) -> tuple[int, int] | None:
+    """(running, queued) as the studio itself reports them; None if it cannot answer."""
     url = local_config.studio_url() + "/api/queue?hist=0"
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
@@ -255,7 +273,89 @@ def studio_running_jobs(timeout: float = 15.0) -> int | None:
     active = data.get("active") if isinstance(data, dict) else None
     if not isinstance(active, list):
         return None
-    return sum(1 for j in active if isinstance(j, dict) and j.get("status") == "running")
+    jobs = [j for j in active if isinstance(j, dict)]
+    return (sum(1 for j in jobs if j.get("status") == "running"),
+            sum(1 for j in jobs if j.get("status") == "queued"))
+
+
+def studio_running_jobs(timeout: float = 15.0) -> int | None:
+    """Running jobs as the studio itself reports them; None if it cannot answer."""
+    both = studio_active_jobs(timeout)
+    return None if both is None else both[0]
+
+
+def h3_restore_shortfall_gib(since: str = "-3min") -> float | None:
+    """How far the newest idle H3 restore missed its memory floor (GiB), if it did."""
+    try:
+        r = subprocess.run(["journalctl", "--user", "-u", "media-lab-simple.service", "--since",
+                            since, "--no-pager", "-q", "-o", "cat"],
+                           capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    for line in reversed(r.stdout.splitlines()):
+        if "reconciled idle profile" in line:
+            return None                      # the newest attempt worked
+        m = DEGRADED.search(line)
+        if m:
+            return round(float(m.group(1)) - float(m.group(2)), 2)
+    return None
+
+
+def _cached_gib() -> float | None:
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("Cached:"):
+                return int(line.split()[1]) / 1048576
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def decide_trim(facts: dict, state: dict, *, enabled: bool) -> tuple[str, str]:
+    """(action, reason); action is trim, or idle/skip/wait."""
+    now = float(facts["now"])
+    if not enabled:
+        return "idle", "cache trim is off"
+    short = facts.get("h3_shortfall_gib")
+    if short is None or short <= 0:
+        return "idle", "no idle H3 restore is short of memory"
+    if short > TRIM_MAX_SHORTFALL_GIB:
+        return "skip", f"H3 restore is {short} GiB short: more than a page-cache trim can fix"
+    for key, what in (("hold_exists", "a recovery hold"), ("safety_stop", "the H3 safety stop"),
+                      ("latch", "the memwatch latch"), ("baton", ".operator-baton"),
+                      ("engine_maintenance", ".engine-maintenance")):
+        if facts.get(key):
+            return "skip", f"{what} is present"
+    active = facts.get("studio_active")
+    if active is None:
+        return "wait", "the studio did not answer the queue probe"
+    if any(active) or facts.get("persisted_running"):
+        return "wait", "jobs are running or queued"
+    if facts.get("h3_active") is not False:
+        return "skip", "H3 is running (or its state is unknown)"
+    cached = facts.get("cached_gib")
+    if cached is None or cached < TRIM_MIN_CACHED_GIB:
+        return "skip", f"only {cached} GiB of page cache: a trim would not help"
+    trims = [t for t in state.get("trims", []) if now - float(t) < 86400]
+    if trims and now - max(float(t) for t in trims) < TRIM_EVERY_S:
+        return "wait", "trimmed less than 30 min ago"
+    if len(trims) >= TRIM_DAILY_CAP:
+        return "skip", f"{TRIM_DAILY_CAP} trims in 24 h already"
+    return "trim", f"idle H3 restore is {short} GiB short; {cached:.1f} GiB of page cache to drop"
+
+
+def drop_clean_page_cache() -> tuple[bool, dict]:
+    before = _mem_available_gib()
+    os.sync()
+    try:
+        r = subprocess.run(["sudo", "-n", "/usr/bin/tee", "/proc/sys/vm/drop_caches"],
+                           input="1\n", capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, {"error": str(exc)}
+    after = _mem_available_gib()
+    return r.returncode == 0, {"rc": r.returncode, "available_before_gib": round(before or 0, 2),
+                               "available_after_gib": round(after or 0, 2),
+                               **({"error": r.stderr.strip()[-200:]} if r.returncode else {})}
 
 
 def gather(paths: Paths, *, now: float | None = None) -> dict:
@@ -290,6 +390,12 @@ def gather(paths: Paths, *, now: float | None = None) -> dict:
     pid = lease.get("pid") if lease else None
     facts["owner_is_controller"] = bool(pid) and _pid_is_controller(int(pid))
     facts["mem_available_gib"] = _mem_available_gib()
+    if not facts["hold_exists"] and local_config.int_value(TRIM_FLAG, 0) == 1:
+        facts["h3_shortfall_gib"] = h3_restore_shortfall_gib()
+        if facts["h3_shortfall_gib"]:
+            facts["studio_active"] = studio_active_jobs()
+            facts["h3_active"] = _unit_active(H3_UNIT)
+            facts["cached_gib"] = _cached_gib()
     hold = facts["hold"] if isinstance(facts["hold"], dict) else {}
     if facts["safety_stop"] and str((lease or {}).get("reason") or "").startswith("operation-uncertain:"):
         # Only the guard-trip class needs these (and they cost a subprocess).
@@ -597,11 +703,13 @@ def run_reconcile(paths: Paths, job_id: str) -> tuple[bool, dict]:
 
 def main(argv: list[str] | None = None, *, paths: Paths | None = None,
          reconcile=run_reconcile, facts: dict | None = None,
-         set_aside=set_aside_trip_markers, restore=restore_trip_markers) -> dict:
+         set_aside=set_aside_trip_markers, restore=restore_trip_markers,
+         trim=None) -> dict:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--dry-run", action="store_true", help="print the decision, change nothing")
     args = ap.parse_args(argv)
     paths = paths or Paths()
+    trim = trim or (lambda _p: drop_clean_page_cache())
     facts = facts if facts is not None else gather(paths)
     state = _read_json(paths.state) or {}
     if state.get("gaveup_at") and not paths.gaveup.exists() and not args.dry_run:
@@ -614,6 +722,26 @@ def main(argv: list[str] | None = None, *, paths: Paths | None = None,
     lease = facts.get("lease") or {}
     out = {"ts": facts["now"], "action": action, "why": why, "dry_run": args.dry_run,
            "lease_job": lease.get("job_id"), "lease_reason": lease.get("reason")}
+    if action == "idle":
+        t_action, t_why = decide_trim(facts, state, enabled=(
+            enabled and local_config.int_value(TRIM_FLAG, 0) == 1))
+        if t_action != "idle":
+            out.update(action=f"cache-{t_action}", why=t_why)
+            if t_action == "trim" and not args.dry_run:
+                ok, receipt = trim(paths)
+                state.setdefault("trims", []).append(facts["now"])
+                state["trims"] = [t for t in state["trims"] if facts["now"] - float(t) < 86400]
+                _save(paths.state, state)
+                out.update(ok=ok, receipt=receipt)
+                _audit(paths, out)
+                log(f"CACHE TRIM: {t_why}: {receipt}")
+                return out
+            log(f"cache-{t_action}: {t_why}" + (" (dry run)" if args.dry_run else ""))
+            if t_action == "skip" and not args.dry_run and state.get("last_logged") != t_why:
+                _audit(paths, out)
+                state["last_logged"] = t_why
+                _save(paths.state, state)
+            return out
     if args.dry_run or action in ("idle",):
         log(f"{action}: {why}" + (" (dry run)" if args.dry_run else ""))
         return out

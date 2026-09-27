@@ -428,9 +428,21 @@ def stop_pid(root: Path, timeout: float = 20) -> bool:
 # commands
 # ---------------------------------------------------------------------------
 
+def _bind_from_local_env(root: Path) -> str | None:
+    try:
+        for line in (Path(root) / "config" / "local.env").read_text().splitlines():
+            if line.startswith("MEDIA_LAB_BIND_HOST="):
+                return line.split("=", 1)[1].strip().strip("\"'") or None
+    except OSError:
+        pass
+    return None
+
+
 def build_status(cfg: dict, root: Path, with_engines: bool = True) -> dict:
     port = int(cfg.get("port", DEFAULT_PORT))
-    bind = cfg.get("bind", "0.0.0.0")
+    # A studio bound to one address (MEDIA_LAB_BIND_HOST, e.g. the tailnet IP)
+    # does not answer on 127.0.0.1: probe where it really listens.
+    bind = cfg.get("bind") or os.environ.get("MEDIA_LAB_BIND_HOST") or _bind_from_local_env(root) or "0.0.0.0"
     access_path, admin_path = code_paths(root)
     up = manifest_up(port, bind)
     svc = service_state()
