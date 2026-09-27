@@ -90,6 +90,7 @@ ALLOW=(
   '+ /runner/***'
   '+ /static/***'
   '+ /tools/***'
+  '+ /patches/***'
   '+ /tests/***'
   '+ /docs/***'
   '+ /systemd/***'

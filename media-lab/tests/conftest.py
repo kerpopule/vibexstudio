@@ -25,6 +25,7 @@ _SPARK_ONLY_TESTS = {
 # Module → reason for individual `@pytest.mark.spark` cases outside that map.
 _SPARK_MARKER_REASONS = {
     "test_yue2_music.py": "a live YuE2 engine on the studio host (YUE2_PORT)",
+    "test_sol_h3_runtime_patch.py": "the Sol-H3 stage-1 environment and package on the studio host",
 }
 _SPARK_TREE_REASON = "the Spark host's private productions/ or image-svc/ tree"
 

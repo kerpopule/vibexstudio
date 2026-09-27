@@ -24,6 +24,20 @@ class ResidencyError(RuntimeError):
     """A fail-closed policy, admission, transaction, or recovery error."""
 
 
+class ResidencyRefused(ResidencyError):
+    """The planner refused before the transaction did anything.
+
+    Raised only for a plan that was not admitted, before any receipt, lock or
+    runtime hook: nothing was drained, evicted or loaded. ``memory_only`` is
+    true when every blocker is a measured phase-floor (memory) shortfall."""
+
+    def __init__(self, message: str, blockers: list[dict[str, Any]]):
+        super().__init__(message)
+        self.blockers = list(blockers)
+        self.memory_only = bool(self.blockers) and all(
+            b.get("kind") == "phase-floor" for b in self.blockers)
+
+
 def _atomic_json(path: Path, value: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
@@ -272,7 +286,8 @@ class ResidencyController:
             actual = self.snapshot()
             plan = plan_residency(self.policy, actual, profile, slots, phase_overrides)
             if not plan["admitted"]:
-                raise ResidencyError("; ".join(b["reason"] for b in plan["blockers"]))
+                raise ResidencyRefused("; ".join(b["reason"] for b in plan["blockers"]),
+                                       plan["blockers"])
             # The pool lease establishes ownership; this separate non-blocking
             # transaction claim closes the planner-to-mutation race with live
             # text, image, or video inference.  Runtime hooks may omit it for

@@ -36,3 +36,10 @@ def test_every_repo_config_json_is_shipped_or_owned_by_the_box():
         shipped = f"'+ /config/{path.name}'" in text
         owned = f"'/config/{path.name}'" in text
         assert shipped or owned or path.name in unshipped_by_design, path.name
+
+
+def test_runtime_patches_are_shipped():
+    """tools/sol-h3-runtime-patch.py installs patches/sol-h3-spark/geometry.py on
+    the studio host; without the patches/ tree on the box it has nothing to install."""
+    assert "'+ /patches/***'" in DEPLOY.read_text()
+    assert (ROOT / "patches" / "sol-h3-spark" / "geometry.py").is_file()

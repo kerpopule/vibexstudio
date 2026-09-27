@@ -31,7 +31,7 @@ from runner import h3_reference as _h3ref   # H3 Ref2VA / Qwen quality contract
 from runner import h3_singularity as _h3sing   # Real / Long (H3 Singularity) geometry
 from media_lab_core import av_sync, render_eta
 from runner.maestro_safety import admission_error as maestro_admission_error, reap_orphan_runners as reap_orphan_maestro_runners
-from residency import ResidencyController, ResidencyError
+from residency import ResidencyController, ResidencyError, ResidencyRefused
 from qwen_activity import probe_text_activity
 from chat_operator import (MUTATION_TOOLS, StudioOperator, ToolError,
                            action_authorized, parse_model_envelope,
@@ -2036,6 +2036,26 @@ _gpu_protocol = None
 _gpu_protocol_mutex = threading.RLock()
 _gpu_active_lease = None
 _gpu_thread = threading.local()
+
+
+class PreloadAdmissionRefused(RuntimeError):
+    """An engine's memory admission was refused before anything was started
+    for this lease (the residency planner's phase floor, or the companion
+    memory guard). The outcome is known, so ``gpu_operation`` releases the
+    lease with fresh process and memory proof instead of holding the GPU."""
+
+
+def _note_preload_refusal(reason):
+    _gpu_thread.preload_refusal = str(reason)[:400]
+
+
+def _admission_failure(state):
+    """The exception that closes a lease whose engine admission did not come up."""
+    reason = getattr(_gpu_thread, "preload_refusal", None)
+    _gpu_thread.preload_refusal = None
+    if reason:
+        return PreloadAdmissionRefused(f"engine admission refused before load: {reason}")
+    return RuntimeError(f"engine admission: {state}")
 _gpu_cutover_ready = False
 
 
@@ -2495,6 +2515,45 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
                     try: protocol.mark_recovery(lease, "capacity-rejected-before-safe-release")
                     except StaleFence: pass
                     hold_gpu_recovery("capacity-rejected-before-safe-release", j)
+            raise
+        except PreloadAdmissionRefused as exc:
+            # The engine's memory admission refused before anything was started
+            # (lease still in phase "load"). Prove it with a FRESH exact reclaim:
+            # every managed process gone and memory recovered. Only then release;
+            # anything unproven still quarantines like any uncertain outcome.
+            cleanup_reason = "preload-refusal-cleanup-uncertain"
+            released = False
+            if lease is not None and lease.state == "active" and lease.phase == "load":
+                try:
+                    protocol.advance(lease, "unload")
+                    refusal_proof = reclaim_operation()
+                    if refusal_proof.get("processes_gone") is not True:
+                        raise RuntimeError(
+                            f"GPU processes present after refused load: {refusal_proof.get('survivors')}")
+                    if refusal_proof.get("memory_recovered") is not True:
+                        raise RuntimeError(
+                            f"memory not recovered after refused load: {refusal_proof.get('available_gib')} GiB")
+                    protocol.advance(lease, "reclaim")
+                    if not restore_managed_qwen():
+                        raise RuntimeError("managed Qwen restoration failed")
+                    protocol.release(lease, proof=refusal_proof)
+                    _gpu_active_lease = None
+                    released = True
+                except Exception as cleanup_exc:
+                    cleanup_reason = f"preload-refusal-cleanup-uncertain:{type(cleanup_exc).__name__}"
+                    if j is not None:
+                        j["detail"] = f"refused-load cleanup failed: {cleanup_exc}"[:400]
+            if released:
+                print(f"[gpu] {engine}/{task} admission refused before load; lease released "
+                      f"with fresh reclaim proof (no hold): {exc}", flush=True)
+                if pool_cmd("acquire") != "OK":
+                    raise LeaseBusy(
+                        "refused load released the durable lease but legacy pool restore failed"
+                    ) from exc
+            elif lease is not None and lease.state == "active" and lease.phase != "parked":
+                try: protocol.mark_recovery(lease, cleanup_reason)
+                except StaleFence: pass
+                hold_gpu_recovery(cleanup_reason, j)
             raise
         except Exception as exc:
             safely_released = False
@@ -3588,6 +3647,7 @@ def _ensure_engine_under_lease(name, j=None):
                 if j is not None:
                     j["detail"] = f"memory guard: {avail:.0f}G free, engine needs {need}G"
                 pool_cmd("release")
+                _note_preload_refusal(f"memory guard: {avail:.0f}G free, {name} needs {need}G")
                 return "busy"
         if name == "h3":
             resident = resident_engines()
@@ -3636,6 +3696,7 @@ def _gpu_finish_job_operation(exc_type=None, exc=None, tb=None):
 
 def ensure_engine(name, j=None):
     """Load/reuse an engine only while its exact durable GPU lease is live."""
+    _gpu_thread.preload_refusal = None   # set only by this admission's own refusal
     task = _gpu_task_for_engine(name, j)
     active = getattr(_gpu_thread, "lease", None)
     if (active is not None and (active.engine, active.task) != (name, task)
@@ -3655,11 +3716,20 @@ def ensure_engine(name, j=None):
         return state
 
     if j is None or not j.get("id"):
-        with gpu_operation(name, task, j):
-            state = _ensure_engine_under_lease(name, j)
-            if state == "up":
-                gpu_render_ready(name, task)
-            return state
+        try:
+            with gpu_operation(name, task, j):
+                state = _ensure_engine_under_lease(name, j)
+                if state == "up":
+                    gpu_render_ready(name, task)
+                else:
+                    failure = _admission_failure(state)
+                    if isinstance(failure, PreloadAdmissionRefused):
+                        raise failure
+                return state
+        except PreloadAdmissionRefused:
+            # gpu_operation released the lease (or, if it could not prove the
+            # box clean, held it); either way this admission is simply busy.
+            return "busy"
 
     target = (name, task)
     if getattr(_gpu_thread, "job_context", None) is not None:
@@ -3675,7 +3745,7 @@ def ensure_engine(name, j=None):
         if state == "up":
             gpu_render_ready(name, task)
         else:
-            failure = RuntimeError(f"engine admission: {state}")
+            failure = _admission_failure(state)
             _gpu_finish_job_operation(type(failure), failure, None)
         return state
     except Exception as exc:
@@ -3983,6 +4053,8 @@ def ensure_video_residency(name, j=None):
         print(f"[residency] refusing {name}: {exc}", flush=True)
         if j is not None:
             j["detail"] = str(exc)[:400]
+        if isinstance(exc, ResidencyRefused) and exc.memory_only:
+            _note_preload_refusal(exc)
         return "busy"
 
 AUTO_RETRY_MAX = 3

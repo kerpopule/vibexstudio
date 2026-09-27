@@ -176,7 +176,12 @@ Long has no per-load prompt limit, so `--takes-per-load` does not apply to it.
 `produce` signs in with the studio's local token on the studio machine, or
 with `MEDIA_LAB_CODE` elsewhere. It never publishes.
 
-## Sol-H3 today: at most two different takes per engine load
+## Sol-H3: the old two-different-takes-per-load limit (fixed 2026-09-27)
+
+On a host where `tools/sol-h3-runtime-patch.py status` says `patched` (and the
+engine's `/health` says `"stage1_geometry": "patched"`), one warm Sol load films
+any number of different prompts; `--takes-per-load` is no longer needed there.
+The history below explains the stop and still applies to an unpatched host.
 
 Measured 2026-09-26: the Sol-H3 stage-1 transformer is compiled with
 `fullgraph=True` and a recompile limit of 16 (set in the vendored FastVideo),
@@ -187,7 +192,8 @@ different prompt fails with `FailOnRecompileLimitHit`, which writes the sticky
 session hit the same stop. No Sol-H3 process on record has completed three
 renders.
 
-Until the runtime is fixed (raise the limit or stop guarding the buffer shape),
+Cause and fix: `docs/SOL-H3-SPARK.md`, "Different prompts on one warm load".
+On an unpatched host,
 `tools/director produce --takes-per-load 2` films in batches: each batch's start
 frames are image jobs, which make the studio reload H3 fresh before the batch's
 takes. The storyboard and the queue do not batch by themselves; a person or an
