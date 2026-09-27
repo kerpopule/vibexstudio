@@ -198,3 +198,192 @@ def test_removing_the_give_up_flag_resets_the_failure_count(tmp_path, monkeypatc
     out = har.main([], paths=paths, reconcile=ok, facts=facts(hold_created=NOW - 700, now=NOW + 20000))
     assert out["action"] == "reconcile" and calls == ["idle-restore-h3"]
     assert json.loads(paths.state.read_text())["consecutive_failures"] == 0
+
+
+# ------------------------------------------- guard trip during an H3 cold load
+# Modelled on 2026-09-26 02:46: an fl2va cold load for job 47dc63a7064e hit
+# PSI 52.45 > 50; the guard stopped H3; the studio held operation-uncertain.
+
+TRIP_AT = NOW - 1800
+
+
+def trip_facts(**over):
+    base = facts(
+        hold={"reason": "operation-uncertain:RuntimeError", "job_id": "47dc63a7064e",
+              "created": TRIP_AT + 10},
+        lease={"state": "recovery", "reason": "operation-uncertain:RuntimeError",
+               "boot_id": "boot-a", "job_id": "47dc63a7064e", "phase": "load",
+               "engine": "h3", "task": "fl2va", "fence": 9, "pid": 1},
+        safety_stop=True, latch=True, guard_state="quarantined",
+        mem_available_gib=117.0,
+    )
+    base.update({
+        "safety_record": {"reason": "memory-psi", "unit": "media-lab-sol-h3.service",
+                          "boot_id": "boot-a", "incident_id": "inc-1", "time": TRIP_AT},
+        "incident_status": "terminated", "latch_text": "inc-1",
+        "last_load": {"outcome": "guard-lost", "task": "fl2va",
+                      "started_at": TRIP_AT - 270, "load_s": 273.0},
+        "trip_job": {"status": "error", "recovery_required": True},
+        "h3_active": False, "psi_full_avg60": 0.1, "kernel_trouble": 0,
+    })
+    for key, value in over.items():
+        if key.startswith("lease_") and key != "lease_job_status":
+            base["lease"] = {**base["lease"], key[6:]: value}
+        elif key.startswith("hold_") and key != "hold_exists":
+            base["hold"] = {**base["hold"], key[5:]: value}
+        elif key.startswith("stop_"):
+            base["safety_record"] = {**base["safety_record"], key[5:]: value}
+        elif key.startswith("load_"):
+            base["last_load"] = {**base["last_load"], key[5:]: value}
+        elif key.startswith("job_"):
+            base["trip_job"] = {**base["trip_job"], key[4:]: value}
+        else:
+            base[key] = value
+    return base
+
+
+def test_guard_trip_during_cold_load_is_reconciled_once_memory_recovered():
+    action, why = decide(trip_facts())
+    assert action == "reconcile-trip", why
+    assert "memory-psi" in why
+    # also an idle-restore load (no job) and the other guard reasons
+    assert decide(trip_facts(lease_job_id="idle-restore-h3", hold_job_id="idle-restore-h3",
+                             trip_job=None))[0] == "reconcile-trip"
+    assert decide(trip_facts(stop_reason="swap-growth"))[0] == "reconcile-trip"
+    assert decide(trip_facts(latch=False, latch_text=None))[0] == "reconcile-trip"
+
+
+@pytest.mark.parametrize("over,action", [
+    ({"safety_record": None}, "skip"),
+    ({"stop_reason": "generation_failed"}, "skip"),            # a render failure, not the guard
+    ({"stop_unit": "other.service"}, "skip"),
+    ({"stop_boot_id": "boot-old"}, "skip"),
+    ({"lease_boot_id": "boot-old"}, "skip"),
+    ({"incident_status": "survivors"}, "skip"),                # H3 cgroup not fully gone
+    ({"incident_status": None}, "skip"),
+    ({"latch_text": "inc-other"}, "skip"),
+    ({"lease_phase": "render"}, "skip"),                       # tripped mid-render: not benign
+    ({"lease_engine": "ltx"}, "skip"),
+    ({"hold_reason": "operation-uncertain:TimeoutError"}, "skip"),
+    ({"load_outcome": "ready"}, "skip"),
+    ({"load_task": "t2va"}, "skip"),
+    ({"load_started_at": TRIP_AT + 600}, "skip"),              # trip not inside that load
+    ({"last_load": None}, "skip"),
+    ({"hold_job_id": "someone-else"}, "skip"),
+    ({"job_status": "queued"}, "skip"),                        # a clear would re-run it
+    ({"job_video_url": "/media/x.mp4"}, "skip"),               # it produced output
+    ({"trip_job": None}, "skip"),                              # unknown real job
+    ({"hold_created": NOW - 300}, "wait"),                     # 15 min first
+    ({"stop_time": NOW - 300, "load_started_at": NOW - 500}, "wait"),  # trip too recent
+    ({"studio_running": 1}, "wait"),
+    ({"persisted_running": 1}, "wait"),
+    ({"studio_running": None}, "wait"),
+    ({"baton": True}, "skip"),
+    ({"engine_maintenance": True}, "skip"),
+    ({"guard_state": "ready"}, "skip"),                        # markers vs guard disagree
+    ({"guard_fresh": False}, "skip"),
+    ({"h3_active": True}, "skip"),
+    ({"h3_active": None}, "skip"),
+    ({"owner_is_controller": True}, "skip"),
+    ({"mem_available_gib": 60.0}, "wait"),                     # not recovered yet
+    ({"mem_available_gib": None}, "wait"),
+    ({"psi_full_avg60": 8.0}, "wait"),
+    ({"psi_full_avg60": None}, "wait"),
+    ({"kernel_trouble": 2}, "skip"),                           # Xid / hung task / OOM
+    ({"kernel_trouble": None}, "skip"),
+])
+def test_guard_trip_refusals(over, action):
+    assert decide(trip_facts(**over))[0] == action
+
+
+def test_other_operation_uncertain_holds_are_still_left_alone():
+    # No safety stop: an operation-uncertain hold from a render failure.
+    assert decide(trip_facts(safety_stop=False, latch=False))[0] == "skip"
+
+
+def test_only_one_guard_trip_clear_per_day():
+    f = trip_facts()
+    earlier = {"attempts": [{"ts": NOW - 3600, "hold": "other", "ok": True, "kind": "guard-trip"}]}
+    assert decide(f, earlier) == ("giveup", "a second guard trip within 24 h: a person must look")
+    restart = {"attempts": [{"ts": NOW - 3600, "hold": "other", "ok": True, "kind": "restart"}]}
+    assert decide(f, restart)[0] == "reconcile-trip"
+    old = {"attempts": [{"ts": NOW - 90000, "hold": "other", "ok": True, "kind": "guard-trip"}]}
+    assert decide(f, old)[0] == "reconcile-trip"
+
+
+def _trip_files(paths):
+    paths.sol_root.mkdir(parents=True, exist_ok=True)
+    paths.runtime.mkdir(parents=True, exist_ok=True)
+    paths.incidents.mkdir(parents=True, exist_ok=True)
+    paths.safety_stop.write_text(json.dumps({"reason": "memory-psi", "incident_id": "inc-1"}))
+    paths.latch.write_text("inc-1\n")
+    (paths.incidents / "inc-1.json").write_text(json.dumps({"status": "terminated"}))
+    paths.hold.write_text(json.dumps({"reason": "operation-uncertain:RuntimeError"}))
+
+
+def test_trip_pass_sets_markers_aside_keeps_evidence_and_reconciles(tmp_path, monkeypatch):
+    _enable(monkeypatch)
+    paths = FakePaths(tmp_path)
+    _trip_files(paths)
+    seen = {}
+
+    def fake_reconcile(p, job_id):
+        seen["job"] = job_id
+        seen["markers_gone"] = not p.safety_stop.exists() and not p.latch.exists()
+        return True, {"rc": 0}
+
+    set_aside = lambda p, f: har.set_aside_trip_markers(p, f, sleep=lambda _s: None,
+                                                        guard_state=lambda _p: "ready")
+    out = har.main([], paths=paths, reconcile=fake_reconcile, facts=trip_facts(),
+                   set_aside=set_aside)
+    assert out["action"] == "reconcile-trip" and out["ok"] is True
+    assert seen == {"job": "47dc63a7064e", "markers_gone": True}
+    evidence = Path(out["evidence"])
+    assert (evidence / "safety-stop.json").exists() and (evidence / "flashnext-memwatch.latch").exists()
+    assert (evidence / "inc-1.json").exists() and (evidence / "gpu-recovery-hold.json").exists()
+    state = json.loads(paths.state.read_text())
+    assert state["attempts"][-1]["kind"] == "guard-trip"
+
+
+def test_trip_pass_puts_markers_back_when_reconcile_fails(tmp_path, monkeypatch):
+    _enable(monkeypatch)
+    paths = FakePaths(tmp_path)
+    _trip_files(paths)
+    set_aside = lambda p, f: har.set_aside_trip_markers(p, f, sleep=lambda _s: None,
+                                                        guard_state=lambda _p: "ready")
+    out = har.main([], paths=paths, reconcile=lambda p, j: (False, {"rc": 1}),
+                   facts=trip_facts(), set_aside=set_aside)
+    assert out["ok"] is False and out["receipt"]["markers_restored"] is True
+    assert paths.safety_stop.exists() and paths.latch.read_text().strip() == "inc-1"
+
+
+def test_trip_markers_go_back_if_the_guard_never_reports_ready(tmp_path, monkeypatch):
+    _enable(monkeypatch)
+    paths = FakePaths(tmp_path)
+    _trip_files(paths)
+    monkeypatch.setattr(har, "GUARD_READY_WAIT_S", 0.0)
+    boom = lambda p, j: pytest.fail("must not reconcile")
+    set_aside = lambda p, f: har.set_aside_trip_markers(p, f, sleep=lambda _s: None,
+                                                        guard_state=lambda _p: "quarantined")
+    out = har.main([], paths=paths, reconcile=boom, facts=trip_facts(), set_aside=set_aside)
+    assert out["ok"] is False and "guard did not report ready" in out["receipt"]["error"]
+    assert paths.safety_stop.exists() and paths.latch.exists()
+
+
+def test_kernel_trouble_counts_only_bad_lines(monkeypatch):
+    class R:
+        returncode = 0
+        stdout = ("usb 1-1: new device\nNVRM: Xid (PCI:0000:01:00): 79\n"
+                  "INFO: task x blocked for more than 120 seconds\n"
+                  "NVRM: nvCheckOkFailedNoLog: Check failed: Out of memory [NV_ERR_NO_MEMORY]\n")
+    monkeypatch.setattr(har.subprocess, "run", lambda *a, **k: R())
+    assert har.kernel_trouble_since(NOW) == 2
+    R.returncode = 1
+    assert har.kernel_trouble_since(NOW) is None
+
+
+def test_last_load_reads_the_newest_record(tmp_path):
+    log = tmp_path / "h3-load-pressure.jsonl"
+    log.write_text(json.dumps({"outcome": "ready"}) + "\n" + json.dumps({"outcome": "guard-lost"}) + "\n")
+    assert har._last_load(log)["outcome"] == "guard-lost"
+    assert har._last_load(tmp_path / "missing") is None

@@ -1,5 +1,7 @@
 # Clears only the harmless startup kind of GPU recovery hold (owner-exited /
-# controller-restarted, same boot, idle), through tools/reconcile-gpu-recovery.py.
+# controller-restarted, same boot, idle) and a guard trip during an H3 cold load
+# once memory has recovered (at most once a day), through
+# tools/reconcile-gpu-recovery.py.
 # Off unless MEDIA_LAB_HOLD_AUTORECOVER=1 in config/local.env. See
 # runner/hold_autorecover.py for every condition and limit.
 #

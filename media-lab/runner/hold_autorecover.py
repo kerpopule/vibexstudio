@@ -26,9 +26,37 @@ or the marker by hand). This script is the one sanctioned self-heal:
   hold it already tried) it writes ``pool/autorecover-gaveup.json`` and stops
   acting until a person removes that file. The health check alerts on it.
 
-It never touches ``operation-uncertain``, guard trips, safety stops,
-``boot-changed`` holds or anything while a job runs: those reasons are simply
-not on the list. Off unless MEDIA_LAB_HOLD_AUTORECOVER=1 (config/local.env).
+A second, narrower class (owner-approved, 2026-09-26): a **guard trip during
+an H3 cold load**. The control-plane guard stops a cold load when memory
+pressure crosses its limit; the studio then records ``operation-uncertain`` for
+the load, and the guard leaves ``safety-stop.json`` plus the memwatch latch.
+Every such hold since 09-17 waited hours for a person, who then checked memory
+and ran the same reconcile. This script does that only when ALL of these hold:
+
+* the safety stop is a guard pressure trip (``memory-psi`` / ``low-memavailable``
+  / ``swap-growth``) of ``media-lab-sol-h3`` on THIS boot, its incident receipt
+  says the H3 cgroup was fully terminated, and the latch (if any) names the
+  same incident;
+* the durable lease is H3, still in phase ``load`` (nothing was rendered), its
+  reason equals the hold's ``operation-uncertain:*`` reason, and the load
+  record in ``pool/h3-load-pressure.jsonl`` says that very load ended
+  ``guard-lost`` around the trip time;
+* the tripped job (if any) ended ``error``/``cancelled`` with no output, so a
+  clear never re-runs it (the family presses Retry, as today);
+* the trip is at least 15 min old, H3 is not running, MemAvailable is back to
+  at least 90 GiB, PSI full avg60 is at most 2, and the kernel log since the
+  trip shows no Xid / hung task / soft lockup / OOM kill;
+* at most ONE guard-trip clear per 24 h (a second trip in a day means something
+  is really wrong: it gives up and the health watch alerts).
+
+Its action: preserve the evidence (``.backups/autorecover-trip-<time>/``), move
+the safety stop and latch into that folder, wait for the guard to report
+``ready``, then run the same reconcile tool. If anything fails the markers are
+put back, so the box is exactly as held as before.
+
+It never touches other ``operation-uncertain`` holds (a failure mid-render),
+safety stops from a render, ``boot-changed`` holds, or anything while a job
+runs. Off unless MEDIA_LAB_HOLD_AUTORECOVER=1 (config/local.env).
 
     runner/hold_autorecover.py            # one pass (the timer)
     runner/hold_autorecover.py --dry-run  # print the decision, change nothing
@@ -38,6 +66,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -61,6 +90,25 @@ MIN_AVAILABLE_GIB = 6.0
 GUARD_MAX_AGE_S = 30.0
 RECONCILE_TIMEOUT_S = 1200
 CONTROLLER_MARKERS = ("uvicorn", "app:app")
+
+# Guard trip during a cold load (the second, narrower class).
+GUARD_TRIP_REASONS = ("memory-psi", "low-memavailable", "swap-growth")
+H3_UNIT = "media-lab-sol-h3.service"
+TRIP_MIN_AGE_S = 900
+TRIP_DAILY_CAP = 1
+TRIP_MIN_AVAILABLE_GIB = 90.0
+TRIP_MAX_PSI_FULL_AVG60 = 2.0
+TRIP_LOAD_SLACK_S = 60.0
+GUARD_READY_WAIT_S = 20.0
+# NVRM "NV_ERR_NO_MEMORY" lines are normal during a heavy load (the audit saw
+# bursts with no harm), so the check starts after the trip and looks only for
+# lines that mean the box itself is unwell.
+KERNEL_BAD = ("xid", "hung_task", "blocked for more than", "soft lockup", "hard lockup",
+              "invoked oom-killer", "out of memory: killed process", "oom-kill:",
+              "fallen off the bus")
+KERNEL_CHECK_AFTER_TRIP_S = 60
+JOB_OUTPUT_FIELDS = ("url", "poster", "sha256", "song_url", "video_url", "video_poster",
+                     "final_url", "output", "outputs")
 
 
 def log(msg: str) -> None:
@@ -87,6 +135,9 @@ class Paths:
         self.sol_root = Path(sol_root or os.path.expanduser(
             local_config.get("SOL_ROOT") or "~/.local/share/sol-h3-spark"))
         self.safety_stop = self.sol_root / "safety-stop.json"
+        self.incidents = self.sol_root / "control-plane-incidents"
+        self.load_log = self.pool / "h3-load-pressure.jsonl"
+        self.evidence_root = self.root / ".backups"
         self.tool = self.root / "tools" / "reconcile-gpu-recovery.py"
         venv = self.root / ".venv" / "bin" / "python"
         self.python = str(venv) if venv.exists() else sys.executable
@@ -114,6 +165,60 @@ def _mem_available_gib() -> float | None:
     except (OSError, ValueError, IndexError):
         pass
     return None
+
+
+def _psi_full_avg60() -> float | None:
+    try:
+        for line in Path("/proc/pressure/memory").read_text().splitlines():
+            if line.startswith("full"):
+                return float(dict(f.split("=", 1) for f in line.split()[1:])["avg60"])
+    except (OSError, ValueError, KeyError):
+        pass
+    return None
+
+
+def _last_load(path: Path) -> dict | None:
+    """The newest H3 cold-load record (pool/h3-load-pressure.jsonl)."""
+    try:
+        with path.open("rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - 65536))
+            lines = fh.read().decode(errors="replace").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            return row
+    return None
+
+
+def _unit_active(unit: str) -> bool | None:
+    try:
+        r = subprocess.run(["systemctl", "--user", "is-active", unit],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return r.stdout.strip() in ("active", "activating", "deactivating", "reloading")
+
+
+def kernel_trouble_since(ts: float) -> int | None:
+    """Count kernel lines since ``ts`` that mean the box itself is unwell.
+
+    None when the kernel log cannot be read (then nothing is cleared)."""
+    try:
+        r = subprocess.run(["journalctl", "-k", "--no-pager", "-q", "-o", "cat",
+                            "--since", f"@{int(ts)}"],
+                           capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    return sum(1 for line in r.stdout.splitlines()
+               if any(bad in line.lower() for bad in KERNEL_BAD))
 
 
 def _pid_is_controller(pid: int) -> bool:
@@ -185,6 +290,26 @@ def gather(paths: Paths, *, now: float | None = None) -> dict:
     pid = lease.get("pid") if lease else None
     facts["owner_is_controller"] = bool(pid) and _pid_is_controller(int(pid))
     facts["mem_available_gib"] = _mem_available_gib()
+    hold = facts["hold"] if isinstance(facts["hold"], dict) else {}
+    if facts["safety_stop"] and str((lease or {}).get("reason") or "").startswith("operation-uncertain:"):
+        # Only the guard-trip class needs these (and they cost a subprocess).
+        stop = _read_json(paths.safety_stop)
+        facts["safety_record"] = stop if isinstance(stop, dict) else None
+        incident_id = str((stop or {}).get("incident_id") or "")
+        incident = _read_json(paths.incidents / f"{incident_id}.json") if incident_id else None
+        facts["incident_status"] = incident.get("status") if isinstance(incident, dict) else None
+        try:
+            facts["latch_text"] = paths.latch.read_text().strip() if paths.latch.exists() else None
+        except OSError:
+            facts["latch_text"] = "unreadable"
+        facts["last_load"] = _last_load(paths.load_log)
+        trip_job = jobs.get(str(hold.get("job_id") or "")) if hold.get("job_id") else None
+        facts["trip_job"] = ({k: trip_job.get(k) for k in ("status", "recovery_required", *JOB_OUTPUT_FIELDS)}
+                             if isinstance(trip_job, dict) else None)
+        facts["h3_active"] = _unit_active(H3_UNIT)
+        facts["psi_full_avg60"] = _psi_full_avg60()
+        when = float((stop or {}).get("time") or now)
+        facts["kernel_trouble"] = kernel_trouble_since(when + KERNEL_CHECK_AFTER_TRIP_S)
     return facts
 
 
@@ -216,6 +341,9 @@ def decide(facts: dict, state: dict, *, enabled: bool, gaveup: bool,
     if not lease:
         return "skip", "hold without a durable lease (ambiguous)"
     reason = str(lease.get("reason") or "")
+    if (lease.get("state") == "recovery" and reason.startswith("operation-uncertain:")
+            and facts.get("safety_stop")):
+        return decide_trip(facts, state, min_age_s=max(min_age_s, TRIP_MIN_AGE_S))
     if lease.get("state") != "recovery" or reason not in SAFE_REASONS:
         return "skip", f"lease is {lease.get('state')}:{reason or 'none'} (not a harmless restart hold)"
     if hold.get("job_id") is not None or hold.get("reason") != f"durable-lease-recovery:{reason}":
@@ -248,12 +376,22 @@ def decide(facts: dict, state: dict, *, enabled: bool, gaveup: bool,
     avail = facts.get("mem_available_gib")
     if avail is None or avail < min_available_gib:
         return "wait", f"MemAvailable {avail} GiB is below {min_available_gib} GiB"
+    limited = _limits(facts, state, now)
+    if limited is not None:
+        return limited
+    return "reconcile", f"harmless {reason} hold for {job_id}, {age / 60:.0f} min old"
+
+
+def _limits(facts: dict, state: dict, now: float, *, trip: bool = False) -> tuple[str, str] | None:
+    """The shared limits: one try per hold, daily caps, backoff, give-up."""
     key = hold_key(facts)
     if any(a.get("hold") == key for a in state.get("attempts", [])):
         return "giveup", "this hold was already tried once and is still there"
     recent = _recent(state, now)
     if len(recent) >= DAILY_CAP:
         return "giveup", f"{DAILY_CAP} attempts in 24 h already"
+    if trip and sum(1 for a in recent if a.get("kind") == "guard-trip") >= TRIP_DAILY_CAP:
+        return "giveup", "a second guard trip within 24 h: a person must look"
     failures = int(state.get("consecutive_failures", 0))
     if failures >= GIVE_UP_AFTER:
         return "giveup", f"{failures} consecutive failures"
@@ -262,7 +400,87 @@ def decide(facts: dict, state: dict, *, enabled: bool, gaveup: bool,
         last = max((float(a.get("ts", 0)) for a in state.get("attempts", [])), default=0.0)
         if now - last < wait:
             return "wait", f"backing off {wait // 60} min after a failure"
-    return "reconcile", f"harmless {reason} hold for {job_id}, {age / 60:.0f} min old"
+    return None
+
+
+def decide_trip(facts: dict, state: dict, *, min_age_s: float = TRIP_MIN_AGE_S) -> tuple[str, str]:
+    """The guard-trip-during-cold-load class. (action, reason); action reconcile-trip."""
+    now = float(facts["now"])
+    hold, lease = facts.get("hold") or {}, facts.get("lease") or {}
+    reason = str(lease.get("reason") or "")
+    stop = facts.get("safety_record")
+    if not isinstance(stop, dict):
+        return "skip", "safety stop is unreadable"
+    if hold.get("reason") != reason:
+        return "skip", "hold marker and lease disagree about the reason"
+    boot = facts.get("boot_id")
+    if not boot or lease.get("boot_id") != boot or stop.get("boot_id") != boot:
+        return "skip", "trip or lease is from another boot"
+    if stop.get("reason") not in GUARD_TRIP_REASONS or stop.get("unit") != H3_UNIT:
+        return "skip", f"safety stop is not a guard pressure trip ({stop.get('reason')})"
+    if facts.get("incident_status") != "terminated":
+        return "skip", f"guard incident receipt is {facts.get('incident_status')!r}, not 'terminated'"
+    latch = facts.get("latch_text")
+    if facts.get("latch") and latch != stop.get("incident_id"):
+        return "skip", "the memwatch latch is not from this guard trip"
+    if lease.get("engine") != "h3" or lease.get("phase") != "load":
+        return "skip", f"lease is {lease.get('engine')}/{lease.get('phase')}, not an H3 cold load"
+    load = facts.get("last_load") or {}
+    try:
+        trip_at = float(stop.get("time"))
+        started = float(load.get("started_at"))
+        ended = started + float(load.get("load_s") or 0)
+    except (TypeError, ValueError):
+        return "skip", "no cold-load record for the trip"
+    if (load.get("outcome") != "guard-lost" or load.get("task") != lease.get("task")
+            or not (started - TRIP_LOAD_SLACK_S <= trip_at <= ended + TRIP_LOAD_SLACK_S)):
+        return "skip", "the trip did not happen during the recorded cold load"
+    job_id = str(lease.get("job_id") or "")
+    if hold.get("job_id") not in (None, job_id):
+        return "skip", "hold marker names another job"
+    job = facts.get("trip_job")
+    if job is not None:
+        if job.get("status") not in ("error", "cancelled"):
+            return "skip", f"tripped job is {job.get('status')}; clearing would re-run it"
+        if any(job.get(k) for k in JOB_OUTPUT_FIELDS):
+            return "skip", "tripped job has output (not a pure cold load)"
+    elif not job_id.startswith(JOBLESS_PREFIXES):
+        return "skip", f"tripped job {job_id} is unknown"
+    try:
+        age = now - max(float(hold.get("created")), trip_at)
+    except (TypeError, ValueError):
+        return "skip", "hold has no creation time"
+    if age < min_age_s:
+        return "wait", f"guard trip is {age / 60:.0f} min old; waiting {min_age_s / 60:.0f} min"
+    if facts.get("studio_running") is None:
+        return "wait", "the studio did not answer the queue probe"
+    if facts.get("studio_running") or facts.get("persisted_running"):
+        return "wait", "a job is running"
+    for key, what in (("baton", ".operator-baton"), ("engine_maintenance", ".engine-maintenance")):
+        if facts.get(key):
+            return "skip", f"{what} is present"
+    if not facts.get("guard_fresh") or facts.get("guard_state") != "quarantined":
+        return "skip", f"control-plane guard is not current/quarantined ({facts.get('guard_state')})"
+    if facts.get("h3_active") is not False:
+        return "skip", "H3 is still running (or its state is unknown)"
+    if facts.get("owner_is_controller"):
+        return "skip", "the old owner process is still a live controller"
+    avail, psi60 = facts.get("mem_available_gib"), facts.get("psi_full_avg60")
+    if avail is None or avail < TRIP_MIN_AVAILABLE_GIB:
+        return "wait", f"memory has not recovered: MemAvailable {avail} GiB < {TRIP_MIN_AVAILABLE_GIB}"
+    if psi60 is None or psi60 > TRIP_MAX_PSI_FULL_AVG60:
+        return "wait", f"memory pressure has not settled: PSI full avg60 {psi60}"
+    trouble = facts.get("kernel_trouble")
+    if trouble is None:
+        return "skip", "cannot read the kernel log"
+    if trouble:
+        return "skip", f"{trouble} kernel error line(s) since the trip (Xid/hung/OOM): a person must look"
+    limited = _limits(facts, state, now, trip=True)
+    if limited is not None:
+        return limited
+    return "reconcile-trip", (f"guard {stop.get('reason')} trip during the {lease.get('task')} cold load "
+                              f"for {job_id}, {age / 60:.0f} min ago; memory recovered "
+                              f"({avail:.0f} GiB free, PSI60 {psi60})")
 
 
 def _save(path: Path, value: dict) -> None:
@@ -279,6 +497,75 @@ def _audit(paths: Paths, row: dict) -> None:
             fh.write(json.dumps(row, sort_keys=True) + "\n")
     except OSError:
         pass
+
+
+def _guard_state(paths: Paths) -> str | None:
+    guard = _read_json(paths.guard)
+    if not (isinstance(guard, dict) and guard.get("boot_id") == _boot_id()):
+        return None
+    try:
+        if not 0 <= time.time() - float(guard.get("written_at")) <= GUARD_MAX_AGE_S:
+            return None
+    except (TypeError, ValueError):
+        return None
+    return guard.get("state")
+
+
+def set_aside_trip_markers(paths: Paths, facts: dict, *, sleep=time.sleep,
+                           guard_state=_guard_state) -> tuple[Path, list[tuple[Path, Path]]]:
+    """Preserve the evidence, then move the safety stop and latch into it.
+
+    Returns (evidence dir, [(moved_to, original)]). Raises (after putting the
+    markers back) when the guard does not come back to ``ready``."""
+    stamp = time.strftime("%Y%m%dT%H%M%S", time.localtime(float(facts["now"])))
+    evidence = paths.evidence_root / f"autorecover-trip-{stamp}"
+    evidence.mkdir(parents=True, exist_ok=False)
+    stop = facts.get("safety_record") or {}
+    incident = paths.incidents / f"{stop.get('incident_id')}.json"
+    for src in (paths.hold, incident):
+        if src.exists():
+            shutil.copy2(src, evidence / src.name)
+    (evidence / "facts.json").write_text(json.dumps(
+        {k: v for k, v in facts.items() if k not in ("hold",)}, sort_keys=True, default=str))
+    try:
+        trip = float(stop.get("time"))
+        journal = subprocess.run(
+            ["journalctl", "--user", "--no-pager", "-q", "--since", f"@{int(trip) - 600}",
+             "--until", f"@{int(trip) + 120}", "-u", "media-lab-simple", "-u", H3_UNIT,
+             "-u", "solh3-control-plane-guard"],
+            capture_output=True, text=True, timeout=60)
+        (evidence / "journal.txt").write_text(journal.stdout[-2_000_000:])
+    except (OSError, ValueError, TypeError, subprocess.TimeoutExpired):
+        pass
+    moved: list[tuple[Path, Path]] = []
+    try:
+        for src in (paths.safety_stop, paths.latch):
+            if src.exists():
+                dst = evidence / src.name
+                shutil.copy2(src, dst)          # latch lives on tmpfs: copy, then remove
+                src.unlink()
+                moved.append((dst, src))
+        deadline = time.time() + GUARD_READY_WAIT_S
+        while guard_state(paths) not in ("ready", "monitoring"):
+            if time.time() >= deadline:
+                raise RuntimeError(f"guard did not report ready after the markers were set aside "
+                                   f"({guard_state(paths)})")
+            sleep(1.0)
+    except Exception:
+        restore_trip_markers(moved)
+        raise
+    return evidence, moved
+
+
+def restore_trip_markers(moved: list[tuple[Path, Path]]) -> None:
+    """Put the safety stop / latch back (never over a newer one)."""
+    for saved, original in moved:
+        try:
+            if not original.exists():
+                original.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(saved, original)
+        except OSError as exc:
+            log(f"could not restore {original}: {exc}")
 
 
 def run_reconcile(paths: Paths, job_id: str) -> tuple[bool, dict]:
@@ -309,7 +596,8 @@ def run_reconcile(paths: Paths, job_id: str) -> tuple[bool, dict]:
 
 
 def main(argv: list[str] | None = None, *, paths: Paths | None = None,
-         reconcile=run_reconcile, facts: dict | None = None) -> dict:
+         reconcile=run_reconcile, facts: dict | None = None,
+         set_aside=set_aside_trip_markers, restore=restore_trip_markers) -> dict:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--dry-run", action="store_true", help="print the decision, change nothing")
     args = ap.parse_args(argv)
@@ -349,8 +637,23 @@ def main(argv: list[str] | None = None, *, paths: Paths | None = None,
         return out
     log(f"RECONCILING: {why}")
     started = time.time()
-    ok, receipt = reconcile(paths, str(lease.get("job_id")))
+    trip = action == "reconcile-trip"
+    moved: list = []
+    if trip:
+        try:
+            evidence, moved = set_aside(paths, facts)
+            out["evidence"] = str(evidence)
+        except Exception as exc:
+            ok, receipt = False, {"error": f"could not set the trip markers aside: {exc}"}
+        else:
+            ok, receipt = reconcile(paths, str(lease.get("job_id")))
+            if not ok:
+                restore(moved)
+                receipt["markers_restored"] = True
+    else:
+        ok, receipt = reconcile(paths, str(lease.get("job_id")))
     attempt = {"ts": facts["now"], "hold": hold_key(facts), "ok": ok,
+               "kind": "guard-trip" if trip else "restart",
                "seconds": round(time.time() - started, 1)}
     state.setdefault("attempts", []).append(attempt)
     state["attempts"] = state["attempts"][-20:]

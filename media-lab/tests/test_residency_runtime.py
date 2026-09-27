@@ -661,10 +661,12 @@ class H3QueueBatchingTests(unittest.TestCase):
 
 
 class H3LoadHeadroomTests(unittest.TestCase):
-    def _wait(self, samples, max_wait=120.0, j=None):
+    def _wait(self, samples, max_wait=120.0, j=None, avg60=None):
         clock = _Clock()
         feed = iter(samples)
         last = {}
+        feed60 = iter(avg60 or [])
+        last60 = {"v": None}
 
         def read():
             try:
@@ -673,14 +675,45 @@ class H3LoadHeadroomTests(unittest.TestCase):
                 pass
             return last["s"]
 
+        def read60():
+            try:
+                last60["v"] = next(feed60)
+            except StopIteration:
+                pass
+            return last60["v"]
+
         with mock.patch.object(studio, "H3_LOAD_SETTLE_MAX_WAIT_S", max_wait):
             return studio.wait_for_h3_load_headroom(j, read=read, sleep=clock.sleep,
-                                                    clock=clock), clock
+                                                    clock=clock, read_avg60=read60,
+                                                    flush=lambda: None), clock
 
     def test_calm_steady_memory_admits_after_a_few_samples(self):
-        result, clock = self._wait([_pressure()] * 10)
+        result, clock = self._wait([_pressure()] * 20)
         self.assertTrue(result["settled"])
-        self.assertLessEqual(clock.now - 1000.0, 5)
+        self.assertLessEqual(clock.now - 1000.0, studio.H3_LOAD_SETTLE_SAMPLES + 2)
+
+    def test_needs_ten_steady_seconds_by_default(self):
+        self.assertGreaterEqual(studio.H3_LOAD_SETTLE_SAMPLES, 10)
+        result, clock = self._wait([_pressure()] * 20)
+        self.assertGreaterEqual(clock.now - 1000.0, studio.H3_LOAD_SETTLE_SAMPLES)
+
+    def test_a_busy_last_minute_is_waited_out_even_when_avg10_is_calm(self):
+        # 2026-09-26 02:41: image jobs just finished; avg10 calm, avg60 still high.
+        result, clock = self._wait([_pressure()] * 60, avg60=[12.0] * 30 + [1.0] * 30)
+        self.assertTrue(result["settled"])
+        self.assertGreaterEqual(clock.now - 1000.0, 30)
+        self.assertEqual(result["psi_full_avg60"], 1.0)
+
+    def test_no_avg60_data_does_not_block(self):
+        result, _clock = self._wait([_pressure()] * 20, avg60=[None])
+        self.assertTrue(result["settled"])
+
+    def test_dirty_pages_are_flushed_once_before_waiting(self):
+        calls = []
+        clock = _Clock()
+        studio.wait_for_h3_load_headroom(read=lambda: _pressure(), sleep=clock.sleep, clock=clock,
+                                         read_avg60=lambda: 0.0, flush=lambda: calls.append(1))
+        self.assertEqual(calls, [1])
 
     def test_memory_still_being_returned_is_waited_out(self):
         rising = [_pressure(available_gib=60 + 10 * i) for i in range(6)]

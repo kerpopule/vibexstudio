@@ -2611,7 +2611,38 @@ H3_BATCH_MAX_WAIT_S = max(0, local_config.int_value("MEDIA_LAB_H3_BATCH_MAX_WAIT
 H3_LOAD_SETTLE_MAX_PSI = max(0.0, _float_setting("MEDIA_LAB_H3_LOAD_SETTLE_MAX_PSI", 2.0))
 H3_LOAD_SETTLE_MAX_WAIT_S = max(0.0, _float_setting("MEDIA_LAB_H3_LOAD_SETTLE_MAX_WAIT_S", 120.0))
 H3_LOAD_SETTLE_STEADY_GIB = 0.5
-H3_LOAD_SETTLE_SAMPLES = 3
+# 10 steady seconds (was 3) and a calm last minute (PSI full avg60): on
+# 2026-09-26 02:41 an fl2va cold load started 30 s after three back-to-back
+# image jobs, passed the old 3-sample check in 3 s, and tripped the guard at
+# PSI 52-60. The guard's own limits are unchanged; this only waits longer
+# (bounded by H3_LOAD_SETTLE_MAX_WAIT_S) before a load starts.
+H3_LOAD_SETTLE_SAMPLES = max(1, int(_float_setting("MEDIA_LAB_H3_LOAD_SETTLE_SAMPLES", 10)))
+H3_LOAD_SETTLE_MAX_PSI60 = max(0.0, _float_setting("MEDIA_LAB_H3_LOAD_SETTLE_MAX_PSI60", 3.0))
+
+
+def read_psi_full_avg60(path=Path("/proc/pressure/memory")):
+    """PSI full avg60 (the last minute), or None when the kernel has no PSI."""
+    try:
+        for line in path.read_text().splitlines():
+            if line.startswith("full"):
+                return float(dict(f.split("=", 1) for f in line.split()[1:])["avg60"])
+    except (OSError, ValueError, KeyError):
+        pass
+    return None
+
+
+def read_preload_memory(path=Path("/proc/meminfo")):
+    """Page cache, dirty pages and swap just before a load (evidence only)."""
+    try:
+        info = {}
+        for line in path.read_text().splitlines():
+            key, _, rest = line.partition(":")
+            info[key] = int(rest.split()[0])
+        return {"cached_gib": round(info.get("Cached", 0) / 1048576, 2),
+                "dirty_mib": round(info.get("Dirty", 0) / 1024, 1),
+                "swap_used_gib": round((info.get("SwapTotal", 0) - info.get("SwapFree", 0)) / 1048576, 2)}
+    except (OSError, ValueError, IndexError):
+        return {}
 _pool_mutex = threading.Lock()
 _idle_restore_mutex = threading.Lock()
 _last_ltx_attempt = 0.0
@@ -2919,7 +2950,7 @@ def sol_h3_control_guard_ready():
 
 
 def wait_for_h3_load_headroom(j=None, *, read=None, sleep=time.sleep,
-                              clock=time.monotonic):
+                              clock=time.monotonic, read_avg60=None, flush=None):
     """Hold an H3 cold load until memory has settled; bounded, never blocking.
 
     Settled means memory pressure (PSI full avg10, the signal the guard trips
@@ -2931,28 +2962,37 @@ def wait_for_h3_load_headroom(j=None, *, read=None, sleep=time.sleep,
     so: an admitted lease is never abandoned here.
     """
     read = read or read_pressure_sample
+    read_avg60 = read_avg60 or read_psi_full_avg60
     started = clock()
     deadline = started + H3_LOAD_SETTLE_MAX_WAIT_S
     steady = 0
     last = None
+    # Write dirty pages out now, not while the load is claiming memory.
+    try:
+        (flush or os.sync)()
+    except Exception:
+        pass
     while True:
         try:
             sample = read()
         except Exception as exc:
             return {"settled": None, "waited_s": round(clock() - started, 1),
                     "detail": f"no memory-pressure data: {type(exc).__name__}"}
-        calm = sample.psi_full_avg10 <= H3_LOAD_SETTLE_MAX_PSI
+        avg60 = read_avg60()
+        calm = (sample.psi_full_avg10 <= H3_LOAD_SETTLE_MAX_PSI
+                and (avg60 is None or avg60 <= H3_LOAD_SETTLE_MAX_PSI60))
         still = (last is not None and abs(sample.available_kib - last.available_kib)
                  <= H3_LOAD_SETTLE_STEADY_GIB * 1048576)
         steady = steady + 1 if (calm and still) else 0
         last = sample
         result = {"waited_s": round(clock() - started, 1),
                   "available_gib": round(sample.available_kib / 1048576, 2),
-                  "psi_full_avg10": sample.psi_full_avg10}
+                  "psi_full_avg10": sample.psi_full_avg10,
+                  "psi_full_avg60": avg60}
         if steady >= H3_LOAD_SETTLE_SAMPLES:
-            return {"settled": True, **result}
+            return {"settled": True, **result, **read_preload_memory()}
         if clock() >= deadline:
-            return {"settled": False, **result}
+            return {"settled": False, **result, **read_preload_memory()}
         if j is not None and j.get("cancel"):
             return {"settled": None, **result, "detail": "cancelled"}
         sleep(1.0)
