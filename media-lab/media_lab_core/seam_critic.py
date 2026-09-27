@@ -385,8 +385,10 @@ def syncnet_runner() -> Callable[[str], dict] | None:
     script = Path(__file__).resolve().parents[1] / "runner" / "syncnet_measure.py"
 
     def run(video: str) -> dict:
-        result = subprocess.run([python, str(script), video, "--root", root], capture_output=True,
-                                text=True, timeout=900, check=False)
+        # LatentSync's S3FD opens checkpoints/auxiliary/sfd_face.pth by a path
+        # relative to the checkout, so run there (with an absolute video path)
+        result = subprocess.run([python, str(script), str(Path(video).resolve()), "--root", root],
+                                capture_output=True, text=True, timeout=900, check=False, cwd=root)
         lines = [ln for ln in (result.stdout or "").splitlines() if ln.strip().startswith("{")]
         if result.returncode != 0 or not lines:
             return {"error": (result.stderr or "syncnet failed").strip()[-200:]}
