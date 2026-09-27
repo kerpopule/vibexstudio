@@ -22,13 +22,15 @@ MEDIA_LAB_PERSONAL_ENGINES=h3,yue2        # comma list, or: all
 | Engine id | Model | Licence | Why it is off by default |
 |---|---|---|---|
 | `h3` (also `h3-ltx25`) | MiniMax H3, run locally (Sol-H3-Spark) | [MiniMax H3 Community License](https://huggingface.co/MiniMaxAI) | Restricts where and how the weights may be used (published terms exclude some countries) and adds attribution and revenue conditions. |
+| `h3-singularity` (also `h3-real`) | Real / Long: the community MiniMax H3 Singularity fine-tune with community LoRAs, run locally | [MiniMax H3 Community License](https://huggingface.co/MiniMaxAI) plus the fine-tune's and LoRAs' own terms | Everything that limits `h3`, and nothing about the fine-tune is cleared for public, customer or commercial use. Needs `h3` enabled too. |
 | `yue2` | YuE2 music | [CC BY-NC 4.0 weights](https://github.com/multimodal-art-projection/YuE) (code Apache-2.0) | Non-commercial use only, including the songs it makes. |
 | `kontext` | FLUX.1 Kontext [dev] | [FLUX.1 [dev] Non-Commercial License](https://huggingface.co/black-forest-labs/FLUX.1-Kontext-dev) | The model may only be run for non-commercial purposes (its pictures may be used commercially, but not to train a competing model). |
 | `qwen-image-21` | Qwen-Image-2.1 (the studio host's image engine) | [Qwen Research License](https://huggingface.co/Qwen) | Research and evaluation only; commercial use needs a separate licence. |
 | `hunyuan-avatar` | HunyuanVideo-Avatar | [Tencent Hunyuan Community License](https://github.com/Tencent-Hunyuan/HunyuanVideo-Avatar) | Does not apply in the EU, the UK or South Korea; conditions for very large services. |
 
 Where the switch is enforced: video jobs (`/api/generate`, music videos,
-talking-head takes) refuse `h3`/`h3-ltx25`; `/api/music` and the score, cover
+talking-head takes) refuse `h3`/`h3-ltx25`, and Real / Long (`h3-real`) needs
+both `h3` and `h3-singularity`; `/api/music` and the score, cover
 and re-arrange tools refuse `yue2`, and the default music engine becomes
 MiniMax Music 3; the Kontext painter disappears from the image and character
 pickers; the avatar finisher reports "not installed"; the studio host will not

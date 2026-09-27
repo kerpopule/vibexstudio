@@ -55,6 +55,49 @@ switch.
 Every H3 reload is still a full cold load with the same guard exposure, and a
 guard trip still leaves a recovery hold for an operator.
 
+## Real / Long (H3 Singularity), the load-on-demand H3
+
+Sol stays the always-warm, fast H3 (about 70 s a clip, always 5.04 s at
+1344x768). **Real / Long** is the community H3 Singularity checkpoint rendered
+with the dual-sampling recipe (`runner/h3_singularity.py`): text plus up to 9
+reference pictures, 3 reference videos and 3 reference sounds; portrait,
+landscape or square; 5 to 15 s. It holds faces and skin texture and costs about
+4x Sol's time (measured on the 128 GB host, lean weight set):
+
+| Take | Time |
+|---|---|
+| 5 s, loaded | ~285 s |
+| 5 s, two max-detail references | ~490 s |
+| 15 s, one reference | ~1170 s |
+| first take after Sol (load) | + ~7 min |
+
+How it runs:
+
+* It is the same unit, lease and guard as Sol: `media-lab-sol-h3.service`
+  started with `H3_VARIANT=singularity` and the GPU task family `singularity`
+  (capacity row `h3/singularity` in `config/gpu-capacity-receipts.json`: peak
+  ~97 GiB, idle ~75 GiB). The engine server starts an isolated ComfyUI as its
+  child, so the unit's cgroup and the guard's exact-cgroup stop cover it.
+* It never sits beside Sol. A Real / Long take evicts Sol; the queue runs every
+  queued take of the resident variant before switching. When no queued take
+  needs it and it has idled `MEDIA_LAB_H3_SINGULARITY_LINGER_S` (default
+  600 s), the reaper stops it and the idle reconciler restores warm Sol t2va.
+* H3 reference jobs (pictures, motion videos) route to Real / Long on hosts that
+  have it, because Sol's Ref2VA needs a 120 GiB row a 128 GB box cannot give.
+* After each take the engine measures lip sync with SyncNet
+  (`runner/av_sync_measure.py`, CPU) and removes that take's own audio lag at
+  the mux (`media_lab_core/av_sync.py`). Raw H3 takes put the sound 16-34 ms
+  (Singularity) and ~50 ms (Sol) after the lips; the job keeps the receipt in
+  `av_sync`. A take without a clear face or with low confidence is left as is.
+* The model picker shows each engine's estimated time for the chosen length
+  and references, including the load when the engine is not resident
+  (`GET /api/engines/eta`, numbers in `config/render-eta.json`, refreshed from
+  completed takes in `pool/render-timings.json`).
+
+Enable it on a host whose use fits the licences (`h3-singularity` in
+`MEDIA_LAB_PERSONAL_ENGINES`, plus the `H3_SINGULARITY_*` and
+`MEDIA_LAB_AV_SYNC_*` keys in `config/local.env.example`).
+
 ## Configuration (`config/local.env`)
 
 ```

@@ -388,6 +388,15 @@
   .banner b{color:var(--gold-hi);font-weight:600}
   /* ---- length: Auto chip + free-seconds slider ---- */
   .durrow{display:flex;align-items:center;gap:12px}
+  /* model picker: estimated time per engine, including load time when the
+     engine is not in memory (GET /api/engines/eta) */
+  .chip .eta{display:block;font-size:.6875rem;letter-spacing:.02em;color:var(--t-3);margin-top:2px}
+  .chip .eta:empty{display:none}
+  .chip.sel .eta{color:var(--t-2)}
+  .etaline{margin-top:10px;font-size:.8125rem;color:var(--t-2);letter-spacing:.02em;line-height:1.45}
+  .etaline:empty{display:none}
+  .etaline b{color:var(--t-1);font-weight:600}
+  .etaline .etanote{display:block;color:var(--t-3);font-size:.75rem;margin-top:2px}
   .durrow .chip{flex:0 0 auto}
   .durrow input[type=range]{flex:1;min-width:0;accent-color:var(--gold);height:28px;cursor:pointer}
   .durval{flex:0 0 auto;min-width:52px;text-align:right;font-family:var(--display);
@@ -863,9 +872,11 @@
     <div class="chips" id="models">
       <div class="chip sel" data-v="ltx25">⚡ Fast draft <small>LTX 2.5</small></div>
       <div class="chip" data-v="h3">🎬 Cinematic <small>MiniMax H3</small></div>
+      <div class="chip" data-v="h3-real" id="realLongChip" style="display:none">🎞 Real / Long <small>H3 Singularity · 5–15 s</small></div>
       <div class="chip" data-v="h3-ltx25">✨ H3 → LTX <small>draft + refine</small></div>
       <div class="chip advx" data-v="maestro">🎛 Recipes <small>200 in the library</small></div>
     </div>
+    <div class="etaline" id="etaLine" aria-live="polite"></div>
     <div class="maestrobox" id="maestroBox" style="display:none">
       <div class="maestrostatus" id="maestroSummary">Pick a recipe from the library.</div>
       <div class="btn2" id="maestroBrowse" style="margin-top:8px">🎛 Browse video recipes</div>
@@ -1767,7 +1778,7 @@ function modelsSelected(){
   const on=[...document.querySelectorAll('#models .chip.sel')].map(c=>c.dataset.v);
   if(on.includes('maestro'))return ['maestro'];
   /* Fast draft first, always — the cheap take proves the prompt */
-  return ['ltx25','h3','h3-ltx25','fal-video'].filter(m=>on.includes(m));
+  return ['ltx25','h3','h3-real','h3-ltx25','fal-video'].filter(m=>on.includes(m));
 }
 
 /* ---- length control: Auto (engine default) or any second on the slider ---- */
@@ -1775,10 +1786,12 @@ let DUR_AUTO=true;
 function durValue(){return DUR_AUTO?'5':String($('#durSlider').value);}
 function durPaint(){
   /* read the chip directly — sel() is a const declared further down (TDZ) */
-  const h3=[...document.querySelectorAll('#models .chip.sel')].some(c=>['h3','h3-ltx25'].includes(c.dataset.v));
+  const on=[...document.querySelectorAll('#models .chip.sel')].map(c=>c.dataset.v);
+  const h3=on.some(v=>['h3','h3-ltx25','h3-real'].includes(v));
   const s=$('#durSlider');
-  if(h3&&+s.value>15)s.value=15;          /* H3's contract tops out at ~15s */
-  s.max=h3?15:20;
+  const cap=on.includes('h3-real')?Math.floor(ETA.realMax||15):15;
+  if(h3&&+s.value>cap)s.value=cap;          /* H3's contract tops out at ~15s */
+  s.max=h3?cap:20;
   $('#durVal').textContent=DUR_AUTO?'Auto':s.value+'s';
   $('#durAuto').classList.toggle('sel',DUR_AUTO);
 }
@@ -1790,7 +1803,48 @@ function durSet(v){ /* remix restore: presets land on the slider, not Auto */
 $('#durSlider').addEventListener('input',()=>{DUR_AUTO=false;durPaint();});
 $('#durAuto').onclick=()=>{DUR_AUTO=true;durPaint();};
 $('#models').addEventListener('click',()=>setTimeout(durPaint,0));
+/* ---- estimated time per engine, live: length, references and what the studio
+   has in memory right now (a Real / Long take pays ~7 min to load the first
+   time; Cinematic reloads ~6 min after something else pushed it out). ---- */
+const ETA={realMax:15,timer:null,seq:0};
+function etaFmt(e){return e?e.text.replace(/^about /,'~'):'';}
+function etaMin(s){s=+s||0;return s>=90?'~'+Math.round(s/60)+' min':'~'+Math.max(10,Math.round(s/10)*10)+' s';}
+function etaRefs(){return {videos:(typeof V2V!=='undefined'&&V2V.item)?1:0};}
+async function etaRefresh(){
+  const seq=++ETA.seq;
+  const refs=etaRefs();
+  const q=new URLSearchParams({duration:DUR_AUTO?'5':String($('#durSlider').value),
+    videos:String(refs.videos),images:'0',audios:'0'});
+  let d=null;
+  try{const r=await fetch('/api/engines/eta?'+q);if(r.ok)d=await r.json();}catch(e){}
+  if(seq!==ETA.seq||!d)return;
+  const rl=d.real_long||{};
+  $('#realLongChip').style.display=rl.available?'':'none';
+  if(!rl.available)$('#realLongChip').classList.remove('sel');
+  if(rl.max_seconds)ETA.realMax=rl.max_seconds;
+  const E=d.engines||{};
+  document.querySelectorAll('#models .chip').forEach(c=>{
+    const e=E[c.dataset.v];let sp=c.querySelector('.eta');
+    if(!sp){sp=document.createElement('span');sp.className='eta';c.appendChild(sp);}
+    sp.textContent=e?('⏱ '+etaFmt(e).split(' · ')[0]+(e.spinup_s>=30?' (incl. load)':'')):'';
+  });
+  const picked=modelsSelected().filter(m=>E[m]);
+  const lines=picked.map(m=>{const e=E[m];
+    let t=`<b>${esc(e.label.split(' (')[0])}</b>: ${esc(e.text)}`;
+    if(e.fixed_length&&!DUR_AUTO&&+$('#durSlider').value>6)t+=` <span class="etanote">Makes a ${e.clip_seconds} s clip whatever length you pick — Real / Long does 5–15 s.</span>`;
+    else if(e.fixed_length)t+=` <span class="etanote">Always a ${e.clip_seconds} s clip.</span>`;
+    if(m==='h3-real'&&e.resident===false)t+=` <span class="etanote">Loads on demand. It stays loaded ${esc(etaMin(rl.linger_s))} after your last Real / Long take; then Cinematic reloads (${esc(etaMin(rl.restore_s))}) and is fast again.</span>`;
+    return t;});
+  if(d.queue_ahead)lines.push(`<span class="etanote">Starts after ${d.queue_ahead} queued ${d.queue_ahead>1?'takes':'take'} (~${d.queue_ahead_min} min).</span>`);
+  $('#etaLine').innerHTML=lines.length?'⏱ '+lines.join('<br>'):'';
+}
+function etaSoon(){clearTimeout(ETA.timer);ETA.timer=setTimeout(etaRefresh,200);}
+$('#models').addEventListener('click',()=>setTimeout(etaSoon,0));
+$('#durSlider').addEventListener('input',etaSoon);
+$('#durAuto').addEventListener('click',etaSoon);
+setInterval(()=>{if(document.visibilityState==='visible')etaRefresh();},30000);
 durPaint();
+etaSoon();
 const sel=id=>{const c=$(id).querySelector('.sel');return c?c.dataset.v:'';};
 
 /* ---- style shelves: one shared catalog drives every style row ---- */
@@ -1875,14 +1929,14 @@ $('#v_editpick').onclick=()=>openLibrary({mode:'gallery',kinds:['video'],allowUp
     V2V.item=x;
     document.querySelectorAll('#models .chip').forEach(ch=>ch.classList.toggle('sel',ch.dataset.v==='h3'));
     $('#maestroBox').style.display='none';$('#v2vBox').style.display='block';
-    v2vRender();durPaint();
+    v2vRender();durPaint();etaSoon();
     const b=$('#prompt');
     if(!b.value.trim())b.placeholder='Describe the change — swap the face to [character], new wardrobe, different scene, new style…';
     b.focus();b.scrollIntoView({behavior:'smooth',block:'center'});
   }});
 $('#v2vPick').onclick=()=>openLibrary({mode:'gallery',kinds:['video'],allowUpload:true,
   upKind:'video',accept:'video/*',title:'🎭 H3 motion-reference video',
-  onPick:x=>{V2V.item=x;v2vRender();}});
+  onPick:x=>{V2V.item=x;v2vRender();etaSoon();}});
 $('#v2vClear').onclick=()=>{V2V.item=null;$('#v2vStart').value='0';
   $('#v2vSwap').classList.remove('sel');$('#v2vWardrobe').style.display='none';v2vRender();};
 $('#v2vSwap').onclick=()=>{$('#v2vSwap').classList.toggle('sel');
@@ -1895,7 +1949,7 @@ $('#models').addEventListener('click',e=>{
   const c=e.target.closest('.chip');if(!c)return;
   const on=c.dataset.v==='maestro';$('#maestroBox').style.display=on?'block':'none';
   if(on&&!MAESTRO_MODEL)openMaestro('video',maestroPickedVideo);
-  $('#v2vBox').style.display=['h3','h3-ltx25'].includes(c.dataset.v)?'block':'none';
+  $('#v2vBox').style.display=['h3','h3-ltx25','h3-real'].includes(c.dataset.v)?'block':'none';
 });
 $('#maestroBrowse').onclick=()=>openMaestro('video',maestroPickedVideo);
 const SHELVES={};
@@ -2027,7 +2081,7 @@ $('#go').onclick=async()=>{
   const engines=modelsSelected();
   const mode=engines[0];
   if(mode==='maestro'&&!MAESTRO_MODEL){showErr('Pick a Maestro model first.');return}
-  const h3Requested=engines.some(e=>['h3','h3-ltx25'].includes(e));
+  const h3Requested=engines.some(e=>['h3','h3-ltx25','h3-real'].includes(e));
   const v2vSwap=h3Requested&&!!V2V.item&&$('#v2vSwap').classList.contains('sel');
   if(v2vSwap&&V_CAST.size!==1){showErr('First-frame identity preparation needs exactly one cast character.');return}
   const v2vStart=Math.max(0,parseFloat($('#v2vStart').value||'0')||0);
@@ -2047,8 +2101,8 @@ $('#go').onclick=async()=>{
       r=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({prompt:p,style:shelfVal('#styles'),duration:durValue(),orientation:sel('#ors'),
           model:eng,face_fix:$('#facefix').classList.contains('sel'),cast:[...V_CAST],
-          video_references:['h3','h3-ltx25'].includes(eng)?videoRefs:[],v2v_swap_first_frame:['h3','h3-ltx25'].includes(eng)?v2vSwap:false,
-          v2v_wardrobe:(['h3','h3-ltx25'].includes(eng)&&v2vSwap)?$('#v2vWardrobe').value.trim():''})});
+          video_references:['h3','h3-ltx25','h3-real'].includes(eng)?videoRefs:[],v2v_swap_first_frame:['h3','h3-ltx25','h3-real'].includes(eng)?v2vSwap:false,
+          v2v_wardrobe:(['h3','h3-ltx25','h3-real'].includes(eng)&&v2vSwap)?$('#v2vWardrobe').value.trim():''})});
       if(!r.ok){let d={};try{d=await r.json()}catch(e){}showErr(d.error||'Could not start — try again.');return}
       const j=await r.json();
       if(id===undefined){({id,eta_min}={id:j.id,eta_min:j.eta_min});}
@@ -4833,7 +4887,7 @@ function setHTML(el,html){if(el&&el.innerHTML!==html)el.innerHTML=html}
    actually measures (H3 runs about twice as long as LTX, so one shared number
    was wrong for both). Waiting: how long until its turn. */
 function qTime(j,i){
-  const eng=j.queue_lane==='online'?' · online':(j.engine==='h3-ltx25'?' · H3 → LTX':(j.engine==='h3'?' · H3':''));
+  const eng=j.queue_lane==='online'?' · online':(j.engine_label?' · '+j.engine_label:(j.engine==='h3-ltx25'?' · H3 → LTX':(j.engine==='h3'?' · H3':'')));
   if(j.status==='running'&&j.started){
     const total=(j.eta_total||j.eta_self||5)*60;
     const left=Math.max(0,Math.round(total-(Date.now()/1000-j.started)));
@@ -5186,7 +5240,7 @@ function applyRemix(kind,request){
   const r=request||{};
   $('#qwrap').classList.remove('on');
   if(kind==='video'){showTab('tab-video');$('#prompt').value=r.prompt||'';
-    shelfSet('#styles',r.style||'none');setChip('#models',r.model||'ltx25');
+    shelfSet('#styles',r.style||'none');setChip('#models',r.h3_engine==='singularity'?'h3-real':(r.model||'ltx25'));
     durSet(r.duration||'');setChip('#ors',r.orientation||'landscape');$('#prompt').focus();}
   else if(kind==='music'){showTab('tab-music');$('#m_vibe').value=r.vibe||'';
     const ly=r.lyrics||'';$('#m_lyrics').value=ly;

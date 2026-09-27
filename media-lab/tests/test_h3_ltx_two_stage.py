@@ -107,6 +107,7 @@ def make_composite_job(request):
         STYLES={"none": {"prefix": ""}},
         fal_ready=lambda: True,
         _h3ref=SimpleNamespace(
+            wants_singularity=lambda value: False, H3_SINGULARITY_VARIANT="singularity",
             required_turbo_preset=lambda value: None,
             normalize_references=lambda value: value,
             assert_ref_count_ok=lambda value: None,
@@ -118,6 +119,7 @@ def make_composite_job(request):
         H3_SIZES={"landscape": (1344, 768)},
         cast_lines=lambda value: [],
         engine_up=lambda value: False,
+        h3_variant_warm=lambda singularity: False,
         engine_licences=importlib.import_module("media_lab_core.engine_licences"),
         submit_job=lambda kind, request, extra: {"kind": kind, "request": request, **extra},
     )
@@ -170,6 +172,7 @@ def test_two_stage_runner_preserves_stage_a_and_passes_same_seed(tmp_path):
 
     run = function(
         "_run_h3_ltx_video",
+        _h3ref=SimpleNamespace(wants_singularity=lambda request: False),
         Path=Path,
         base64=__import__("base64"),
         json=json,
@@ -263,6 +266,7 @@ def test_stage_a_failure_never_starts_ltx(tmp_path):
     calls = []
     run = function(
         "_run_h3_ltx_video",
+        _h3ref=SimpleNamespace(wants_singularity=lambda request: False),
         Path=Path,
         base64=__import__("base64"), json=json, shutil=__import__("shutil"),
         hashlib=hashlib, subprocess=__import__("subprocess"),
@@ -301,6 +305,7 @@ def test_stage_a_decoded_media_failure_never_starts_ltx(tmp_path):
 
     run = function(
         "_run_h3_ltx_video",
+        _h3ref=SimpleNamespace(wants_singularity=lambda request: False),
         Path=Path, base64=__import__("base64"), json=json,
         shutil=__import__("shutil"), hashlib=hashlib,
         subprocess=subprocess, POOL_DIR=pool, JOBS_DIR=tmp_path / "jobs",
