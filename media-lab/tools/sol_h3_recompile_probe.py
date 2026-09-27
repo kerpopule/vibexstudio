@@ -24,6 +24,7 @@ Prints one JSON line; exit 0 when the mode behaved as described above.
 # No `from __future__ import annotations`: torch.library.custom_op infers its
 # schema from real annotation objects.
 import argparse
+import gc
 import importlib.util
 import json
 import math
@@ -113,14 +114,22 @@ def run(mode, sol_pkg, prompts):
         except Exception as exc:  # noqa: BLE001 - the probe reports what failed
             result["prompts"].append({"text_tokens": n_text, "error": type(exc).__name__})
             break
-        result["prompts"].append({"text_tokens": n_text,
-                                  "cache_entries": len(_debug_get_cache_entry_list(region.__code__))})
+        row = {"text_tokens": n_text, "cache_entries": len(_debug_get_cache_entry_list(region.__code__))}
+        if geometry is not None:
+            holder = md.tile_buf_holder
+            del builder, md
+            gc.collect()
+            # the stock lifetime: nothing stays resident once the request's builder is gone
+            row["buffer_released"] = holder.buffer is None
+        result["prompts"].append(row)
     failed = [p for p in result["prompts"] if "error" in p]
     if mode == "stock":
         result["ok"] = bool(failed) and failed[0]["error"] == "FailOnRecompileLimitHit"
     else:
         entries = [p["cache_entries"] for p in result["prompts"] if "cache_entries" in p]
-        result["ok"] = not failed and len(entries) == prompts and max(entries) <= 6 and entries[-1] == entries[len(entries) // 2]
+        released = all(p.get("buffer_released") for p in result["prompts"])
+        result["ok"] = (not failed and released and len(entries) == prompts and max(entries) <= 6
+                        and entries[-1] == entries[len(entries) // 2])
     return result
 
 

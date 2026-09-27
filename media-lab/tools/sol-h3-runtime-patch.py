@@ -43,6 +43,10 @@ GEOMETRY = Path("runtime/stage1_ops/geometry.py")
 
 UPSTREAM_REGIONAL_SHA = "57ef1889894b882467c9309a70ad9395c90d27b13c93c2bb16bfe90273ad458d"
 PATCHED_REGIONAL_SHA = "8a3bc1e1f042ca1eb23b79b3f5517b19aa1f08449d4e3707ef9326e0aea84dc3"
+# Earlier geometry.py releases this tool may replace in place (``apply`` upgrades them).
+PREVIOUS_GEOMETRY_SHAS = frozenset({
+    "45bc0c5ecdb5e6652385b0ef05a04e5ed53472f8f122b95f34a872baf1b8643d",  # r22: process-lifetime buffer
+})
 
 # (upstream text, patched text): each upstream text occurs exactly once.
 EDITS: tuple[tuple[str, str], ...] = (
@@ -93,8 +97,9 @@ def upstream_text(patched: str, edits=EDITS) -> str:
 
 
 def state(sol_pkg: Path, *, upstream_sha=UPSTREAM_REGIONAL_SHA, patched_sha=PATCHED_REGIONAL_SHA,
-          geometry_source: Path = GEOMETRY_SOURCE) -> str:
-    """'patched', 'upstream', or 'unknown' (anything else: never touched)."""
+          geometry_source: Path = GEOMETRY_SOURCE, previous_geometry=PREVIOUS_GEOMETRY_SHAS) -> str:
+    """'patched', 'outdated' (an earlier geometry.py), 'upstream', or 'unknown'
+    (anything else: never touched)."""
     regional = sol_pkg / REGIONAL
     if not regional.is_file():
         return "unknown"
@@ -103,6 +108,8 @@ def state(sol_pkg: Path, *, upstream_sha=UPSTREAM_REGIONAL_SHA, patched_sha=PATC
     if digest == patched_sha:
         if geometry.is_file() and geometry.read_bytes() == geometry_source.read_bytes():
             return "patched"
+        if geometry.is_file() and sha256(geometry.read_bytes()) in previous_geometry:
+            return "outdated"
         return "unknown"
     if digest == upstream_sha and not geometry.exists():
         return "upstream"
@@ -128,6 +135,10 @@ def apply(sol_pkg: Path, *, upstream_sha=UPSTREAM_REGIONAL_SHA, patched_sha=PATC
                 geometry_source=geometry_source)
     if now == "patched":
         return "already patched"
+    if now == "outdated":
+        regional = sol_pkg / REGIONAL
+        _atomic_write(sol_pkg / GEOMETRY, geometry_source.read_bytes(), regional.stat().st_mode & 0o777)
+        return "patched"
     if now != "upstream":
         raise PatchError(f"{sol_pkg / REGIONAL} is neither the pinned upstream nor the patched file; "
                          "refusing to touch it")
@@ -148,7 +159,7 @@ def revert(sol_pkg: Path, *, upstream_sha=UPSTREAM_REGIONAL_SHA, patched_sha=PAT
                 geometry_source=geometry_source)
     if now == "upstream":
         return "already upstream"
-    if now != "patched":
+    if now not in ("patched", "outdated"):
         raise PatchError(f"{sol_pkg / REGIONAL} is not exactly the patched file; refusing to touch it")
     regional = sol_pkg / REGIONAL
     old = upstream_text(regional.read_bytes().decode(), edits).encode()
