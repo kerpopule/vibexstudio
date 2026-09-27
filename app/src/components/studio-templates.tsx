@@ -3,6 +3,7 @@ import {TextInput,View} from 'react-native';
 import {ThemedText} from '@/components/themed-text';
 import {Button} from '@/components/ui/button';
 import {useTheme} from '@/hooks/use-theme';
+import {Radii} from '@/constants/theme';
 
 export type StudioTemplate={id:string;title:string;kind:'image'|'video';prompt:string};
 /** Original editable starter prompts; no reference images or model dependencies are bundled. */
@@ -21,7 +22,7 @@ export function StudioTemplates({onChoose,disabled}:{onChoose:(template:StudioTe
   <ThemedText type="heading">Starter templates</ThemedText>
   <ThemedText themeColor="textSecondary">Choose a starting prompt, replace the bracketed details and make it yours. Choosing a template does not start generation.</ThemedText>
   <TextInput accessibilityLabel="Search starter templates" placeholder="Search templates…" value={query} onChangeText={setQuery} style={{minHeight:48,padding:12,borderRadius:12,color:theme.text,backgroundColor:theme.backgroundElement}} placeholderTextColor={theme.textSecondary} />
-  {visible.map(template=><View key={template.id} style={{padding:16,borderRadius:16,backgroundColor:theme.backgroundElement,gap:10}}>
+  {visible.map(template=><View key={template.id} style={{padding:16,borderRadius:Radii.lg,backgroundColor:theme.backgroundElement,gap:10}}>
    <ThemedText type="smallBold">{template.title} · {template.kind==='image'?'Image':'Video clip'}</ThemedText>
    <ThemedText selectable themeColor="textSecondary">{template.prompt}</ThemedText>
    <Button title={`Use ${template.title}`} variant="secondary" disabled={disabled} onPress={()=>onChoose(template)} />

@@ -21,7 +21,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {useProjectComposer, restoreProjectComposers, EMPTY_COMPOSER, type ComposeMode} from '@/lib/project-composer';
@@ -36,9 +36,10 @@ import { providerGlyph, shortModelLabel } from '@/lib/ai/models';
 import { EMPTY_SESSION, useChat } from '@/lib/chat-engine';
 import { useApp } from '@/lib/store';
 import type { ChatMessage, ProjectMeta, ProviderConnection } from '@/lib/types';
-import { enter } from '@/lib/motion';
+import { enter, webEnter } from '@/lib/motion';
 import {listProjectFilePaths} from '@/lib/storage/projects';
 import {projectMediaIdeas} from '@/lib/project-media-ideas';
+import { EnterView } from '@/components/ui/enter-view';
 
 
 
@@ -305,7 +306,7 @@ export function ChatView({ project }: { project: ProjectMeta }) {
               </ThemedText>
               <View style={styles.ideas}>
                 {(mediaIdeas.length ? mediaIdeas : STARTER_IDEAS).map((idea, i) => (
-                  <Animated.View key={idea.prompt} entering={enter(FadeInDown.delay(120 + i * 70).duration(350))}>
+                  <EnterView key={idea.prompt} entering={enter(FadeInDown.delay(120 + i * 70).duration(350))} style={webEnter('fade-down', 350, 120 + i * 70)}>
                     <ScalePress
                       onPress={() => setInput(idea.prompt)}
                       style={[styles.ideaChip, { backgroundColor: theme.backgroundElement }, Shadows.card]}>
@@ -314,7 +315,7 @@ export function ChatView({ project }: { project: ProjectMeta }) {
                         {idea.prompt}
                       </ThemedText>
                     </ScalePress>
-                  </Animated.View>
+                  </EnterView>
                 ))}
               </View>
             </View>
@@ -357,7 +358,7 @@ export function ChatView({ project }: { project: ProjectMeta }) {
         <Pressable accessibilityRole="button" accessibilityLabel="Use a Media Lab creation" onPress={() => router.push({ pathname: '/library', params: { projectId: project.id } })} style={styles.modeButton} hitSlop={6}>
           <Ionicons name="images-outline" size={22} color={theme.textSecondary} />
         </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Attach a file" accessibilityState={{expanded:attachmentsOpen,disabled:session.busy || submitting}} disabled={session.busy || submitting} onPress={openAttachSheet} style={styles.modeButton} hitSlop={6}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Attach a file" aria-expanded={attachmentsOpen} aria-disabled={session.busy || submitting} disabled={session.busy || submitting} onPress={openAttachSheet} style={styles.modeButton} hitSlop={6}>
           <Ionicons name="attach" size={22} color={theme.textSecondary} />
         </Pressable>
         {mode !== 'chat' ? (

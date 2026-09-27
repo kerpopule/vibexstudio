@@ -4,10 +4,11 @@ import { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { pressFeedback } from '@/components/ui/press-feedback';
 import { ThemedView } from '@/components/themed-view';
 import { Button } from '@/components/ui/button';
 import { TextField } from '@/components/ui/text-field';
-import { Spacing } from '@/constants/theme';
+import { Radii, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { connectOpenRouter } from '@/lib/ai/openrouterOauth';
 import { PROVIDER_ORDER, PROVIDERS } from '@/lib/ai/registry';
@@ -88,10 +89,13 @@ export default function ConnectProviderScreen() {
             return (
               <Pressable
                 key={id}
+                accessibilityRole="button"
+                accessibilityLabel={`${sub.name}. ${sub.blurb}`}
                 onPress={() => router.push({ pathname: '/connect-subscription', params: { provider: id } })}
-                style={({ pressed }) => [
+                style={(state) => [
                   styles.providerCard,
-                  { backgroundColor: theme.tintSoft, opacity: pressed ? 0.7 : 1 },
+                  { backgroundColor: theme.tintSoft },
+                  pressFeedback(state),
                 ]}>
                 <View style={styles.providerBody}>
                   <ThemedText type="smallBold">{sub.name}</ThemedText>
@@ -112,13 +116,16 @@ export default function ConnectProviderScreen() {
             return (
               <Pressable
                 key={candidate}
+                accessibilityRole="button"
+                accessibilityLabel={`${candidateSpec.name}. ${candidateSpec.blurb}`}
                 onPress={() => {
                   setKind(candidate);
                   setModel(candidateSpec.defaultModel);
                 }}
-                style={({ pressed }) => [
+                style={(state) => [
                   styles.providerCard,
-                  { backgroundColor: theme.backgroundElement, opacity: pressed ? 0.7 : 1 },
+                  { backgroundColor: theme.backgroundElement },
+                  pressFeedback(state),
                 ]}>
                 <View style={styles.providerBody}>
                   <ThemedText type="smallBold">{candidateSpec.name}</ThemedText>
@@ -138,7 +145,7 @@ export default function ConnectProviderScreen() {
   return (
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Pressable disabled={busy} onPress={() => { setKind(null); setApiKey(''); setBaseUrl(''); setError(null); }}>
+        <Pressable accessibilityRole="button" disabled={busy} onPress={() => { setKind(null); setApiKey(''); setBaseUrl(''); setError(null); }} style={(state) => [styles.textLink, pressFeedback(state, !busy)]}>
           <ThemedText themeColor="tint">‹ All providers</ThemedText>
         </Pressable>
         <ThemedText type="subtitle">{spec!.name}</ThemedText>
@@ -181,7 +188,7 @@ export default function ConnectProviderScreen() {
           hint={spec!.keyUrl ? `Get a key at ${spec!.keyUrl}` : undefined}
         />
         {spec!.keyUrl ? (
-          <Pressable onPress={() => WebBrowser.openBrowserAsync(spec!.keyUrl!)}>
+          <Pressable accessibilityRole="link" onPress={() => WebBrowser.openBrowserAsync(spec!.keyUrl!)} style={(state) => [styles.textLink, pressFeedback(state)]}>
             <ThemedText type="small" themeColor="tint">
               Open {spec!.keyUrl} ↗
             </ThemedText>
@@ -202,10 +209,13 @@ export default function ConnectProviderScreen() {
               <Pressable
                 key={suggested}
                 disabled={busy}
+                accessibilityRole="button"
+                aria-selected={suggested === model} aria-disabled={busy}
                 onPress={() => setModel(suggested)}
-                style={[
+                style={(state) => [
                   styles.chip,
                   { backgroundColor: suggested === model ? theme.tintSoft : theme.backgroundElement },
+                  pressFeedback(state, !busy),
                 ]}>
                 <ThemedText type="small">{suggested}</ThemedText>
               </Pressable>
@@ -235,7 +245,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.three,
-    borderRadius: 16,
+    borderRadius: Radii.lg,
     padding: Spacing.three,
   },
   providerBody: {
@@ -254,8 +264,15 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   chip: {
-    borderRadius: 999,
+    borderRadius: Radii.pill,
     paddingHorizontal: 12,
     paddingVertical: 6,
+    minHeight: 32,
+    justifyContent: 'center',
+  },
+  textLink: {
+    minHeight: 44,
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
   },
 });

@@ -18,6 +18,7 @@ import { useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { pressFeedback } from '@/components/ui/press-feedback';
 import { ThemedView } from '@/components/themed-view';
 import { Button } from '@/components/ui/button';
 import { TextField } from '@/components/ui/text-field';
@@ -133,12 +134,12 @@ export default function PairScanScreen() {
           returnKeyType="go"
         />
         <View style={styles.actions}>
-          <Pressable onPress={pasteAndGo} hitSlop={8} style={styles.inline}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Paste pairing link" onPress={pasteAndGo} style={(state) => [styles.inline, pressFeedback(state)]}>
             <Ionicons name="clipboard-outline" size={15} color={theme.tint} />
             <ThemedText type="smallBold" themeColor="tint">Paste</ThemedText>
           </Pressable>
           {!scanning && Platform.OS !== 'web' ? (
-            <Pressable onPress={() => setScanning(true)} hitSlop={8} style={styles.inline}>
+            <Pressable accessibilityRole="button" onPress={() => setScanning(true)} style={(state) => [styles.inline, pressFeedback(state)]}>
               <Ionicons name="camera-outline" size={15} color={theme.tint} />
               <ThemedText type="smallBold" themeColor="tint">Scan instead</ThemedText>
             </Pressable>
@@ -180,6 +181,7 @@ const styles = StyleSheet.create({
   orRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   rule: { flex: 1, height: StyleSheet.hairlineWidth },
   actions: { flexDirection: 'row', gap: Spacing.four },
-  inline: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  // 44pt minimum hit area — the visible label is only ~20pt tall.
+  inline: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 44, minWidth: 44, paddingRight: Spacing.two },
   foot: { lineHeight: 19 },
 });

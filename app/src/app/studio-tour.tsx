@@ -3,18 +3,20 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Image, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
-import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
+import { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
+import { pressFeedback } from '@/components/ui/press-feedback';
 import { thisDevice } from '@/lib/device';
 import { Glass } from '@/components/ui/glass';
 import { ScalePress } from '@/components/ui/scale-press';
-import { gradientColors, Radii, Shadows, Spacing } from '@/constants/theme';
+import { gradientColors, Radii, Shadows, Spacing, TypeScale } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { onboardingLayoutForViewport } from '@/lib/layout';
 import { useApp } from '@/lib/store';
-import { enter } from '@/lib/motion';
+import { enter, webEnter } from '@/lib/motion';
+import { EnterView } from '@/components/ui/enter-view';
 
 const APP_ICON = require('../../assets/images/icon.png');
 
@@ -100,29 +102,29 @@ export default function StudioTourScreen() {
             />
             <ThemedText type="smallBold">VibeX Studio</ThemedText>
           </View>
-          <Pressable accessibilityRole="button" onPress={finish} hitSlop={12}>
+          <Pressable accessibilityRole="button" onPress={finish} hitSlop={12} style={(state) => [styles.doneLink, pressFeedback(state)]}>
             <ThemedText type="small" themeColor="textSecondary">Done</ThemedText>
           </Pressable>
         </View>
 
         <View style={[styles.stage, compactHeight && styles.stageCompactHeight, wide && styles.stageWide]}>
-          <Animated.View
+          <EnterView
             key={`visual-${step}`}
             entering={enter(FadeIn.duration(350))}
             exiting={enter(FadeOut.duration(150))}
-            style={[styles.visualWrap, compactHeight && styles.visualWrapCompactHeight, wide && styles.visualWide]}>
+            style={[styles.visualWrap, compactHeight && styles.visualWrapCompactHeight, wide && styles.visualWide, webEnter('fade', 350)]}>
             <StudioDemo kind={item.demo} compactHeight={compactHeight} />
-          </Animated.View>
+          </EnterView>
 
           <View style={[styles.details, compactHeight && styles.detailsCompactHeight, wide && styles.detailsWide]}>
-            <Animated.View key={`copy-${step}`} entering={enter(FadeInDown.duration(420))} style={[styles.copy, compactHeight && styles.copyCompactHeight]}>
+            <EnterView key={`copy-${step}`} entering={enter(FadeInDown.duration(420))} style={[styles.copy, compactHeight && styles.copyCompactHeight, webEnter('fade-down', 420)]}>
               <View style={[styles.eyebrowRow, { backgroundColor: theme.tintSoft }]}>
                 <Ionicons name={item.icon} size={13} color={theme.tint} />
                 <ThemedText type="smallBold" style={{ color: theme.tint, fontSize: 11 }}>{item.eyebrow}</ThemedText>
               </View>
               <ThemedText type="title" style={[styles.title, compactHeight && styles.titleCompactHeight]}>{item.title}</ThemedText>
               <ThemedText themeColor="textSecondary" style={[styles.body, compactHeight && styles.bodyCompactHeight]}>{item.body}</ThemedText>
-            </Animated.View>
+            </EnterView>
 
             <View style={styles.bottom}>
               <View style={styles.dots}>
@@ -151,7 +153,7 @@ export default function StudioTourScreen() {
               </ScalePress>
             </View>
             {step === STEPS.length - 1 ? (
-              <Pressable accessibilityRole="button" onPress={finish} hitSlop={8} style={styles.laterRow}>
+              <Pressable accessibilityRole="button" onPress={finish} hitSlop={8} style={(state) => [styles.laterRow, pressFeedback(state)]}>
                 <ThemedText type="small" themeColor="textSecondary">Set up later — enter the studio</ThemedText>
               </Pressable>
             ) : null}
@@ -236,7 +238,7 @@ const styles = StyleSheet.create({
   topbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 48 },
   topbarCompactHeight: { height: 42 },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  brandMark: { width: 32, height: 32, borderRadius: 11, resizeMode: 'cover' },
+  brandMark: { width: 32, height: 32, borderRadius: Radii.sm, resizeMode: 'cover' },
   visualWrap: { flex: 1, justifyContent: 'center', paddingVertical: 18 },
   visualWrapCompactHeight: { minHeight: 0, paddingVertical: 6 },
   visualWide: { paddingVertical: 0 },
@@ -246,16 +248,16 @@ const styles = StyleSheet.create({
   traffic: { flexDirection: 'row', gap: 5 }, trafficDot: { width: 7, height: 7, borderRadius: 4 },
   island: { width: 70, height: 20, borderRadius: 11, opacity: 0.9 },
   demoBody: { flex: 1, padding: 18, justifyContent: 'center', gap: 14 },
-  userBubble: { alignSelf: 'flex-end', maxWidth: '86%', borderRadius: 18, borderBottomRightRadius: 6, paddingHorizontal: 14, paddingVertical: 11 },
-  codeCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, padding: 14, gap: 9 },
+  userBubble: { alignSelf: 'flex-end', maxWidth: '86%', borderRadius: Radii.lg, borderBottomRightRadius: 6, paddingHorizontal: 14, paddingVertical: 11 },
+  codeCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: Radii.lg, padding: 14, gap: 9 },
   codeHeader: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 3 },
   livePill: { marginLeft: 'auto', borderRadius: Radii.pill, paddingHorizontal: 7, paddingVertical: 3 },
   codeLine: { height: 7, borderRadius: 5, opacity: 0.78 },
   privacyGrid: { gap: 10 },
-  privacyCard: { flexDirection: 'row', alignItems: 'center', gap: 11, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, padding: 12 },
-  iconWell: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  privacyCard: { flexDirection: 'row', alignItems: 'center', gap: 11, borderRadius: Radii.lg, borderWidth: StyleSheet.hairlineWidth, padding: 12 },
+  iconWell: { width: 40, height: 40, borderRadius: Radii.md, alignItems: 'center', justifyContent: 'center' },
   launchWrap: { alignItems: 'center', gap: 12 },
-  launchOrb: { width: 82, height: 82, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  launchOrb: { width: 82, height: 82, borderRadius: Radii.xl, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
   urlBar: { flexDirection: 'row', alignItems: 'center', gap: 7, borderWidth: StyleSheet.hairlineWidth, borderRadius: Radii.pill, paddingHorizontal: 14, paddingVertical: 9 },
   copy: { gap: 12, paddingBottom: 18 },
   copyCompactHeight: { gap: 8, paddingBottom: 8 },
@@ -263,10 +265,12 @@ const styles = StyleSheet.create({
   title: { fontSize: 38, lineHeight: 40, letterSpacing: -1.2 },
   titleCompactHeight: { fontSize: 32, lineHeight: 34 },
   body: { fontSize: 16, lineHeight: 23, maxWidth: 520 },
-  bodyCompactHeight: { fontSize: 15, lineHeight: 20 },
+  bodyCompactHeight: { fontSize: TypeScale.small, lineHeight: 20 },
   bottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.three },
   dots: { flexDirection: 'row', alignItems: 'center', gap: 6 }, dot: { height: 7, borderRadius: 4 },
-  nextShadow: { borderRadius: Radii.pill },
+  // Primary CTAs use the Button shape (Radii.lg rounded rect) — see DESIGN.md.
+  nextShadow: { borderRadius: Radii.lg },
   laterRow: { alignSelf: 'center', paddingTop: 14 },
-  next: { minHeight: 50, borderRadius: Radii.pill, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
+  doneLink: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
+  next: { minHeight: 50, borderRadius: Radii.lg, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
 });

@@ -13,7 +13,7 @@ export function SavedCollections({origin}:{origin:string}) {
   const [open,setOpen]=useState(false),[name,setName]=useState<CollectionName>('characters');
   const [attempt,setAttempt]=useState(0);
   return <View style={{gap:10}}>
-    <Button title={open?'Hide saved collections':'Characters, voices and storyboards'} variant="secondary" accessibilityState={{expanded:open}} onPress={()=>setOpen(value=>!value)}/>
+    <Button title={open?'Hide saved collections':'Characters, voices and storyboards'} variant="secondary" aria-expanded={open} onPress={()=>setOpen(value=>!value)}/>
     {open?<>
       <View style={{flexDirection:'row',flexWrap:'wrap',gap:8}}>
         {(['characters','voices','storyboards'] as const).map(value=><Button key={value} title={value[0].toUpperCase()+value.slice(1)} variant={name===value?'primary':'secondary'} onPress={()=>setName(value)}/>)}
@@ -47,7 +47,7 @@ function SavedCollectionList({origin,name,onRetry}:{origin:string;name:Collectio
       {records.some(record=>record.archived)?<Button title={showArchived?'Hide archived characters':`Show archived characters · ${records.filter(record=>record.archived).length}`} variant="secondary" onPress={()=>{setShowArchived(!showArchived);setCount(24);}}/>:null}
       {!visible.length?<ThemedText>{query?'No matching records.':`No saved ${name} yet.`}</ThemedText>:null}
       {visible.slice(0,count).map(record=><Glass key={record.id} style={{padding:14,gap:10}}>
-        <Button title={record.archived?`Archived · ${record.title}`:record.title} variant="secondary" accessibilityState={{expanded:selected===record.id}} onPress={()=>{setSelected(selected===record.id?null:record.id);setAssetCount(3);}}/>
+        <Button title={record.archived?`Archived · ${record.title}`:record.title} variant="secondary" aria-expanded={selected===record.id} onPress={()=>{setSelected(selected===record.id?null:record.id);setAssetCount(3);}}/>
         {selected===record.id?<>
           {name==='storyboards'&&record.beats.length?<Button title="Make an editing copy" onPress={()=>router.push({pathname:'/storyboard-edit' as never,params:{id:record.id,sourceOrigin:origin}})}/>:null}
           {record.archived?<ThemedText themeColor="textSecondary">Archived in your original library. Kept here so older projects can still find this character.</ThemedText>:null}
