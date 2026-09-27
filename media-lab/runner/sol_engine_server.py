@@ -162,6 +162,27 @@ def _ensure_pipeline(task):
         raise
     log(f"pipeline {task} ready in {time.time()-t0:.0f}s")
     STATE.update(pipe=p, task=task, loaded=True, outdir=outdir); return p
+def release_idle_cache(pipe):
+    """Hand back stage 2's CUDA cache as soon as a take is finished.
+
+    Sol's Pipeline trims stage 2 at the START of the next take, so a warm
+    engine kept ~5 GiB of stage-2 cache between takes. The studio measures the
+    next take's warm admission (22 GiB envelope + 2 GiB reserve) in exactly that
+    gap and refused the following take at ~23.4 GiB (seen 2026-09-18, 09-26 and
+    09-27). This is the same idle trim the Pipeline itself runs (gc + empty_cache
+    on an idle session), only earlier; nothing is relaxed. A failed trim is
+    logged, not a safety event: the next take runs the same call first and any
+    real session fault trips the breaker there."""
+    worker = getattr(pipe, "stage2", None)
+    if worker is None:
+        return None
+    try:
+        result = worker.call("release_idle_cache", qwen_resident=True)
+        STATE["idle_trims"] = STATE.get("idle_trims", 0) + 1
+        return result
+    except Exception as e:
+        log("stage2 idle trim failed", type(e).__name__, str(e)[:200])
+        return None
 def b64_to_file(b64, name):
     fp = f"{RUNTIME}/inputs/{name}"; open(fp, "wb").write(base64.b64decode(b64)); return fp
 def find_mp4(rid):
@@ -228,6 +249,7 @@ class H(BaseHTTPRequestHandler):
             src = src or find_mp4(rid)
             if not src: raise RuntimeError(f"no mp4 produced for {rid}: {str(row)[:300]}")
             shutil.copyfile(src, out); STATE["renders"] += 1
+            release_idle_cache(p)
             self._send(200, {"ok": True, "file": os.path.basename(out), "seed": seed, "elapsed": round(time.time()-t0, 1), "cached": False, "task": task})
         except Exception as e:
             STATE["errors"] += 1; STATE["last_error"] = str(e)[:300]; log("ERROR", traceback.format_exc()); self._send(500, {"ok": False, "error": str(e)[:500]})
