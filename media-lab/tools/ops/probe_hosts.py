@@ -173,6 +173,7 @@ def studio(root):
         "health_code": code, "queue": q, "hold": hold,
         "latch": (runtime / "flashnext-memwatch.latch").exists(),
         "safety_stop": (sol_root / "safety-stop.json").exists(),
+        "safety_stop_reason": (read_json(sol_root / "safety-stop.json") or {}).get("reason"),
         "guard": {"state": guard.get("state"), "age_s": age(guard.get("written_at"))},
         "autorecover_gaveup": (pool / "autorecover-gaveup.json").exists(),
         "handoff_pending": (pool / "gpu-handoff.json").exists(),

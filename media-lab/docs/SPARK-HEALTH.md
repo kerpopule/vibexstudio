@@ -5,8 +5,20 @@ both boxes (the "monitor"). Nothing is installed on the Sparks.
 
 ## Health watch (`tools/ops/spark_health_watch.py`)
 
-- Every 5 minutes, as a scheduler job whose stdout is delivered (for example a
-  Hermes `no_agent` cron job). Empty output means nothing to say.
+- Every 5 minutes. Recommended: two jobs, so the check never depends on the
+  chat gateway being up:
+  - `spark_health_watch.py --outbox` from launchd/cron (`StartInterval 300`).
+    It checks, writes the status files, and queues any message in
+    `outbox.jsonl`. It prints nothing.
+  - `spark_health_watch.py --deliver` as a job whose stdout is delivered (for
+    example a Hermes `no_agent` cron job every 5 minutes). It prints the queued
+    messages exactly once, and says so when the check itself has not run for
+    20 minutes. Empty output means nothing to say.
+  - Or a single stdout-delivering job with no flag (the check prints directly).
+- A guard pressure trip during an H3 cold load is a warning for its first
+  40 minutes (the studio clears that kind itself when
+  `MEDIA_LAB_HOLD_AUTORECOVER=1`), then an action. H3 cold for an hour with
+  nothing running is an action.
 - It reads each host with `tools/ops/probe_hosts.py`, sent over ssh on stdin.
   The probe only reads.
 - It speaks **only when a person must act**, and every message carries the

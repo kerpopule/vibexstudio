@@ -109,6 +109,74 @@ def test_studio_findings_levels():
     assert {"unit:a.service", "text_bridge", "queue_stuck"} <= keys
 
 
+def test_cold_load_guard_trip_waits_for_the_self_heal_then_alerts():
+    base = {"queue": {"answered": True, "queued": 0, "running": 0}, "units": {},
+            "text": {"listed": True}, "sol": {"configured": True, "boot_cleared": True, "loaded": False},
+            "disk_free_pct": 50, "safety_stop": True, "safety_stop_reason": "memory-psi", "latch": True}
+    trip = {**base, "hold": {"exists": True, "reason": "operation-uncertain:RuntimeError", "age_s": 900}}
+    found = watch.studio_findings("s1", trip, {})
+    assert [(f["key"], f["level"]) for f in found] == [("hold", "warn")]   # one finding, not three
+    trip["hold"]["age_s"] = 41 * 60
+    found = watch.studio_findings("s1", trip, {})
+    assert found[0]["level"] == "action" and "did not clear itself" in found[0]["text"]
+    gave = {**trip, "autorecover_gaveup": True, "hold": {**trip["hold"], "age_s": 900}}
+    assert watch.studio_findings("s1", gave, {})[0]["level"] == "action"
+    render_fail = {**base, "safety_stop_reason": "generation_failed",
+                   "hold": {"exists": True, "reason": "operation-uncertain:RuntimeError", "age_s": 60}}
+    assert watch.studio_findings("s1", render_fail, {})[0]["level"] == "action"
+    no_hold = {**base, "hold": {"exists": False}}
+    keys = {f["key"] for f in watch.studio_findings("s1", no_hold, {})}
+    assert {"safety_stop", "latch"} <= keys
+
+
+def test_h3_cold_for_an_hour_becomes_action():
+    p = {"hold": {"exists": False}, "queue": {"answered": True, "queued": 0, "running": 0},
+         "units": {}, "text": {"listed": True}, "disk_free_pct": 50,
+         "sol": {"configured": True, "boot_cleared": True, "loaded": False}}
+    found = watch.studio_findings("s1", p, {})
+    assert {(f["key"], f["level"]) for f in found} == {("h3_cold", "warn"), ("h3_cold_long", "action")}
+    st = {}
+    assert [f["key"] for f in watch.apply_persistence(found, st, DAY, watch.DEFAULT_PERSIST)] == []
+    kept = watch.apply_persistence(found, st, DAY + 3601, watch.DEFAULT_PERSIST)
+    assert {f["key"] for f in kept} == {"h3_cold", "h3_cold_long"}
+
+
+def test_outbox_then_deliver_exactly_once_and_watch_the_watcher(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("SPARK_HEALTH_DRY_RUN", raising=False)
+    cfg = _cfg(tmp_path, dry_run=False)
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "status.json").write_text(json.dumps({"ts": DAY}))
+    watch.queue_message(state, "Spark check 10:00\n- hold broke.", DAY)
+    watch.queue_message(state, "Spark check 10:05\n- Resolved: hold broke.", DAY + 300)
+    text = watch.deliver(cfg, now=DAY + 310)
+    assert "hold broke" in text and "Resolved" in text
+    assert watch.deliver(cfg, now=DAY + 320) == ""          # exactly once
+    stale = watch.deliver(cfg, now=DAY + 25 * 60)
+    assert "has not run for 25 min" in stale
+    assert watch.deliver(cfg, now=DAY + 30 * 60) == ""      # deduped
+    (state / "status.json").write_text(json.dumps({"ts": DAY + 31 * 60}))
+    assert "running again" in watch.deliver(cfg, now=DAY + 32 * 60)
+
+
+def test_outbox_mode_prints_nothing_and_dry_run_deliver_sends_nothing(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("SPARK_HEALTH_DRY_RUN", raising=False)
+    cfg = _cfg(tmp_path, dry_run=False)
+    path = tmp_path / "cfg.json"
+    path.write_text(json.dumps(cfg))
+    monkeypatch.setattr(watch.run, "__kwdefaults__",
+                        {**watch.run.__kwdefaults__, "probe": lambda t, k, a=None, o=None: None,
+                         "fetch": lambda *a, **k: (200, {})})
+    assert watch.main(["--config", str(path), "--outbox"]) == 0
+    assert capsys.readouterr().out == ""
+    assert (tmp_path / "state" / "outbox.jsonl").exists()
+    cfg["dry_run"] = True
+    path.write_text(json.dumps(cfg))
+    assert watch.main(["--config", str(path), "--deliver"]) == 0
+    assert capsys.readouterr().out == ""
+    assert "[deliver]" in (tmp_path / "state" / "dry-run.log").read_text()
+
+
 def _cfg(tmp_path, **over):
     cfg = {"state_dir": str(tmp_path / "state"), "quiet_hours": [22, 7], "dry_run": True,
            "hosts": {"s1": {"ssh": "user@host1.example", "role": "studio", "label": "Studio host"},

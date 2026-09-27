@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """Watch the studio host and the text host from a third machine; speak only when a person must act.
 
-Run every 5 minutes by a scheduler that delivers stdout (a Hermes ``no_agent``
-cron job: printed text is delivered as-is, empty output is a silent run, a
-non-zero exit is an error alert). No LLM is involved. Stdlib only, Python 3.9+.
+Run every 5 minutes. Two ways:
+  * ``--outbox`` under launchd (the deterministic scheduler): the check runs
+    whether or not the chat gateway is up, and queues any message; a Hermes
+    ``no_agent`` job runs ``--deliver`` every 5 minutes and prints the queued
+    messages (printed text is delivered as-is, empty output is a silent run).
+    ``--deliver`` also says so when the check itself has stopped running.
+  * no flag: the check prints its message directly (a stdout-delivering job).
+No LLM is involved. Stdlib only, Python 3.9+.
 
 What it does each run:
   1. reads each host over ssh with a small read-only probe (probe_hosts.py,
@@ -55,6 +60,10 @@ MARKER_MAX_S = 2 * 3600
 SSH_CONNECT_S = 10
 SSH_TOTAL_S = 30
 COMPLETION_EVERY_S = 15 * 60
+HOLD_GRACE_S = 20 * 60           # the harmless restart hold clears itself at 10 min
+TRIP_GRACE_S = 40 * 60           # a cold-load guard trip clears itself at 15 min + reload
+GUARD_TRIP_REASONS = ("memory-psi", "low-memavailable", "swap-growth")
+STALE_S = 20 * 60                # the watch itself has not run for this long
 
 
 # ---------------------------------------------------------------- utilities
@@ -145,24 +154,34 @@ def studio_findings(name: str, p: dict, cfg: dict) -> list:
         "it never touches. Look at pool/gpu-recovery-hold.json, then clear it only "
         "with tools/reconcile-gpu-recovery.py --job-id <lease job>.")
     hold = p.get("hold") or {}
+    reason = str(hold.get("reason") or "")
+    # A guard pressure trip during a cold load: the studio clears it by itself
+    # once memory recovers (15 min + a ~6 min reload), at most once a day.
+    guard_trip = (bool(p.get("safety_stop")) and reason.startswith("operation-uncertain:")
+                  and p.get("safety_stop_reason") in GUARD_TRIP_REASONS)
     if hold.get("exists"):
         age = float(hold.get("age_s") or 0)
-        harmless = str(hold.get("reason") or "") in (
+        harmless = reason in (
             "durable-lease-recovery:owner-exited", "durable-lease-recovery:controller-restarted")
-        level = "action" if (p.get("autorecover_gaveup") or age >= 20 * 60 or not harmless) else "warn"
-        out.append(Finding("hold", name, level,
-                           f"Media Lab is on a GPU recovery hold for {age / 60:.0f} min "
-                           f"({hold.get('reason') or 'unknown reason'})"
-                           + ("; auto-recover gave up" if p.get("autorecover_gaveup") else ""),
-                           step_hold))
+        grace = TRIP_GRACE_S if guard_trip else HOLD_GRACE_S
+        level = "action" if (p.get("autorecover_gaveup") or age >= grace
+                             or not (harmless or guard_trip)) else "warn"
+        what = (f"Media Lab is on a GPU recovery hold for {age / 60:.0f} min "
+                f"({reason or 'unknown reason'}"
+                + (f", guard {p.get('safety_stop_reason')} trip" if guard_trip else "") + ")"
+                + ("; auto-recover gave up" if p.get("autorecover_gaveup") else "")
+                + ("; it did not clear itself" if guard_trip and level == "action"
+                   and not p.get("autorecover_gaveup") else ""))
+        out.append(Finding("hold", name, level, what, step_hold))
     elif p.get("autorecover_gaveup"):
         out.append(Finding("autorecover", name, "action",
                            "Hold auto-recovery gave up earlier",
                            "Read pool/autorecover.log, then remove pool/autorecover-gaveup.json."))
-    if p.get("safety_stop"):
+    # With a hold, the stop and the latch are part of it (one message, not three).
+    if p.get("safety_stop") and not hold.get("exists"):
         out.append(Finding("safety_stop", name, "action", "The H3 safety stop is set",
                            "Read the newest control-plane incident before clearing it."))
-    if p.get("latch"):
+    if p.get("latch") and not hold.get("exists"):
         out.append(Finding("latch", name, "action",
                            "memwatch stopped H3 for low memory (latch set)",
                            "Check memory and kernel NVRM errors before clearing the latch."))
@@ -198,6 +217,11 @@ def studio_findings(name: str, p: dict, cfg: dict) -> list:
     elif sol.get("configured") and not sol.get("loaded") and not hold.get("exists") \
             and not q.get("running"):
         out.append(Finding("h3_cold", name, "warn", "H3 is cold (not warm in t2va)", ""))
+        # The idle restore brings H3 back within ~15 min; an hour cold means it will not.
+        out.append(Finding("h3_cold_long", name, "action",
+                           "H3 has stayed cold for over an hour with nothing running",
+                           "Read `journalctl --user -u media-lab-simple | grep -E 'h3-load|idle'` "
+                           "on the studio host; the runbook's 'A hold that did not clear' covers the rest."))
     disk = p.get("disk_free_pct")
     if disk is not None and disk < 8:
         out.append(Finding("disk", name, "action", f"Disk {disk}% free", "Free space before renders fail."))
@@ -262,6 +286,7 @@ DEFAULT_PERSIST = {
     "studio_api": 10 * 60,
     "completion": 0,            # already needs 2 misses 15 min apart
     "h3_cold": 30 * 60,
+    "h3_cold_long": 60 * 60,
 }
 
 
@@ -528,6 +553,61 @@ def run(cfg: dict, *, now: float | None = None, probe=run_probe, fetch=http,
     return {"message": message, "status": status}
 
 
+def queue_message(state_dir: Path, message: str, now: float) -> None:
+    """--outbox mode (a launchd run): keep the message for the delivering job."""
+    with (Path(state_dir) / "outbox.jsonl").open("a") as fh:
+        fh.write(json.dumps({"ts": now, "message": message}) + "\n")
+
+
+def deliver(cfg: dict, *, now: float | None = None) -> str:
+    """--deliver mode (the Hermes job): hand over queued messages exactly once.
+
+    Also watches the watcher: if the scheduled check has not run for STALE_S it
+    says so (once per REMINDER_S), because silence must never look like "fine".
+    Dry run: nothing is returned; the staleness note goes to dry-run.log."""
+    now = time.time() if now is None else now
+    state_dir = Path(os.path.expanduser(cfg["state_dir"]))
+    state_dir.mkdir(parents=True, exist_ok=True)
+    dry = bool(cfg.get("dry_run")) or os.environ.get("SPARK_HEALTH_DRY_RUN") == "1"
+    outbox, sending = state_dir / "outbox.jsonl", state_dir / ".outbox.sending"
+    if outbox.exists():
+        # Take the outbox atomically (the check may be appending right now),
+        # then add it to anything a crashed delivery left behind.
+        taking = state_dir / ".outbox.taking"
+        os.replace(outbox, taking)
+        with sending.open("a") as fh:
+            fh.write(taking.read_text())
+        taking.unlink()
+    messages = []
+    for line in (sending.read_text() if sending.exists() else "").splitlines():
+        try:
+            messages.append(json.loads(line)["message"])
+        except (ValueError, KeyError, TypeError):
+            continue
+    st_path = state_dir / "deliver-state.json"
+    dst = read_json(st_path, {}) or {}
+    status = read_json(state_dir / "status.json") or {}
+    age = now - float(status.get("ts") or 0)
+    if age > STALE_S:
+        if now - float(dst.get("stale_sent") or 0) >= REMINDER_S:
+            messages.append(f"Spark check: the health watch has not run for {age / 60:.0f} min. "
+                            "Next: on VibeX, `launchctl print gui/$(id -u)/com.vibex.spark-health-watch` "
+                            "and ~/Library/Logs/spark-health-watch.log.")
+            dst["stale_sent"] = now
+    elif dst.get("stale_sent"):
+        messages.append("Spark check: the health watch is running again.")
+        dst["stale_sent"] = None
+    write_json(st_path, dst)
+    text = "\n\n".join(messages)
+    if dry and text:
+        with (state_dir / "dry-run.log").open("a") as fh:
+            fh.write("[deliver] " + text + "\n\n")
+        text = ""
+    if sending.exists():
+        sending.unlink()
+    return text
+
+
 def load_config(path: Path | None = None) -> dict:
     path = Path(path or os.environ.get("SPARK_HEALTH_CONFIG") or DEFAULT_CONFIG)
     return json.loads(path.read_text())
@@ -539,8 +619,17 @@ def main(argv=None) -> int:
     ap.add_argument("--status", action="store_true", help="print one line per host")
     ap.add_argument("--refresh", action="store_true", help="with --status: check live now")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--outbox", action="store_true",
+                    help="scheduled check (launchd): queue messages for --deliver, print nothing")
+    ap.add_argument("--deliver", action="store_true",
+                    help="delivering job (Hermes no_agent): print queued messages once")
     args = ap.parse_args(argv)
     cfg = load_config(args.config)
+    if args.deliver:
+        text = deliver(cfg)
+        if text:
+            print(text)
+        return 0
     if args.status:
         if args.refresh:
             status = run(cfg, alerts=False)["status"]
@@ -561,7 +650,10 @@ def main(argv=None) -> int:
         return 0
     out = run(cfg)
     if out["message"]:
-        print(out["message"])
+        if args.outbox:
+            queue_message(Path(os.path.expanduser(cfg["state_dir"])), out["message"], time.time())
+        else:
+            print(out["message"])
     return 0
 
 
