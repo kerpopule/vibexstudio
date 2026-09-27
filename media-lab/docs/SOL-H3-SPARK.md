@@ -48,6 +48,10 @@ switch.
   seconds (default 120), until memory pressure (PSI `full avg10`, the signal the
   guard trips on) is at most `MEDIA_LAB_H3_LOAD_SETTLE_MAX_PSI` (default 2) and
   MemAvailable has stopped moving. The guard itself is unchanged.
+* After every finished take the engine hands stage 2's CUDA cache back at once
+  (the same idle trim Sol's Pipeline runs at the start of the next take). Without
+  it a warm engine kept ~5 GiB between takes and the studio's warm admission
+  (22 GiB envelope + 2 GiB reserve) refused the following take at ~23.4 GiB.
 * Each H3 cold load appends one line to `pool/h3-load-pressure.jsonl`: peak
   PSI, the longest run of one-second samples at the guard's PSI limit, lowest
   MemAvailable, swap growth, and load time. Use it before any guard retune.
