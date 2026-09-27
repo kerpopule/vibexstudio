@@ -11,10 +11,15 @@ export const yourDevice = Platform.select({
   default: 'your computer',
 });
 
-/** "this device" / "this computer" */
+/**
+ * "this device" everywhere. The web build runs on phones and tablets as well
+ * as computers (and inside the desktop shell), and the page is rendered ahead
+ * of time, so it cannot pick "computer" safely.
+ */
 export const thisDevice = Platform.select({
   ios: 'this device',
   android: 'this device',
+  web: 'this device',
   default: 'this computer',
 });
 

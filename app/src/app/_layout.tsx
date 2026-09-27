@@ -1,3 +1,4 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { AgentApprovalHost } from '@/components/agent-approval-host';
 import { AppDialogHost } from '@/components/app-dialog-host';
 import { useFonts } from 'expo-font';
@@ -37,10 +38,15 @@ function isBundleFileUrl(url: string): boolean {
 // never flashes a system-font fallback.
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
+const APP_FONTS = { ...FONT_ASSETS, ...Ionicons.font };
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const theme = useTheme();
-  const [fontsLoaded, fontError] = useFonts(FONT_ASSETS);
+  // Ionicons is registered here too so the static web render already knows
+  // the icon font: otherwise every <Ionicons> renders empty on the server and
+  // as a glyph on the client, and React discards the page on hydration (#418).
+  const [fontsLoaded, fontError] = useFonts(APP_FONTS);
   const hydrate = useApp((s) => s.hydrate);
   const hydrated = useApp((s) => s.hydrated);
   const onboardingComplete = useApp((s) => s.onboardingComplete);

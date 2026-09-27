@@ -12,7 +12,6 @@ import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  useWindowDimensions,
   ActivityIndicator,
   FlatList,
   Linking,
@@ -23,6 +22,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useWindowDimensions } from '@/hooks/use-window-dimensions';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
