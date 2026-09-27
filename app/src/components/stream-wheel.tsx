@@ -1,13 +1,14 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import { FadeIn, FadeOut } from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
 import { ScalePress } from '@/components/ui/scale-press';
 import { Radii, Shadows, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { enter } from '@/lib/motion';
+import { enter, webEnter } from '@/lib/motion';
+import { EnterView } from '@/components/ui/enter-view';
 
 /**
  * The "vibing" panel: a tall pane of raw model output that auto-scrolls as
@@ -57,10 +58,10 @@ export function StreamWheel({ text, onStop }: { text: string; onStop: () => void
   }, [smoothText]);
 
   return (
-    <Animated.View
+    <EnterView
       entering={enter(FadeIn.duration(250))}
       exiting={enter(FadeOut.duration(200))}
-      style={[styles.shell, { backgroundColor: theme.backgroundElement, borderColor: theme.border }, Shadows.card]}>
+      style={[styles.shell, { backgroundColor: theme.backgroundElement, borderColor: theme.border }, Shadows.card, webEnter('fade', 250)]}>
       <View style={styles.header}>
         <ActivityIndicator size="small" color={theme.tint} />
         <ThemedText type="smallBold" style={{ color: theme.tint }}>
@@ -96,7 +97,7 @@ export function StreamWheel({ text, onStop }: { text: string; onStop: () => void
           style={styles.fadeBottom}
         />
       </View>
-    </Animated.View>
+    </EnterView>
   );
 }
 

@@ -22,7 +22,7 @@ export function ThemedText({ style, type = 'default', themeColor, ...rest }: The
         type === 'subtitle' && styles.subtitle,
         type === 'heading' && styles.heading,
         type === 'link' && styles.link,
-        type === 'linkPrimary' && styles.linkPrimary,
+        type === 'linkPrimary' && [styles.linkPrimary, { color: theme.tint }],
         type === 'code' && styles.code,
         style,
       ]}
@@ -76,7 +76,7 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.bodyMedium,
     lineHeight: 30,
     fontSize: 14,
-    color: '#3c87f7',
+    // Color comes from the theme's `tint` at render (see above).
   },
   code: {
     fontFamily: Fonts.mono,

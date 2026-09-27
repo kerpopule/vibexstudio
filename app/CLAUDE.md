@@ -61,7 +61,8 @@ optionally publish to their own GitHub + Pages.
   "what's connected"). The marketing slides are `studio-tour.tsx`.
 - Reanimated `entering`/`exiting` must go through `enter()` from
   `src/lib/motion.ts` — the static web export otherwise leaves remounted
-  content `visibility:hidden`. Zustand selectors return primitives (an
+  content `visibility:hidden`. Pair it with `webEnter()` in the same view's
+  style for the web's CSS entrance. Design tokens: `DESIGN.md`. Zustand selectors return primitives (an
   object-returning selector re-renders forever on web).
 - Icons/splash are drawn programmatically by `scripts/generate-assets.js`
   (always overwrites — it is the artwork's source of truth; keep its color

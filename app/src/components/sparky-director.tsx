@@ -157,7 +157,7 @@ function DirectorPanel({project,origin,visible,inLibrary,docked,onReviewInBuilde
                 const checked=selected?.includes(path)??false;
                 const disabled=busy||(!checked&&(selected?.length??0)>=32);
                 return <Pressable key={path} accessibilityRole="checkbox" accessibilityLabel={path}
-                  accessibilityState={{checked,disabled}} disabled={disabled}
+                  aria-checked={checked} aria-disabled={disabled} disabled={disabled}
                   onPress={()=>{manuallySelected.current=true;setSelected(previous=>checked?(previous??[]).filter(item=>item!==path):[...(previous??[]),path]);}}
                   style={[styles.asset,{opacity:disabled?.5:1}]}>
                   <ThemedText>{checked?'☑':'☐'} {path}</ThemedText>

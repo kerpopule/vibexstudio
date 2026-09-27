@@ -9,7 +9,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Button } from '@/components/ui/button';
 import { TextField } from '@/components/ui/text-field';
-import { Spacing } from '@/constants/theme';
+import { Radii, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { pollDeviceFlow, startDeviceFlow, type DeviceCodeSession } from '@/lib/github/deviceFlow';
 import { useApp } from '@/lib/store';
@@ -176,7 +176,7 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   codeCard: {
-    borderRadius: 16,
+    borderRadius: Radii.lg,
     padding: Spacing.four,
     alignItems: 'center',
     gap: Spacing.two,

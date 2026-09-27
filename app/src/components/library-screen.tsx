@@ -296,13 +296,13 @@ export default function LibraryScreen({ inTab = false }: { inTab?: boolean }) {
             style={[styles.search, {color:theme.text, backgroundColor:theme.backgroundElement}]} />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
             {([['all','All'],['image','Images'],['video','Video'],['audio','Audio'],['model','3D']] as const).map(([value,label]) =>
-              <Pressable key={value} accessibilityRole="button" accessibilityLabel={`Filter ${label}`} accessibilityState={{selected:kind===value}}
+              <Pressable key={value} accessibilityRole="button" accessibilityLabel={`Filter ${label}`} aria-selected={kind===value}
                 onPress={() => {setFocusedAsset(null);setKind(value);}} style={[styles.filter, {backgroundColor:kind===value ? theme.tintSoft : theme.backgroundElement}]}>
                 <ThemedText type="smallBold" style={{color:kind===value ? theme.tint : theme.textSecondary}}>{label}</ThemedText>
               </Pressable>)}
           </ScrollView>
           <Button title={foldersOpen ? 'Hide folders' : folder ? `Folder: ${folder}` : 'Browse folders'} variant="secondary"
-            accessibilityState={{expanded:foldersOpen}} onPress={() => setFoldersOpen(value => !value)} />
+            aria-expanded={foldersOpen} onPress={() => setFoldersOpen(value => !value)} />
           {foldersOpen ? <View style={styles.intro}>
             <ThemedText type="smallBold">{folder || 'All folders'}</ThemedText>
             {folder ? <Button title="Back to parent folder" variant="secondary" onPress={() => setFolder(folder.split('/').slice(0,-1).join('/'))} /> : null}
@@ -315,7 +315,7 @@ export default function LibraryScreen({ inTab = false }: { inTab?: boolean }) {
           {serverUrl ? <LibraryUpload key={serverUrl} origin={serverUrl} onUploaded={()=>setRefreshVersion(value=>value+1)}/> : null}
           {!serverUrl ? <Button title="Connect a server library" variant="secondary" onPress={() => router.push('/connect-media-lab')} /> : null}
           {serverUrl ? <Button title={toolsOpen ? 'Hide creation tools' : 'Creation tools'} variant="secondary"
-            accessibilityState={{expanded:toolsOpen}} onPress={() => setToolsOpen(value => !value)} /> : null}
+            aria-expanded={toolsOpen} onPress={() => setToolsOpen(value => !value)} /> : null}
           <View style={toolsOpen ? styles.intro : styles.hiddenTools} onLayout={event => {toolsOffset.current = event.nativeEvent.layout.y;}}>
           {serverUrl ? <View style={styles.intro}>
             <ThemedText type="heading">Background removal</ThemedText>

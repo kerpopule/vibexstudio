@@ -14,18 +14,19 @@
  */
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
-import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/ui/button';
 import { ThemedText } from '@/components/themed-text';
+import { pressFeedback } from '@/components/ui/press-feedback';
 import { StorageChoices } from '@/components/storage-choices';
 import { Glass } from '@/components/ui/glass';
 import { ScalePress } from '@/components/ui/scale-press';
-import { Fonts, gradientColors, Radii, Shadows, Spacing } from '@/constants/theme';
+import { Fonts, gradientColors, Radii, Shadows, Spacing, TypeScale } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { PROVIDERS } from '@/lib/ai/registry';
 import { SUBSCRIPTION_ORDER, SUBSCRIPTION_PROVIDERS, type SubscriptionProviderId } from '@/lib/ai/subscriptionOauth';
@@ -33,10 +34,12 @@ import { thisDevice } from '@/lib/device';
 import { onboardingLayoutForViewport } from '@/lib/layout';
 import { localInstallAvailable } from '@/lib/local-controller';
 import { hostHereDoor } from '@/lib/media-lab-setup';
-import { enter } from '@/lib/motion';
+import { enter, webEnter } from '@/lib/motion';
 import { hostLabel, mediaCapable, readyToBuild } from '@/lib/setup';
 import { useApp } from '@/lib/store';
 import type { ProviderKind } from '@/lib/types';
+import { isTabPath, safeNextPath } from '@/lib/onboarding-navigation';
+import { EnterView } from '@/components/ui/enter-view';
 
 const APP_ICON = require('../../assets/images/icon.png');
 
@@ -78,12 +81,21 @@ export default function OnboardingScreen() {
   const github = useApp((s) => s.github);
   const [index, setIndex] = useState(0);
   const step = ORDER[index];
+  const { next: nextParam } = useLocalSearchParams<{ next?: string }>();
+  const nextPath = safeNextPath(nextParam);
   const canBuild = readyToBuild({ providers, mediaLab, workbench, github });
 
   const finish = async (then?: () => void) => {
     await completeOnboarding();
+    // A first-time visitor who arrived on a deep link goes back to it: a tab
+    // replaces the wizard, anything else opens on top of the home tab.
+    if (!then && nextPath && isTabPath(nextPath)) {
+      router.replace(nextPath as never);
+      return;
+    }
     router.replace('/(tabs)');
-    then?.();
+    if (then) then();
+    else if (nextPath) router.push(nextPath as never);
   };
   const next = () => setIndex((i) => Math.min(ORDER.length - 1, i + 1));
   const back = () => setIndex((i) => Math.max(0, i - 1));
@@ -99,7 +111,7 @@ export default function OnboardingScreen() {
             <ThemedText type="heading">VibeX Studio</ThemedText>
           </View>
           {step !== 'welcome' && step !== 'done' ? (
-            <Pressable accessibilityRole="button" onPress={() => finish()} hitSlop={12}>
+            <Pressable accessibilityRole="button" onPress={() => finish()} hitSlop={12} style={(state) => [styles.textLink, pressFeedback(state)]}>
               <ThemedText type="small" themeColor="textSecondary">Skip setup</ThemedText>
             </Pressable>
           ) : null}
@@ -121,19 +133,19 @@ export default function OnboardingScreen() {
           contentContainerStyle={styles.body}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
-          <Animated.View entering={enter(FadeInDown.duration(380))} style={styles.copy}>
+          <EnterView entering={enter(FadeInDown.duration(380))} style={[styles.copy, webEnter('fade-down', 380)]}>
             {step === 'welcome' ? <Welcome /> : null}
             {step === 'storage' ? <><StepHeader eyebrow="YOUR FILES" title="Your files stay yours" body="No VibeX storage account. Start on this device, save your own backups, or connect a folder or server for sync." /><StorageChoices /></> : null}
             {step === 'ai' ? <AiStep /> : null}
             {step === 'media' ? <MediaStep /> : null}
             {step === 'computer' ? <ComputerStep /> : null}
             {step === 'done' ? <DoneStep canBuild={canBuild} /> : null}
-          </Animated.View>
+          </EnterView>
         </ScrollView>
 
-        <Animated.View entering={enter(FadeIn.duration(300))} style={styles.footer}>
+        <EnterView entering={enter(FadeIn.duration(300))} style={[styles.footer, webEnter('fade', 300)]}>
           {index > 0 && step !== 'done' ? (
-            <Pressable accessibilityRole="button" onPress={back} hitSlop={10} style={styles.backBtn}>
+            <Pressable accessibilityRole="button" onPress={back} hitSlop={10} style={(state) => [styles.backBtn, pressFeedback(state)]}>
               <Ionicons name="chevron-back" size={18} color={theme.textSecondary} />
               <ThemedText type="smallBold" themeColor="textSecondary">Back</ThemedText>
             </Pressable>
@@ -142,7 +154,7 @@ export default function OnboardingScreen() {
           )}
           {step === 'done' ? (
             <View style={styles.doneActions}>
-              <Pressable accessibilityRole="button" onPress={() => finish(() => router.push('/studio-tour' as never))} hitSlop={8}>
+              <Pressable accessibilityRole="button" onPress={() => finish(() => router.push('/studio-tour' as never))} hitSlop={8} style={(state) => [styles.textLink, pressFeedback(state)]}>
                 <ThemedText type="smallBold" themeColor="textSecondary">60-second tour</ThemedText>
               </Pressable>
               <GradientButton
@@ -159,7 +171,7 @@ export default function OnboardingScreen() {
               onPress={next}
             />
           )}
-        </Animated.View>
+        </EnterView>
       </View>
     </View>
   );
@@ -456,7 +468,7 @@ const styles = StyleSheet.create({
   ambientTop: { position: 'absolute', top: 0, left: 0, right: 0, height: 320 },
   topbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 48 },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  brandMark: { width: 30, height: 30, borderRadius: 10, resizeMode: 'cover' },
+  brandMark: { width: 30, height: 30, borderRadius: Radii.sm, resizeMode: 'cover' },
   progress: { flexDirection: 'row', gap: 6, marginTop: 4, marginBottom: 6 },
   progressSeg: { flex: 1, height: 4, borderRadius: 2 },
   body: { paddingVertical: Spacing.three, paddingBottom: Spacing.four },
@@ -469,8 +481,8 @@ const styles = StyleSheet.create({
   header: { gap: 8 },
   eyebrow: { fontFamily: Fonts.display, fontSize: 11, letterSpacing: 1.4 },
   stepTitle: { fontSize: 32, lineHeight: 36, letterSpacing: -0.8 },
-  stepBody: { fontSize: 15, lineHeight: 21 },
-  groupLabel: { fontFamily: Fonts.display, fontSize: 10.5, letterSpacing: 1.3, marginTop: 4 },
+  stepBody: { fontSize: TypeScale.body, lineHeight: 22 },
+  groupLabel: { fontFamily: Fonts.display, fontSize: TypeScale.micro, letterSpacing: 1.3, marginTop: 4 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   tile: { width: '48%', flexGrow: 1, borderRadius: Radii.lg, borderWidth: StyleSheet.hairlineWidth, padding: 14, gap: 4, minHeight: 104 },
   tileTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
@@ -478,17 +490,19 @@ const styles = StyleSheet.create({
   foot: { lineHeight: 19 },
   doors: { gap: 10 },
   door: { flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: Radii.xl, borderWidth: StyleSheet.hairlineWidth, padding: 14 },
-  doorGlyph: { width: 46, height: 46, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  doorGlyph: { width: 46, height: 46, borderRadius: Radii.md, alignItems: 'center', justifyContent: 'center' },
   doorGlyphText: { fontSize: 22, lineHeight: 28 },
   doorBody: { flex: 1, gap: 3 },
   doorTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   badge: { borderRadius: Radii.pill, paddingHorizontal: 8, paddingVertical: 3 },
-  badgeText: { fontFamily: Fonts.display, fontSize: 9, letterSpacing: 1 },
+  badgeText: { fontFamily: Fonts.display, fontSize: TypeScale.micro, letterSpacing: 1 },
   summary: { alignSelf: 'stretch', padding: Spacing.three, gap: 6 },
   summaryLine: { lineHeight: 20 },
   footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: Spacing.two },
-  backBtn: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingVertical: 8 },
+  backBtn: { flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 44 },
   doneActions: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: Spacing.four },
-  nextShadow: { borderRadius: Radii.pill },
-  next: { minHeight: 50, borderRadius: Radii.pill, paddingHorizontal: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
+  textLink: { minHeight: 44, justifyContent: 'center' },
+  // Primary CTAs use the Button shape (Radii.lg rounded rect) — see DESIGN.md.
+  nextShadow: { borderRadius: Radii.lg },
+  next: { minHeight: 50, borderRadius: Radii.lg, paddingHorizontal: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
 });

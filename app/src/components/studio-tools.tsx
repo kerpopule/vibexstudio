@@ -4,6 +4,7 @@ import {Button} from '@/components/ui/button';
 import {Pressable,View} from 'react-native';
 import {ThemedText} from '@/components/themed-text';
 import {useTheme} from '@/hooks/use-theme';
+import {Radii} from '@/constants/theme';
 
 export const STUDIO_TOOLS = [
   {id:'image',title:'Images',detail:'Prompts and reference images'},
@@ -27,8 +28,8 @@ export function StudioTools({selected,onSelect,wide}:{selected:StudioTool;onSele
   {!wide?<Button title={expanded?'Hide tool list':`All studio tools · ${STUDIO_TOOLS.find(tool=>tool.id===selected)?.title}`} variant="secondary" onPress={()=>setExpanded(value=>!value)} />:null}
   {wide||expanded?<View style={{flexDirection:'row',flexWrap:'wrap',gap:8}}>
    {STUDIO_TOOLS.map(tool=><Pressable key={tool.id} accessibilityRole="button" accessibilityLabel={tool.title}
-    accessibilityState={{selected:selected===tool.id}} onPress={()=>{onSelect(tool.id);setExpanded(false);}}
-    style={{width:'48%',minHeight:92,borderRadius:16,borderWidth:1,borderColor:selected===tool.id?theme.tint:'transparent'}}>
+    aria-selected={selected===tool.id} onPress={()=>{onSelect(tool.id);setExpanded(false);}}
+    style={{width:'48%',minHeight:92,borderRadius:Radii.lg,borderWidth:1,borderColor:selected===tool.id?theme.tint:'transparent'}}>
     <Glass radius={15} bordered={selected!==tool.id} style={{flex:1,padding:14,gap:8,backgroundColor:selected===tool.id?theme.tintSoft:theme.glass}}>
     <ThemedText type="smallBold">{tool.title}</ThemedText>
     <ThemedText type="small" themeColor="textSecondary">{tool.detail}</ThemedText>

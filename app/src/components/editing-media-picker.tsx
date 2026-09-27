@@ -31,7 +31,7 @@ export function EditingMediaPicker({assets,selected,onChange,disabled,maxSelecte
   {kinds.length>1?<View style={{flexDirection:'row',flexWrap:'wrap',gap:8}}>
    {(['all',...kinds]).map(value=><Button key={value} title={value==='all'?'All media':value==='image'?'Images':value==='audio'?'Audio':'Videos'} variant={kind===value?'primary':'secondary'} onPress={()=>{setKind(value);setCount(24);}}/>)}
   </View>:null}
-  <Button title={foldersOpen?'Hide folders':'Browse folders'} variant="secondary" accessibilityState={{expanded:foldersOpen}} onPress={()=>setFoldersOpen(value=>!value)}/>
+  <Button title={foldersOpen?'Hide folders':'Browse folders'} variant="secondary" aria-expanded={foldersOpen} onPress={()=>setFoldersOpen(value=>!value)}/>
   {folder?<ThemedText type="small">{folder}</ThemedText>:null}
   {foldersOpen?<View style={{gap:8}}>
    {folder?<><Button title="Back to parent folder" variant="secondary" onPress={()=>navigate(folder.split('/').slice(0,-1).join('/'))}/><Button title="All folders" variant="secondary" onPress={()=>navigate('')}/></>:null}
@@ -41,7 +41,7 @@ export function EditingMediaPicker({assets,selected,onChange,disabled,maxSelecte
   <ThemedText type="small">Showing {Math.min(count,matches.length)} of {matches.length} matching items</ThemedText>
   <View style={{flexDirection:'row',flexWrap:'wrap',gap:12}}>{matches.slice(0,count).map(asset=>{
    const index=selected.indexOf(asset.id),active=index>=0,locked=disabled||(!active&&selected.length>=maxSelected);
-   return <Pressable key={asset.id} accessibilityRole="checkbox" accessibilityLabel={`${asset.title} · ${asset.folder||'Server library'}`} accessibilityState={{checked:active,disabled:locked}} disabled={locked} onPress={()=>toggle(asset.id)} style={{flexBasis:240,flexGrow:1}}>
+   return <Pressable key={asset.id} accessibilityRole="checkbox" accessibilityLabel={`${asset.title} · ${asset.folder||'Server library'}`} aria-checked={active} aria-disabled={locked} disabled={locked} onPress={()=>toggle(asset.id)} style={{flexBasis:240,flexGrow:1}}>
     <Glass style={{padding:16,gap:8,borderWidth:1,borderColor:active?theme.tint:theme.glassBorder}}>
      <LibraryPreview asset={asset.remote}/>
      <ThemedText type="smallBold" numberOfLines={3}>{active?`${index+1}. `:''}{asset.title}</ThemedText>
