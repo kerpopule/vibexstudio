@@ -101,6 +101,7 @@ ALLOW=(
   '+ /config/gpu-capacity-receipts.json'
   '+ /config/companion-residency-policy.json'
   '+ /config/model-manifests.json'
+  '+ /config/render-eta.json'
   '- *'
 )
 # What the box owns: never written, never deleted (rsync --exclude, first wins).
