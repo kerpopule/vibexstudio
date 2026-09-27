@@ -19,13 +19,19 @@ geometry in one process (warm-up plus three prompts) failed with
 
 This seam changes none of the attention math. The three scalars travel as one
 CPU int64 tensor (read only inside the eager body op, like the layer
-identity), one process-lifetime tile buffer replaces the per-request holder,
-and the per-instance ``preprocess_qkv`` scatters into it without Python-int
-comparisons. Pads stay zero: a new geometry gets a freshly zeroed buffer
+identity), one shared holder object replaces the per-request holder (its
+identity never changes, so no ``is None`` guard per request), and the
+per-instance ``preprocess_qkv`` scatters into it without Python-int
+comparisons. The buffer itself still lives exactly as long as it did: it is
+dropped when the request's metadata builder is freed, so nothing extra stays
+resident between takes (a first version kept it for the process lifetime,
+which cost ~0.4 GiB of warm headroom and failed the next warm admission). Pads stay zero: a new geometry gets a freshly zeroed buffer
 before any region runs (outside the compiled code), exactly when the native
 ``tile()`` would have cleared or reallocated it. The native FastVideo files
 are not modified.
 """
+import itertools
+import weakref
 from types import MethodType
 
 SCALARS = "sol_h3_scalars"
@@ -70,15 +76,35 @@ def preprocess_qkv(self, qkv, attn_metadata):
     return buffer
 
 
+def release(holder, token=None):
+    """Drop the request's tile buffer (the stock per-request lifetime).
+
+    With ``token``: only if that request still owns the holder, so a late
+    finalizer never clears a newer request's buffer. A compiled call already
+    holding the old tensor keeps it alive until it returns; the next call
+    allocates a fresh zeroed buffer."""
+    if token is None or holder.owner == token:
+        holder.buffer = None
+        holder.untile_geometry = None
+
+
 def install(native, bodies):
     """Install once per stage-1 worker, after the VSA audit and before compile."""
     if getattr(native, "_sol_h3_geometry_installed", False):
         raise RuntimeError("stage-1 geometry seam installed twice")
     holder = native._MiniMaxH3VSATileBufferHolder()
+    holder.owner = None
     builder = native.MiniMaxH3VSAMetadataBuilder
     original_build = builder.build
+    tokens = itertools.count(1)
 
     def build(self, *args, **kwargs):
+        if getattr(self, "_sol_h3_geometry_token", None) is None:
+            # A new request's builder: the buffer is its own, as in stock FastVideo.
+            self._sol_h3_geometry_token = token = next(tokens)
+            release(holder)
+            holder.owner = token
+            weakref.finalize(self, release, holder, token)
         return adopt(original_build(self, *args, **kwargs), holder)
 
     builder.build = build
@@ -87,5 +113,5 @@ def install(native, bodies):
             raise RuntimeError("the geometry seam requires the SM121 VSA route without the sm_100a pair tile")
         impl.preprocess_qkv = MethodType(preprocess_qkv, impl)
     native._sol_h3_geometry_installed = True
-    return {"shared_tile_buffer": True, "tensor_scalars": ["current_timestep", "num_prefix_tiles", "num_video_tiles"],
+    return {"shared_tile_holder": True, "tile_buffer_lifetime": "per request (builder)", "tensor_scalars": ["current_timestep", "num_prefix_tiles", "num_video_tiles"],
             "preprocess_bodies": len(bodies), "attention_math_changed": False}

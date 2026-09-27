@@ -169,3 +169,45 @@ def test_probe_reproduces_the_stop_and_the_patch_plateaus(mode):
     run = subprocess.run([str(python), str(PROBE), mode, "--sol-pkg", str(pkg)],
                          capture_output=True, text=True, timeout=900, check=False)
     assert run.returncode == 0, run.stdout[-2000:] + run.stderr[-2000:]
+
+
+def test_outdated_geometry_is_upgraded_in_place_and_revertible(tmp_path):
+    text = upstream_fixture()
+    pkg = fake_pkg(tmp_path, text)
+    kw = pins(text)
+    assert tool.apply(pkg, edits=tool.EDITS, **kw) == "patched"
+    old = b"# an earlier release of geometry.py\n"
+    (pkg / tool.GEOMETRY).write_bytes(old)
+    assert tool.state(pkg, **kw) == "unknown"          # not a known release: never touched
+    assert tool.state(pkg, previous_geometry={tool.sha256(old)}, **kw) == "outdated"
+    with mock.patch.object(tool, "PREVIOUS_GEOMETRY_SHAS", frozenset({tool.sha256(old)})):
+        assert tool.state(pkg, previous_geometry=tool.PREVIOUS_GEOMETRY_SHAS, **kw) == "outdated"
+    assert tool.sha256(GEOMETRY.read_bytes()) not in tool.PREVIOUS_GEOMETRY_SHAS
+
+
+def test_request_buffer_is_released_when_its_builder_goes_away():
+    geometry = load(GEOMETRY, "sol_h3_geometry_lifetime")
+
+    class Builder:
+        def build(self, **kw):
+            return metadata(kw["step"], 5, 40, kw["geometry"], 45)
+
+    native = types.SimpleNamespace(_MiniMaxH3VSATileBufferHolder=lambda: types.SimpleNamespace(
+        buffer=None, untile_geometry=None), MiniMaxH3VSAMetadataBuilder=Builder)
+    with mock.patch.dict(sys.modules, {"torch": fake_torch}):
+        geometry.install(native, [])
+        first, g = Builder(), object()
+        md = first.build(step=0, geometry=g)
+        holder = md.tile_buf_holder
+        holder.buffer = FakeTensor((4, 45 * 64, 2, 8))
+        second = Builder()
+        md2 = second.build(step=0, geometry=g)          # a new request starts clean
+        assert md2.tile_buf_holder is holder and holder.buffer is None
+        holder.buffer = FakeTensor((4, 45 * 64, 2, 8))
+        del first, md                                    # a late finalizer of the old request...
+        import gc
+        gc.collect()
+        assert holder.buffer is not None                 # ...never clears the new one
+        del second, md2
+        gc.collect()
+        assert holder.buffer is None                     # the request's own builder going away does
