@@ -129,6 +129,14 @@ def test_cold_load_guard_trip_waits_for_the_self_heal_then_alerts():
     assert {"safety_stop", "latch"} <= keys
 
 
+def test_restart_cap_from_the_studio_health_is_an_action():
+    p = {"hold": {"exists": False}, "queue": {"answered": True, "queued": 0, "running": 0},
+         "units": {}, "text": {"listed": True}, "disk_free_pct": 50,
+         "sol": {"configured": True, "boot_cleared": True, "loaded": True},
+         "health": {"level": "action", "reasons": ["queue watchdog hit its restart cap"]}}
+    assert [f["key"] for f in watch.studio_findings("s1", p, {})] == ["restart_capped"]
+
+
 def test_h3_cold_for_an_hour_becomes_action():
     p = {"hold": {"exists": False}, "queue": {"answered": True, "queued": 0, "running": 0},
          "units": {}, "text": {"listed": True}, "disk_free_pct": 50,

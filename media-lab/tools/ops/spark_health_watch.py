@@ -196,6 +196,10 @@ def studio_findings(name: str, p: dict, cfg: dict) -> list:
         out.append(Finding("queue_stuck", name, "action",
                            f"Queue stuck: {q.get('queued')} waiting, nothing running",
                            "Look at the studio journal; the watchdog restarts once, never twice."))
+    if any("restart cap" in str(r) for r in (h.get("reasons") or [])):
+        out.append(Finding("restart_capped", name, "action",
+                           "The queue watchdog hit its restart cap (something keeps killing the studio)",
+                           "Runbook 'Queue watchdog hit its restart cap': read the journal before anything else."))
     if q.get("running_over_eta"):
         out.append(Finding("job_slow", name, "action", "A running job is past 3x its estimate",
                            "Check the job in the studio; stop it only if it is really wedged."))
