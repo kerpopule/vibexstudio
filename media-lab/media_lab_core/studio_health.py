@@ -33,6 +33,10 @@ DISK_WARN_PCT = 15.0
 DISK_ACTION_PCT = 8.0
 SNAPSHOT_STALE_S = 3 * 3600
 HARMLESS_HOLD = ("durable-lease-recovery:owner-exited", "durable-lease-recovery:controller-restarted")
+# A guard pressure trip during an H3 cold load clears itself (hold_autorecover):
+# 15 min of settling plus a ~6 min reload. Only after this is it a person's job.
+GUARD_TRIP_REASONS = ("memory-psi", "low-memavailable", "swap-growth")
+TRIP_ACTION_AFTER_S = 40 * 60
 
 
 def read_json(path: Path) -> Any:
@@ -40,6 +44,11 @@ def read_json(path: Path) -> Any:
         return json.loads(Path(path).read_text())
     except (OSError, ValueError):
         return None
+
+
+def _stop_reason(sol_root) -> str | None:
+    doc = read_json(Path(sol_root) / "safety-stop.json") if sol_root else None
+    return doc.get("reason") if isinstance(doc, dict) else None
 
 
 def lease_row(db: Path) -> dict | None:
@@ -110,21 +119,28 @@ def assess(h: dict, now: float | None = None) -> tuple[str, list[str]]:
     gpu, queue, sol = h.get("gpu") or {}, h.get("queue") or {}, h.get("sol") or {}
     hold = gpu.get("hold") or {}
     auto = gpu.get("autorecover") or {}
+    guard_trip = False
     if hold.get("exists"):
         age = hold.get("age_s") or 0
         reason = hold.get("reason") or "unknown"
+        guard_trip = (bool(gpu.get("safety_stop")) and str(reason).startswith("operation-uncertain:")
+                      and gpu.get("safety_stop_reason") in GUARD_TRIP_REASONS)
         text = f"GPU recovery hold for {age / 60:.0f} min ({reason})"
+        if guard_trip:
+            text += f" after a guard {gpu.get('safety_stop_reason')} trip"
         if auto.get("gaveup"):
             action.append(text + "; auto-recover gave up")
+        elif guard_trip and age < TRIP_ACTION_AFTER_S:
+            warn.append(text + "; auto-recover may clear it once memory has settled")
         elif age >= HOLD_ACTION_AFTER_S or reason not in HARMLESS_HOLD:
             action.append(text)
         else:
             warn.append(text + "; auto-recover may clear it")
     elif auto.get("gaveup"):
         action.append("auto-recover gave up earlier (remove pool/autorecover-gaveup.json once looked at)")
-    if gpu.get("safety_stop"):
+    if gpu.get("safety_stop") and not guard_trip:
         action.append("H3 safety stop is set")
-    if gpu.get("latch"):
+    if gpu.get("latch") and not guard_trip:
         action.append("memwatch latch is set (H3 was stopped for low memory)")
     if queue.get("stuck"):
         action.append(f"queue stuck: {queue.get('queued')} queued, none running for "
@@ -224,6 +240,7 @@ def collect(*, root: Path, now: float | None = None, boot_id: str = "",
                       "fresh": guard_fresh},
             "latch": bool(runtime and (runtime / "flashnext-memwatch.latch").exists()),
             "safety_stop": bool(sol_root and (Path(sol_root) / "safety-stop.json").exists()),
+            "safety_stop_reason": _stop_reason(sol_root),
             "autorecover": {"gaveup": (pool / "autorecover-gaveup.json").exists(),
                             "last": attempts[-1] if attempts else None},
         },

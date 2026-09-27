@@ -57,6 +57,19 @@ def test_levels(path, value, level):
     assert got == level and reasons
 
 
+def test_cold_load_guard_trip_is_a_warning_until_auto_recover_had_its_chance():
+    trip = {"exists": True, "reason": "operation-uncertain:RuntimeError", "age_s": 900}
+    doc = base(**{"gpu.hold": trip, "gpu.safety_stop": True, "gpu.latch": True,
+                  "gpu.safety_stop_reason": "memory-psi"})
+    level, reasons = sh.assess(doc, NOW)
+    assert level == "warn" and len(reasons) == 1 and "memory-psi" in reasons[0]
+    doc["gpu"]["hold"] = {**trip, "age_s": 41 * 60}
+    assert sh.assess(doc, NOW)[0] == "action"
+    doc["gpu"]["hold"] = trip
+    doc["gpu"]["safety_stop_reason"] = "generation_failed"      # a render failure: a person looks
+    assert sh.assess(doc, NOW)[0] == "action"
+
+
 def test_collect_reads_files_and_the_lease_read_only(tmp_path, monkeypatch):
     root = tmp_path / "lab"
     pool = root / "pool"; pool.mkdir(parents=True)
