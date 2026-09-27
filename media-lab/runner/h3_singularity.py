@@ -32,6 +32,7 @@ import base64
 import json
 import math
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -185,6 +186,9 @@ def compose_prompt(prompt: str, image_roles=(), video_roles=(), audio_roles=(),
         if extra:
             lines.append("reference_notes: " + " ".join(extra))
         if lines:
+            # the studio hands over H3's three-field form; its first field IS
+            # the description, so it goes in under the Ref2VA name, not nested
+            body = re.sub(r"^integrated_multimodal_description:\s*", "", body, flags=re.I)
             body = "\n".join(lines) + "\n\ndetailed_description: " + body
     if not body.lower().startswith(TRIGGER):
         body = f"{TRIGGER}\n\n{body}"
