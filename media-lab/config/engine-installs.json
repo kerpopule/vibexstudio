@@ -102,7 +102,7 @@
     "requires_gpu": true,
     "requires_manual": true,
     "blocked": true,
-    "blocked_reason": "Research candidate from the model-research-intake t_e3595a34 benchmark; not Steve-approved and not production-qualified. This build ships no installer, no download automation, no warm-host default, no queue activation and no render path for it \u2014 enablement is a separate gated step.",
+    "blocked_reason": "Research candidate from the model-research-intake t_e3595a34 benchmark; not operator-approved and not production-qualified. This build ships no installer, no download automation, no warm-host default, no queue activation and no render path for it \u2014 enablement is a separate gated step.",
     "steps": []
   },
   "voicebox": {

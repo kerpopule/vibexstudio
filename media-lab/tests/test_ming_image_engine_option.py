@@ -85,9 +85,24 @@ def test_ming_render_refusal_contract():
 
 def test_every_engine_pick_site_is_fail_closed_for_ming():
     tree = ast.parse(APP.read_text())
-    calls = [n.func.id for n in ast.walk(tree)
-             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-             and n.func.id in ("char_engine", "ming_render_refusal")]
-    # every engine resolution must carry a ming refusal guard, so a configured
-    # Ming pick can never silently render on another engine
-    assert calls.count("char_engine") == calls.count("ming_render_refusal") >= 1
+    for function in (n for n in tree.body if isinstance(n, ast.FunctionDef)):
+        calls = [n.func.id for n in ast.walk(function)
+                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)]
+        if "char_engine" in calls:
+            assert "ming_render_refusal" in calls, function.name
+
+
+def test_explicit_ming_is_refused_before_any_runtime_or_file_dependency():
+    for name in ("run_image", "run_character", "run_selfchar", "run_charremix", "run_storyboard"):
+        ns = controller_functions(name, "ming_render_refusal", fail=lambda job, message: message)
+        # No filesystem, model writer, GPU or engine dependencies are supplied.
+        # Any work before the refusal raises rather than hiding a side effect.
+        assert "not enabled for rendering" in ns[name]({"request": {"engine": "ming"}})
+
+
+def test_storyboard_ming_cast_refuses_before_model_writer():
+    ns = controller_functions("run_storyboard", "ming_render_refusal",
+                    selectable_characters=lambda: [],
+                    resolve_cast_records=lambda ids, chars: [{"engine": "ming"}],
+                    fail=lambda job, message: message)
+    assert "not enabled for rendering" in ns["run_storyboard"]({"request": {"cast": ["a"]}})

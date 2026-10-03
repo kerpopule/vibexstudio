@@ -6069,6 +6069,8 @@ def image_via_service(j, r, prompt, iw, ih):
 
 def run_image(j):
     r = j["request"]
+    if (msg := ming_render_refusal(r.get("engine"))):
+        return fail(j, msg)
     jd = JOBS_DIR / j["id"]
     jd.mkdir(parents=True, exist_ok=True)
     prompt = compose_image_prompt(r)
@@ -6182,6 +6184,8 @@ def _run_image_authorized(j, r, prompt, iw, ih):
 
 def run_character(j):
     r = j["request"]
+    if (msg := ming_render_refusal(r.get("engine"))):
+        return fail(j, msg)
     jd = JOBS_DIR / j["id"]
     (jd / "payloads").mkdir(parents=True, exist_ok=True)
     j["stage"] = "writing"
@@ -6240,6 +6244,8 @@ def run_selfchar(j):
     described themselves) comes from Qwen text-only — the :8003 endpoint has
     no vision projector (probed 2026-08-15), so appearance-from-photo is skipped."""
     r = j["request"]
+    if (msg := ming_render_refusal(r.get("engine"))):
+        return fail(j, msg)
     jd = JOBS_DIR / j["id"]; jd.mkdir(parents=True, exist_ok=True)
     photos = r.get("photos") or []
     if len(photos) < 5:
@@ -6692,6 +6698,8 @@ def run_charremix(j):
     reference is resolved through char_root() so remixes of remixes still
     transfer from the original source image."""
     r = j["request"]
+    if (msg := ming_render_refusal(r.get("engine"))):
+        return fail(j, msg)
     jd = JOBS_DIR / j["id"]; jd.mkdir(parents=True, exist_ok=True)
     chars = _load(CHARS_FILE, [])
     rec = next((c for c in chars if c.get("id") == r.get("cid")), None)
@@ -7031,11 +7039,15 @@ def board_seed(board):
 
 def run_storyboard(j):
     r = j["request"]
+    if (msg := ming_render_refusal(r.get("engine"))):
+        return fail(j, msg)
     j["stage"] = "writing"
     # One snapshot for cast resolution, prompt composition and likeness lookup.
     all_chars = selectable_characters()
     cast_ids = r.get("cast") or []
     cast = resolve_cast_records(cast_ids, chars=all_chars)
+    if any(c.get("engine") == "ming" for c in cast):
+        return fail(j, ming_render_refusal("ming"))
     premise = str(r.get("idea", "") or "")[:MAX_PREMISE]
     user = f"Story idea: {premise}"
     if r.get("song_id"):

@@ -887,7 +887,12 @@ class RestoreRenderSerializationTests(unittest.TestCase):
         try:
             studio.jobs = {"race": job}
             studio.RUNNERS["race-test"] = runner
-            with mock.patch.object(studio, "save_state"), \
+            # This test proves mutex ordering, not live GPU admission. Supply an
+            # admitted disposable fixture even when background workers are off.
+            with mock.patch.object(studio, "_gpu_cutover_ready", True), \
+                 mock.patch.object(studio, "gpu_recovery_pending", return_value=False), \
+                 mock.patch.object(studio, "_gpu_finish_job_operation"), \
+                 mock.patch.object(studio, "save_state"), \
                  mock.patch.object(studio, "eta_record"), \
                  mock.patch.object(studio, "notify_done"), \
                  mock.patch.object(studio, "settle_video_transaction"):

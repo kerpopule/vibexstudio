@@ -10,6 +10,7 @@ import os
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -251,12 +252,19 @@ class _Config:
 
 
 def _app(tmp_path, p, *, flag=1, engine_alive=True, resident=T2VA, busy=False, jobs=None,
-         held=False):
+         held=False, workers_disabled=False):
     holds = []
+    # Model this fixture's controller, not the pytest process's worker setting.
+    # Keep the process-wide safety flag untouched for real app imports.
+    fixture_os = SimpleNamespace(**{
+        **vars(os),
+        "getenv": lambda key, default=None: ("1" if workers_disabled else "0")
+        if key == "MEDIA_LAB_DISABLE_BACKGROUND_WORKERS" else os.getenv(key, default),
+    })
     ns = _functions(
         "_gpu_graceful_handoff_enabled", "_gpu_resident_config", "_gpu_handoff_warm",
         "_gpu_write_handoff_on_shutdown", "_gpu_adopt_handoff", "initialize_gpu_cutover",
-        os=os, threading=threading, print=lambda *a, **k: None,
+        os=fixture_os, threading=threading, print=lambda *a, **k: None,
         local_config=_Config(flag), _gpu_handoff=gpu_handoff,
         gpu_protocol=lambda: p, GPU_HANDOFF=tmp_path / "gpu-handoff.json",
         GPU_RECOVERY_HOLD=tmp_path / "gpu-recovery-hold.json",
@@ -272,6 +280,15 @@ def _app(tmp_path, p, *, flag=1, engine_alive=True, resident=T2VA, busy=False, j
     )
     ns["holds"] = holds
     return ns
+
+
+def test_disabled_controller_never_writes_a_handoff(tmp_path):
+    p = protocol(tmp_path)
+    lease = parked_residency(p)
+    old = _app(tmp_path, p, workers_disabled=True)
+    old["_gpu_active_lease"] = lease
+    assert old["_gpu_write_handoff_on_shutdown"]() is None
+    assert not (tmp_path / "gpu-handoff.json").exists()
 
 
 def test_app_planned_restart_end_to_end_leaves_no_hold(tmp_path):

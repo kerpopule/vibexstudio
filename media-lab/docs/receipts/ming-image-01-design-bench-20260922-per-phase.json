@@ -1,7 +1,7 @@
 {
   "host": "the media Spark (NVIDIA GB10, 121 GiB unified per free -g)",
   "kind": "per-phase measurement of the Ming-Image-0.1-Design research candidate (model-research-intake t_e3595a34)",
-  "why": "The capacity planner will need measured phase ranges for a future Ming image-engine manifest entry (the entry is deferred: the image slot currently allows exactly one model per tests/test_qwen_image_21_single_model.py and config/capacity-policy.json, and widening that policy is a Steve-level decision; an entry draft is kept ready in the research workspace). This bench measured cold load, warm idle and active inference from one clean chained run. Research candidate only: the engine ships configured OFF with no installer, no queue activation and no render path (the selection-surface PR is separate and fail-closed).",
+  "why": "The capacity planner will need measured phase ranges for a future Ming image-engine manifest entry (the entry is deferred: the image slot currently allows exactly one model per tests/test_qwen_image_21_single_model.py and config/capacity-policy.json, and widening that policy is an operator-level decision; an entry draft is kept ready in the research workspace). This bench measured cold load, warm idle and active inference from one clean chained run. Research candidate only: the engine ships configured OFF with no installer, no queue activation and no render path (the selection-surface PR is separate and fail-closed).",
   "model": {
     "id": "inclusionAI/Ming-Image-0.1-Design",
     "revision": "1cd7fac3b0dcb54196fe2cd12b80da09edf8fcf4",
@@ -68,7 +68,7 @@
     "the private directVLM entry point is not reproduced from the public pipeline; both modes here are reconstructions",
     "text-rich rendering did not reproduce in either mode (see canary.text_rendering_finding)",
     "P10 deferred: released vision tower is Qwen2.5-ViT but public qwen3_moe_vit.py expects Qwen3; i2i/vae.encode latent layout ships deferred with it",
-    "RGBA output is PNG-3-channel (alpha_composite onto white); true RGBA blocked pending Steve's production policy",
+    "RGBA output is PNG-3-channel (alpha_composite onto white); true RGBA blocked pending operator's production policy",
     "co-residency with the protected language primary is unqualified; this entry is planning-only and trusted=false",
     "a future ming-image manifest entry needs the image slot policy widened first (currently exactly one model; tests/test_qwen_image_21_single_model.py); entry draft and measured envelope are ready"
   ]
