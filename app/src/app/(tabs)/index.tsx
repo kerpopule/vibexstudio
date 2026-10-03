@@ -3,7 +3,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useRef } from 'react';
-import { ActivityIndicator, FlatList, Image, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, StyleSheet, View } from 'react-native';
+import { useWindowDimensions } from '@/hooks/use-window-dimensions';
 import Animated, {
   Easing,
   FadeInDown,
@@ -25,10 +26,11 @@ import { useTheme } from '@/hooks/use-theme';
 import { type ChatSession, useChat } from '@/lib/chat-engine';
 import { thisDevice } from '@/lib/device';
 import { workspaceLayoutForWidth } from '@/lib/layout';
-import { enter } from '@/lib/motion';
+import { enter, webEnter } from '@/lib/motion';
 import { readyToBuild } from '@/lib/setup';
 import { useApp } from '@/lib/store';
 import type { ProjectMeta } from '@/lib/types';
+import { EnterView } from '@/components/ui/enter-view';
 
 /** Live build state for a card, derived from the project's chat session. */
 type Activity = 'building' | 'queued' | 'paused' | 'attention' | null;
@@ -81,6 +83,9 @@ function ProjectCard({
 
   return (
     <ScalePress
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${item.name}`}
+      accessibilityHint="Long-press to delete"
       onPressIn={() => {
          
         ring.value = withTiming(1, { duration: 160, easing: Easing.out(Easing.quad) });
@@ -217,7 +222,7 @@ export default function ProjectsScreen() {
           { paddingTop: insets.top + Spacing.two },
         ]}
         ListHeaderComponent={
-          <Animated.View entering={enter(FadeInDown.duration(480))} style={styles.hero}>
+          <EnterView entering={enter(FadeInDown.duration(480))} style={[styles.hero, webEnter('fade-down', 480)]}>
             <UpdateBanner />
             <View style={styles.heroTopline}>
               <View style={styles.wordmark}>
@@ -248,7 +253,7 @@ export default function ProjectsScreen() {
             <ThemedText themeColor="textSecondary" style={styles.heroBody}>
               Build, remix, preview, and publish real web apps from your device.
             </ThemedText>
-            <ScalePress onPress={() => router.push('/new-project')} style={[styles.quickStart, { shadowColor: theme.glow }, Shadows.float]}>
+            <ScalePress accessibilityRole="button" accessibilityLabel="Start a new build" accessibilityHint="Describe it. Watch it become real." onPress={() => router.push('/new-project')} style={[styles.quickStart, { shadowColor: theme.glow }, Shadows.float]}>
               <Glass radius={Radii.xl} style={styles.quickStartFill}>
                 <View style={styles.quickStartCopy}>
                   <ThemedText type="heading" style={{ color: theme.text }}>Start a new build</ThemedText>
@@ -260,11 +265,11 @@ export default function ProjectsScreen() {
               </Glass>
             </ScalePress>
             {projects.length ? <ThemedText type="smallBold" themeColor="textSecondary" style={styles.sectionLabel}>RECENT PROJECTS</ThemedText> : null}
-          </Animated.View>
+          </EnterView>
         }
         ListEmptyComponent={
           hydrated ? (
-            <Animated.View entering={enter(FadeInDown.duration(500))} style={styles.empty}>
+            <EnterView entering={enter(FadeInDown.duration(500))} style={[styles.empty, webEnter('fade-down', 500)]}>
               <Glass style={styles.emptyOrb}>
                 <ThemedText style={styles.emptyEmoji}>✨</ThemedText>
               </Glass>
@@ -275,18 +280,18 @@ export default function ProjectsScreen() {
                 Describe an app in chat and watch it come to life. Projects are saved on your device.
                 Your prompts and selected files go to the services you connect. You choose what to share on GitHub.
               </ThemedText>
-            </Animated.View>
+            </EnterView>
           ) : null
         }
         renderItem={({ item, index }) => (
-          <Animated.View entering={enter(FadeInDown.delay(Math.min(index, 8) * 55).duration(420))}>
+          <EnterView entering={enter(FadeInDown.delay(Math.min(index, 8) * 55).duration(420))} style={webEnter('fade-down', 420, Math.min(index, 8) * 55)}>
             <ProjectCard
               item={item}
               activity={activityFor(sessions[item.id])}
               onOpen={() => router.push({ pathname: '/project/[id]', params: { id: item.id } })}
               onLongPress={() => confirmDelete(item)}
             />
-          </Animated.View>
+          </EnterView>
         )}
       />
     </ThemedView>

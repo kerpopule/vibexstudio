@@ -2,7 +2,7 @@
 
 **Status:** Binding approved original. Preserve verbatim.
 
-**Provenance:** Steve Darlow supplied this prompt on 2026-08-26 and stated that Fable expanded it into a perfect 1:53 music video using LTX 2.5.
+**Provenance:** the studio owner supplied this prompt on 2026-08-26 and stated that Fable expanded it into a perfect 1:53 music video using LTX 2.5.
 
 **Reuse rule:** Do not reinterpret, embellish, shorten, or silently substitute it. When reproducing the approved workflow, reuse the exact text below and preserve the established LTX 2.5 timing, assembly, and other approved settings alongside it.
 

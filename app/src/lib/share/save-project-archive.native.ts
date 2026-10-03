@@ -1,9 +1,8 @@
 import {checkpointDirectorProject} from '../director-project-history';
-import type {ArchiveProgressHandler} from './project-directory-archive';
 import {Directory,File,Paths,FileMode} from 'expo-file-system';
 import {editingExportSink} from '../editing-export-sink';
 import {validateProjectSnapshot} from '../sync/project-snapshot';
-import {writeProjectDirectoryArchive,type ArchiveEntry} from './project-directory-archive';
+import {writeProjectDirectoryArchive,type ArchiveEntry,type ArchiveProgressHandler} from './project-directory-archive';
 import {beginNativeArchive} from './archive-recovery.native';
 
 /** Freeze the private native project before yielding to the streaming writer. */

@@ -1,11 +1,11 @@
-# Media Lab v2 — Steve's spec (2026-08-15), thought through
+# Media Lab v2 — the owner's spec (2026-08-15), thought through
 
 North star: as simple as Google Omni / Grok Image Edit 2 / Ideogram Canvas.
 Absolute beginners have fun in seconds. Mobile-first, camera/mic-native.
 Advanced mode (full Maestro GUI :7862) stays one tap away, never in the way.
 
 Live today (v1, :7863): Video tab — prompt + style chips + length + shape →
-LTX-2.5/Maestro defaults (Steve's proven winner), Retro Cam chip = H3.
+LTX-2.5/Maestro defaults (the proven winner), Retro Cam chip = H3.
 Single-flight GPU queue with reservation discipline. Gallery. Mobile-tested.
 
 ## Tab structure (bottom nav, 5 icons, no submenus)
@@ -41,7 +41,7 @@ Single-flight GPU queue with reservation discipline. Gallery. Mobile-tested.
 - Backend: stills → qwen-image-edit restyles the set in the user's prompted
   style ("as a 1940s film star", "as a Pixar character") → composited into
   a character reference sheet (grid PNG) + saved as a named Character.
-- Characters become chips in Video/Images/Storyboard ("cast: Steve-toon").
+- Characters become chips in Video/Images/Storyboard ("cast: Ava-toon").
   LTX multi-subject reference conditioning consumes the sheet.
 - Voice: "Give them your voice" → the app shows 3 short paragraphs to read
   aloud (mic capture, ~45 s total) → local voice-clone TTS. Engine already

@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import Animated, { FadeInUp } from 'react-native-reanimated';
+import { FadeInUp } from 'react-native-reanimated';
 
 import { ChatAudioAttachment } from '@/components/chat-audio-attachment';
 import { ChatVideoAttachment } from '@/components/chat-video-attachment';
@@ -15,7 +15,8 @@ import { ScalePress } from '@/components/ui/scale-press';
 import { gradientColors, Radii, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import type { ChatMessage } from '@/lib/types';
-import { enter } from '@/lib/motion';
+import { enter, webEnter } from '@/lib/motion';
+import { EnterView } from '@/components/ui/enter-view';
 
 export function ChatBubble({ message }: { message: ChatMessage }) {
   const theme = useTheme();
@@ -60,9 +61,9 @@ export function ChatBubble({ message }: { message: ChatMessage }) {
   );
 
   return (
-    <Animated.View
+    <EnterView
       entering={enter(FadeInUp.duration(280))}
-      style={[styles.row, isUser ? styles.rowUser : styles.rowAssistant]}>
+      style={[styles.row, isUser ? styles.rowUser : styles.rowAssistant, webEnter('fade-up', 280)]}>
       {/* Long-press anywhere on a bubble copies its text. */}
       <Pressable style={styles.bubbleContainer} onLongPress={copyText} delayLongPress={300}>
         {isUser ? (
@@ -89,7 +90,7 @@ export function ChatBubble({ message }: { message: ChatMessage }) {
           </ThemedText>
         ) : null}
       </Pressable>
-    </Animated.View>
+    </EnterView>
   );
 }
 

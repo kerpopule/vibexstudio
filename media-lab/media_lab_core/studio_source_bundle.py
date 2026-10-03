@@ -11,6 +11,8 @@ MODULES = (
     'director_host', 'director_library', 'director_probe', 'director_transport',
     'game_assets', 'glb_contract', 'host_resources', 'job_store', 'model_catalog',
     'setup_wizard', 'speech_artifact', 'studio_cli', 'studio_director', 'studio_gate',
+    # Per-host settings and the engine licence gate (Qwen-Image-2.1 is opt-in).
+    'local_config', 'engine_licences',
     'media_inventory', 'media_migration', 'migrated_catalog', 'migrated_edits',
     'preserved_edit_import', 'studio_collections', 'storyboard_edit',
     'cut', 'studio_editing', 'studio_import', 'studio_inputs', 'studio_jobs', 'studio_library', 'studio_server',

@@ -49,12 +49,12 @@ All of these must be migrated before enforcement is activated:
    hosts and any systemd unit that starts a GPU process.
 3. Docker/direct starts: `runner/start_h3_engine.sh`, `start_ltx_engine.sh`,
    `run_lab_render.sh`, `run_image_render.sh`, `run_music_render.sh`,
-   `run_tts_speak.sh`, `run_gelato_vo.sh`, `hunyuan_avatar_video.sh`,
+   `run_tts_speak.sh`, `hunyuan_avatar_video.sh`,
    `latentsync_video.sh` and `musetalk_video.sh`.
 4. Python-side workers: `media_lab_core/image_host.py`, `video_host.py`,
    `music_worker.py`, `background_remove.py`, `background_install.py`,
-   `director_adapter.py`, plus `runner/yue2_engine_server.py`,
-   `overnight_refinement.py` and `text_runtime_switch.py`.
+   `director_adapter.py`, plus `runner/yue2_engine_server.py` and
+   `text_runtime_switch.py`.
 5. Pool ownership: `runner/pool_lock.sh` and the existing
    `media-lab-gpu-reservation.service`. This reservation cannot coexist as an
    unrelated permanent holder when the new canonical flock is activated.

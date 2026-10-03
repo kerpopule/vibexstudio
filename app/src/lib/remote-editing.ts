@@ -267,14 +267,14 @@ export async function uploadLibraryFile(origin:string,filename:string,bytes:Uint
  origin=libraryOrigin(origin);
  if(!bytes.byteLength||bytes.byteLength>64*1024**2)throw new Error('Choose a file up to 64 MB for upload from this device.');
  const value=await connection(origin),library=await getLibraryToken(origin);
- if(!value?.token||!library)throw new Error('Connect Library and enable editing with your server access code before uploading.');
+ if(!value?.token||!library)throw new Error('Connect Library and enable editing with your family code before uploading.');
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),200000);
  try{
   const response=await fetch(origin+'/api/studio/library/import?filename='+encodeURIComponent(filename),{
    method:'POST',headers:{Authorization:`Bearer ${value.token}`,'X-Library-Authorization':`Bearer ${library}`,'Content-Type':'application/octet-stream'},
    credentials:'omit',redirect:'error',signal:controller.signal,body:new Uint8Array(bytes).buffer,
   });
-  if(!response.ok)throw new Error(response.status===404?'Update your server to enable file uploads.':response.status===401?'Reconnect Library and editing with your access code.':response.status===413?'This file exceeds the server upload limit.':response.status===429?'Another upload is running. Try again shortly.':'The server could not import this file. Check its format and available server storage.');
+  if(!response.ok)throw new Error(response.status===404?'Update your server to enable file uploads.':response.status===401?'Reconnect Library and editing with your family code.':response.status===413?'This file exceeds the server upload limit.':response.status===429?'Another upload is running. Try again shortly.':'The server could not import this file. Check its format and available server storage.');
   const result=await response.json();
   if(!/^import-[a-f0-9]{64}-[a-z0-9]+$/.test(result?.id)||result.bytes!==bytes.byteLength)throw new Error('The upload reply could not be verified. Refresh Library before retrying.');
  }finally{clearTimeout(timer);}

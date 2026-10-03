@@ -28,7 +28,7 @@ if [[ "$VARIANT" == "fused_r1024" ]]; then
   MODEL_SRC=$HOME/.local/share/h3-fused-r1024/models/minimax_h3_pruned_ref_delta_fused_r1024_int8_convrot_fc2bf16.safetensors
   # Maestro's actor-capable model definition resolves the Ref2VA filename in
   # the container. The host filename stays explicit so the experimental weight
-  # can never overwrite or masquerade as Steve's promoted official checkpoint.
+  # can never overwrite or masquerade as the promoted official checkpoint.
   MODEL_DST=minimax_h3_ref2va_pruned_int8_convrot.safetensors
   FUSED_SHA256=304e808416e714a91c348b7ba70ad5098d8b294783596d304c9eec602f1f609c
   FUSED_SIZE_BYTES=24832507786

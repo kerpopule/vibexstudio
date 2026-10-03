@@ -178,7 +178,7 @@ def format_summary(summary: dict, qr_text: str | None, access_code_path: str = "
         iface = f"  ({u['iface']})" if u.get("iface") and u["kind"] != "loopback" else ""
         lines.append(f"  {label:<{width}} {u['url']}{iface}")
     code = summary.get("access_code") or "(not minted yet — start the server once)"
-    lines.append(f"  {'Access code':<{width}} {code}" + (f"   {access_code_path}" if access_code_path else ""))
+    lines.append(f"  {'Family code':<{width}} {code}" + (f"   {access_code_path}" if access_code_path else ""))
     if summary.get("admin_code"):
         lines.append(f"  {'Admin code':<{width}} {summary['admin_code']}"
                      + (f"   {admin_code_path}" if admin_code_path else ""))
@@ -189,7 +189,8 @@ def format_summary(summary: dict, qr_text: str | None, access_code_path: str = "
         lines.append("  (QR unavailable — 'qrcode' package missing; the link below still works)")
     lines += ["", f"  {summary['link']}", "",
               "  No camera handy? In the app: Media Lab → More options → type",
-              f"  {summary['best']['url']} and the access code.", ""]
+              f"  {summary['best']['url']} and the family code (everyone in the house",
+              "  uses the same one; each device enters it once).", ""]
     return "\n".join(lines)
 
 

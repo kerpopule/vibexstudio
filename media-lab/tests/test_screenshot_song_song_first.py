@@ -261,7 +261,7 @@ def media_app(tmp_path_factory):
     home = tmp_path_factory.mktemp("song-first-api-home")
     root = home / "media-lab-simple"
     root.mkdir()
-    for name in ("static", "config", "prompt-templates"):
+    for name in ("static", "config"):
         (root / name).symlink_to(ROOT / name)
     old = {key: os.environ.get(key) for key in
            ("HOME", "MEDIA_LAB_DISABLE_BACKGROUND_WORKERS")}

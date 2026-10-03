@@ -2,7 +2,7 @@
 """Lay a portrait onto the target frame at a FACE SIZE THAT LIP-SYNCS.
 
 Measured on real takes (2026-08-17):
-  face height 40% of frame  -> lip sync Steve called perfect
+  face height 40% of frame  -> lip sync judged perfect
   face height 46% of frame  -> "cropped too far in on my head"
   face height 12% of frame  -> "lip sync is horrible"
 LTX animates the mouth from pixels; a small face has none to work with. So the

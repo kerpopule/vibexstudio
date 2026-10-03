@@ -10,7 +10,7 @@ and charge for generation. Engine support and licenses vary; see the
 [capability status](../docs/CAPABILITY-STATUS.md).
 
 <p align="center">
-  <img src="docs/screenshots/media-lab-desktop.png" width="640" alt="Media Lab — a real studio: Sparky, the maker panel, and a gallery of generated talking-head films">
+  <img src="docs/screenshots/media-lab-desktop.png" width="640" alt="Media Lab — Sparky, the maker panel and a gallery of generated clips; licence-restricted engines are greyed out on a fresh install">
   &nbsp;
   <img src="docs/screenshots/media-lab-mobile.png" width="200" alt="Media Lab — phone">
 </p>
@@ -26,6 +26,11 @@ and charge for generation. Engine support and licenses vary; see the
 - **Characters** — reusable identities with consistent look and voice
   (Voicebox voice cloning included).
 - **Sparky** — a chat director that plans, queues, and narrates the work.
+- **Director school** — storyboards carry a continuity bible, shot sizes, screen
+  sides and a transition per cut; the plan is graded before any GPU time; Assemble
+  trims dead frames, matches colour and loudness, crossfades every seam (J/L cuts),
+  cuts on the beat and encodes once; a critic checks every seam and names the shots
+  to re-film. See [docs/DIRECTOR-SCHOOL.md](docs/DIRECTOR-SCHOOL.md).
 - **Automatic Storyboards** — every completed Media Lab production with more
   than one scene is persisted as an editable Storyboard and linked from its
   queue/gallery record. This is enforced by the shared backend for paired
@@ -41,7 +46,7 @@ One command, then scan the QR it prints with the VibeXStudio phone app:
 ./install.sh
 ```
 
-It creates `.venv`, mints your access code, starts the server (a `systemd
+It creates `.venv`, mints your family code and admin code, starts the server (a `systemd
 --user` service on Linux; foreground on a Mac, `--service` for a launchd
 agent), waits until it answers, and prints the URLs, the code and a pairing
 QR. Re-run it after `git pull` to update. `media-lab status|pair|code|logs`

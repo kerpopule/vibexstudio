@@ -109,7 +109,7 @@ def studio(tmp_path_factory):
     home = tmp_path_factory.mktemp("yue2-home")
     root = home / "media-lab-simple"
     root.mkdir()
-    for name in ("static", "config", "prompt-templates"):
+    for name in ("static", "config"):
         (root / name).symlink_to(REPO / name)
     old = {k: os.environ.get(k) for k in ("HOME", "MEDIA_LAB_DISABLE_BACKGROUND_WORKERS")}
     os.environ["HOME"] = str(home)
@@ -160,9 +160,12 @@ def _client(studio, signed=True):
 # ---------------------------------------------------------------- request model
 
 def test_music_request_defaults_to_yue2(studio):
+    # The request leaves the engine to the host: YuE2 where the owner opted into
+    # its non-commercial licence (the suite does, see conftest), else Music 3.
     r = studio.MusicReq(vibe="x")
     assert (r.engine, r.style, r.cot, r.abc, r.reference_song_id, r.seed, r.instrumental) == \
-        ("yue2", "", "full", "", "", None, False)
+        ("", "", "full", "", "", None, False)
+    assert studio.default_music_engine() == "yue2"
     assert r.length == "auto" and r.duration_seconds is None
 
 

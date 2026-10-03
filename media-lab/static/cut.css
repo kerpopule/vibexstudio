@@ -23,24 +23,6 @@
     --field:rgba(255,255,255,.04); --field-strong:rgba(10,7,5,.62);
   }
   /* ---- themes: every var block repaints the whole app ---- */
-  :root[data-theme="autoedu"]{--ink:#0F0F11;--ink-2:#141417;--gold:#43CECA;--gold-hi:#7EE3E0;
-    --bg-a:#0A2E2E;--bg-b:#12181C;--glass:rgba(15,15,17,.44);--glass-strong:rgba(10,10,12,.62)}
-  :root[data-theme="source4ai"]{--ink:#FFF8E7;--ink-2:#FBF7EA;--gold:#0A7A83;--gold-hi:#F97316;
-    --t-1:#063447;--t-2:rgba(6,52,71,.9);--t-3:rgba(6,52,71,.66);
-    --bg-a:#EAF8F7;--bg-b:#F6E8D5;--glass:rgba(255,255,255,.62);--glass-strong:rgba(255,255,255,.8);
-    --sheen:linear-gradient(180deg,rgba(255,255,255,.5),rgba(255,255,255,.1));--line:rgba(6,52,71,.2);
-    --lift1:0 14px 30px -16px rgba(6,52,71,.28),0 3px 10px -6px rgba(6,52,71,.18);
-    --lift2:0 30px 56px -24px rgba(6,52,71,.34),0 8px 20px -10px rgba(6,52,71,.2);
-    --edge:inset 0 1px 0 rgba(255,255,255,.8)}
-  :root[data-theme="mr-dark"]{--ink:#15121C;--ink-2:#1C1725;--gold:#FB7185;--gold-hi:#FDA4AF;
-    --bg-a:#2A1420;--bg-b:#164E63;--glass:rgba(21,18,28,.46);--glass-strong:rgba(16,13,22,.64)}
-  :root[data-theme="mr-rose"]{--ink:#F7F2E9;--ink-2:#FCEFEF;--gold:#E11D48;--gold-hi:#FB7185;
-    --t-1:#4C0519;--t-2:rgba(76,5,25,.9);--t-3:rgba(76,5,25,.64);
-    --bg-a:#FFE4E6;--bg-b:#CFFAFE;--glass:rgba(255,255,255,.66);--glass-strong:rgba(255,255,255,.84);
-    --sheen:linear-gradient(180deg,rgba(255,255,255,.55),rgba(255,255,255,.12));--line:rgba(190,18,60,.22);
-    --lift1:0 14px 30px -16px rgba(190,18,60,.24),0 3px 10px -6px rgba(190,18,60,.16);
-    --lift2:0 30px 56px -24px rgba(190,18,60,.3),0 8px 20px -10px rgba(190,18,60,.18);
-    --edge:inset 0 1px 0 rgba(255,255,255,.85)}
   :root[data-theme="ocean"]{--ink:#071019;--ink-2:#0B1622;--gold:#38BDF8;--gold-hi:#7DD3FC;
     --bg-a:#0C2032;--bg-b:#081726;--glass:rgba(7,16,25,.46);--glass-strong:rgba(5,12,19,.64)}
   :root[data-theme="emerald"]{--ink:#06120C;--ink-2:#0A1A12;--gold:#34D399;--gold-hi:#6EE7B7;
@@ -55,16 +37,6 @@
     --lift2:0 30px 56px -24px rgba(28,25,23,.28),0 8px 20px -10px rgba(28,25,23,.16);
     --edge:inset 0 1px 0 rgba(255,255,255,.9)}
   /* per-theme contrast tokens: accent gradients, nav, panel, fields, on-accent text */
-  :root[data-theme="autoedu"]{--gold-2:#168180;--on-accent:#04211F;--on-accent-dim:rgba(4,33,31,.6);
-    --nav-bg:rgba(15,15,17,.62);--panel:rgba(15,15,17,.93)}
-  :root[data-theme="source4ai"]{--gold-2:#075E68;--on-accent:#FFFFFF;--on-accent-dim:rgba(255,255,255,.78);
-    --nav-bg:rgba(255,255,255,.68);--panel:rgba(255,248,231,.96);
-    --field:rgba(6,52,71,.06);--field-strong:rgba(255,255,255,.85)}
-  :root[data-theme="mr-dark"]{--gold-2:#E11D48;--on-accent:#33060F;--on-accent-dim:rgba(51,6,15,.6);
-    --nav-bg:rgba(21,18,28,.62);--panel:rgba(21,18,28,.94)}
-  :root[data-theme="mr-rose"]{--gold-2:#BE123C;--on-accent:#FFFFFF;--on-accent-dim:rgba(255,255,255,.78);
-    --nav-bg:rgba(255,255,255,.68);--panel:rgba(247,242,233,.96);
-    --field:rgba(76,5,25,.06);--field-strong:rgba(255,255,255,.88)}
   :root[data-theme="ocean"]{--gold-2:#0284C7;--on-accent:#05202E;--on-accent-dim:rgba(5,32,46,.6);
     --nav-bg:rgba(7,16,25,.62);--panel:rgba(7,16,25,.93)}
   :root[data-theme="emerald"]{--gold-2:#059669;--on-accent:#04231A;--on-accent-dim:rgba(4,35,26,.6);
@@ -75,12 +47,8 @@
     --nav-bg:rgba(255,255,255,.72);--panel:rgba(247,247,248,.97);
     --field:rgba(28,25,23,.06);--field-strong:rgba(255,255,255,.88)}
   /* light themes: hardcoded white borders vanish on light glass — repaint them */
-  :root[data-theme="source4ai"] :is(.chip,.btn2,.qbtn,.card,.songrow,textarea,input[type=text],.togglechip,.beat,.gal .it,#lib_grid .it,.edit),
-  :root[data-theme="mr-rose"] :is(.chip,.btn2,.qbtn,.card,.songrow,textarea,input[type=text],.togglechip,.beat,.gal .it,#lib_grid .it,.edit),
   :root[data-theme="paper"] :is(.chip,.btn2,.qbtn,.card,.songrow,textarea,input[type=text],.togglechip,.beat,.gal .it,#lib_grid .it,.edit){
     border-color:var(--line)}
-  :root[data-theme="source4ai"] :is(textarea,input[type=text]),
-  :root[data-theme="mr-rose"] :is(textarea,input[type=text]),
   :root[data-theme="paper"] :is(textarea,input[type=text]){
     background:rgba(255,255,255,.7);color:var(--t-1)}
   /* ---- Co-Agent theme (design-system §12): NOIR ground, cyan/violet accents ---- */
@@ -100,18 +68,16 @@
       radial-gradient(720px 520px at 50% 102%,rgba(255,180,84,.08),transparent 72%),
       var(--ink);
     background-attachment:fixed,fixed,fixed,scroll}
-  /* the specular rim — six stops, masked border ring (gsgelato system.css verbatim);
-     ::after because .card::before already carries the sheen */
+  /* edge light: a hairline ring drawn with a masked gradient, bright along the
+     top edge and faint below; ::after because .card::before carries the sheen */
   /* nav and #qpanel are position:fixed — they must NOT be repositioned here
      (position:relative would glue the nav to the bottom of the CONTENT and it
      scrolls away). Fixed/absolute elements already contain the rim ::after. */
   :root[data-theme="coagent"] :is(.card,.chip,.beat,.songrow,.btn2,.tpl,.gal .it,#lib_grid .it){position:relative}
   :root[data-theme="coagent"] :is(.card,.chip,.beat,.songrow,.btn2,.tpl,.gal .it,#lib_grid .it,nav,#qpanel)::after{
-    content:"";position:absolute;inset:0;border-radius:inherit;padding:1.3px;pointer-events:none;
-    background:linear-gradient(180deg,
-      rgba(255,255,255,.50) 0%,rgba(255,255,255,.16) 22%,
-      rgba(255,255,255,.03) 45%,rgba(255,255,255,.03) 58%,
-      rgba(255,255,255,.16) 80%,rgba(255,255,255,.44) 100%);
+    content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;
+    background:linear-gradient(to bottom,rgba(255,255,255,.34),rgba(255,255,255,.07) 35%,
+      rgba(255,255,255,.05) 70%,rgba(255,255,255,.2));
     -webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
     -webkit-mask-composite:xor;mask-composite:exclude}
   /* ---- base (same rules as the studio) ---- */

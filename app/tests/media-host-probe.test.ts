@@ -5,7 +5,7 @@ it('requires an explicit versioned declaration before hiding an existing website
   for(const [manifest,expected] of [[{},true],[{vibexStudio:{version:1,legacyQueue:false}},true],[{vibexStudio:{version:2,webInterface:false}},true],[{vibexStudio:{version:1,webInterface:false}},false]] as const){
     const request=vi.fn(async()=>new Response(JSON.stringify(manifest)));
     vi.stubGlobal('fetch',request);
-    expect(await probeMediaHost('https://lab.example/')).toEqual({modelSetup:(manifest as any).vibexStudio?.version!==1,integratedStudio:false,webInterface:expected,editingDrafts:false,editingPreview:false,editingExport:false,editingLibrarySave:false,editingAddSources:false});
+    expect(await probeMediaHost('https://lab.example/')).toEqual({modelSetup:(manifest as any).vibexStudio?.version!==1,integratedStudio:false,webInterface:expected,embed:false,editingDrafts:false,editingPreview:false,editingExport:false,editingLibrarySave:false,editingAddSources:false});
     expect(request).toHaveBeenCalledWith('https://lab.example/manifest.json',expect.objectContaining({credentials:'omit',redirect:'error'}));
   }
 });
@@ -54,5 +54,13 @@ it('offers Library export saves only when explicitly supported',async()=>{
  for(const [version,capability,expected] of [[1,true,true],[1,false,false],[1,undefined,false],[2,true,false]]){
   vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({vibexStudio:{version,editingLibrarySave:capability}}))));
   expect((await probeMediaHost('https://lab.example'))?.editingLibrarySave).toBe(expected);
+ }
+});
+
+it('offers the in-app studio only when the host serves the embed handshake',async()=>{
+ for(const [manifest,expected] of [[{vibexEmbed:1},true],[{},false],[{vibexEmbed:'1'},false],[{vibexEmbed:2},false],
+   [{vibexEmbed:1,vibexStudio:{version:1,integratedStudio:true}},false]] as const){
+  vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify(manifest))));
+  expect((await probeMediaHost('https://lab.example'))?.embed).toBe(expected);
  }
 });

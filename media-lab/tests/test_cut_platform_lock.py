@@ -68,7 +68,7 @@ for _ in range(15):
 def test_unicode_journal_survives_reopen_undo_and_recovery(tmp_path):
     import json
     storyboard=tmp_path/'story.json'
-    storyboard.write_text(json.dumps({'schema':'media_lab.storyboard.v1','project':'unicode-fixture','private_internal_only':True,'candidate_not_final_until_steve_approves':True,'publication_authorized':False,'title':'Vídeo 日本語 🎬',
+    storyboard.write_text(json.dumps({'schema':'media_lab.storyboard.v1','project':'unicode-fixture','private_internal_only':True,'candidate_not_final_until_owner_approves':True,'publication_authorized':False,'title':'Vídeo 日本語 🎬',
         'format':{'fps':24,'resolution':'640x360','shot_duration_seconds':2},
         'shots':[{'id':'scene','narration':'Hello','visual':'Fixture'}]},ensure_ascii=False),encoding='utf-8')
     path=tmp_path/'project.json'

@@ -6,8 +6,10 @@
     python -m media_lab_core.cut_cli render <project> --quality preview --wait
 
 Talks to the local API (``--url``, default http://127.0.0.1:7863).  The session
-cookie comes from ``POST /api/gate`` with the gate or admin code (``--code`` or
-``MEDIA_LAB_CODE``); on the tailnet/localhost no code is needed.  ``--json`` prints
+cookie comes from ``POST /api/gate`` with the family or admin code (``--code`` or
+``MEDIA_LAB_CODE``).  On the studio machine itself no code is needed: the CLI
+sends the local tool token (local-token.txt) to the studio's own addresses — the
+studio no longer trusts a tailnet or localhost Host header.  ``--json`` prints
 the raw API answer for agents.  Every edit is one transaction with a fresh id and the
 project's current revision, so a stale view fails closed instead of clobbering.
 """
@@ -26,6 +28,8 @@ import urllib.request
 import uuid
 from typing import Any
 
+from . import local_token
+
 DEFAULT_URL = "http://127.0.0.1:7863"
 
 
@@ -40,7 +44,8 @@ class Client:
         self.url = url.rstrip("/")
         self.timeout = timeout
         self.jar = http.cookiejar.CookieJar()
-        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar))
+        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar),
+                                                  local_token.StudioAuthHandler())
         self.code = code
 
     def request(self, method: str, path: str, body: Any | None = None) -> Any:
@@ -296,7 +301,7 @@ def run(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="cut", description="Media Lab Cut — timeline editor CLI")
     parser.add_argument("--url", default=os.getenv("MEDIA_LAB_URL", DEFAULT_URL))
-    parser.add_argument("--code", default=None, help="gate or admin code (or MEDIA_LAB_CODE)")
+    parser.add_argument("--code", default=None, help="family or admin code (or MEDIA_LAB_CODE)")
     parser.add_argument("--json", action="store_true", help="print raw JSON")
     sub = parser.add_subparsers(dest="command")
 

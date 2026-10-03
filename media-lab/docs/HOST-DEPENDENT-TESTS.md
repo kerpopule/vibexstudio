@@ -28,11 +28,9 @@ Marker `spark` — needs the studio host (Spark 1) or a live engine on it:
 
 | Case | Needs |
 | --- | --- |
-| `test_aas_native_h3_face_safety.py` (7 cases) | the private AAS `productions/` tree |
-| `test_coupled_av_trim.py` (2 cases) | the private `productions/` tree |
-| `test_true_lipsync_gate.py` (1 case) | the private `productions/` tree |
 | `test_pplx_ltx_co_residency.py` (1 case) | the private `image-svc/` tree |
 | `test_yue2_music.py::test_live_yue2_shim_health` | a live YuE2 engine (`YUE2_PORT`) |
+| `test_sol_h3_runtime_patch.py::test_probe_reproduces_the_stop_and_the_patch_plateaus` (2 cases) | the Sol-H3 stage-1 environment and `SOL_PKG` (CPU only; no GPU) |
 
 Marker `gpu` — needs a resident GPU engine on the machine running the suite.
 No tracked test requires it today: the engine boundary is mocked in

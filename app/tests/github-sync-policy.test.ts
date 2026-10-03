@@ -6,7 +6,7 @@ describe('getGitHubSyncConflict', () => {
   it('protects an existing same-name repo during first sync', () => {
     expect(
       getGitHubSyncConflict({
-        targetFullName: 'steve/my-app',
+        targetFullName: 'ava/my-app',
         linkedFullName: undefined,
         lastSyncedCommit: undefined,
         remoteHeadCommit: 'remote-1',
@@ -18,8 +18,8 @@ describe('getGitHubSyncConflict', () => {
   it('protects linked work that changed outside VibeXStudio', () => {
     expect(
       getGitHubSyncConflict({
-        targetFullName: 'steve/my-app',
-        linkedFullName: 'steve/my-app',
+        targetFullName: 'ava/my-app',
+        linkedFullName: 'ava/my-app',
         lastSyncedCommit: 'local-1',
         remoteHeadCommit: 'remote-2',
         repoWasCreated: false,
@@ -30,7 +30,7 @@ describe('getGitHubSyncConflict', () => {
   it('allows a new repo and an unchanged linked repo', () => {
     expect(
       getGitHubSyncConflict({
-        targetFullName: 'steve/my-app',
+        targetFullName: 'ava/my-app',
         linkedFullName: undefined,
         lastSyncedCommit: undefined,
         remoteHeadCommit: 'auto-init',
@@ -39,8 +39,8 @@ describe('getGitHubSyncConflict', () => {
     ).toBeNull();
     expect(
       getGitHubSyncConflict({
-        targetFullName: 'steve/my-app',
-        linkedFullName: 'steve/my-app',
+        targetFullName: 'ava/my-app',
+        linkedFullName: 'ava/my-app',
         lastSyncedCommit: 'same',
         remoteHeadCommit: 'same',
         repoWasCreated: false,

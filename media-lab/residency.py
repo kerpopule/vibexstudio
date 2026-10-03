@@ -24,6 +24,20 @@ class ResidencyError(RuntimeError):
     """A fail-closed policy, admission, transaction, or recovery error."""
 
 
+class ResidencyRefused(ResidencyError):
+    """The planner refused before the transaction did anything.
+
+    Raised only for a plan that was not admitted, before any receipt, lock or
+    runtime hook: nothing was drained, evicted or loaded. ``memory_only`` is
+    true when every blocker is a measured phase-floor (memory) shortfall."""
+
+    def __init__(self, message: str, blockers: list[dict[str, Any]]):
+        super().__init__(message)
+        self.blockers = list(blockers)
+        self.memory_only = bool(self.blockers) and all(
+            b.get("kind") == "phase-floor" for b in self.blockers)
+
+
 def _atomic_json(path: Path, value: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
@@ -99,7 +113,15 @@ def _model_state(actual: Mapping[str, Any], model: str) -> Mapping[str, Any]:
 
 
 def plan_residency(policy: Mapping[str, Any], actual: Mapping[str, Any], profile: str,
-                   custom_slots: Mapping[str, Any] | None = None) -> dict[str, Any]:
+                   custom_slots: Mapping[str, Any] | None = None,
+                   phase_overrides: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
+    """Plan a residency change. ``phase_overrides`` prices one transaction's load
+    of a model with another measured phase row (Real / Long is a variant of the
+    ``h3`` slot with its own, smaller envelope); the policy itself is unchanged."""
+    if phase_overrides:
+        policy = dict(policy)
+        policy["models"] = {m: (dict(row, phases_gb=dict(phase_overrides[m])) if m in phase_overrides else row)
+                            for m, row in policy["models"].items()}
     desired = resolve_profile(policy, profile, custom_slots)
     desired_set = set(desired["models"])
     actual_set = {m for m in policy["models"] if _model_state(actual, m).get("resident")}
@@ -158,9 +180,9 @@ def plan_residency(policy: Mapping[str, Any], actual: Mapping[str, Any], profile
         available -= float(phases["warm_idle"])
 
     if ("qwen" in actual_set and "qwen" not in desired_set and
-            profile not in ("dual-video-ltx-h3", "custom")):
+            profile != "dual-video-ltx-h3"):
         blockers.append({"kind": "silent-qwen-eviction", "model": "qwen",
-                         "reason": "Qwen eviction is allowed only by dual-video-ltx-h3 or explicit custom"})
+                         "reason": "Qwen eviction is allowed only by dual-video-ltx-h3"})
 
     actions: list[dict[str, Any]] = []
     actions.extend({"action": "retain", "model": m} for m in retain)
@@ -168,7 +190,7 @@ def plan_residency(policy: Mapping[str, Any], actual: Mapping[str, Any], profile
         actions.append({"action": "release-image-weights", "reason": "video residency admission"})
     actions.extend({"action": "drain", "model": m} for m in evict)
     actions.extend({"action": "evict", "model": m,
-                    "intentional": m != "qwen" or profile in ("dual-video-ltx-h3", "custom")}
+                    "intentional": m != "qwen" or profile == "dual-video-ltx-h3"}
                    for m in evict)
     actions.extend({"action": "load", "model": m} for m in load)
     actions.extend({"action": "health-check", "model": m} for m in desired["models"])
@@ -218,8 +240,9 @@ class ResidencyController:
                 "operational_floor_gb": self.policy["operational_floor_gb"],
                 "profiles": self.policy["profiles"], "models": self.policy["models"]}
 
-    def plan(self, profile: str, slots: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        return plan_residency(self.policy, self.snapshot(), profile, slots)
+    def plan(self, profile: str, slots: Mapping[str, Any] | None = None,
+             phase_overrides: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
+        return plan_residency(self.policy, self.snapshot(), profile, slots, phase_overrides)
 
     def state(self) -> dict[str, Any]:
         actual = self.snapshot()
@@ -250,7 +273,8 @@ class ResidencyController:
             _atomic_json(self.receipts_dir / f"{receipt['started_at']}-{receipt['id']}.json", receipt)
 
     def apply(self, profile: str, slots: Mapping[str, Any] | None = None,
-              *, commit_desired: bool = True) -> dict[str, Any]:
+              *, commit_desired: bool = True,
+              phase_overrides: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
         if not self._lock.acquire(blocking=False):
             raise ResidencyError("another residency transaction is active")
         inference_token = None
@@ -260,9 +284,10 @@ class ResidencyController:
                 if old.get("status") not in ("committed", "rolled-back", "failed"):
                     raise ResidencyError(f"unfinished residency transaction {old.get('id')} requires recovery")
             actual = self.snapshot()
-            plan = plan_residency(self.policy, actual, profile, slots)
+            plan = plan_residency(self.policy, actual, profile, slots, phase_overrides)
             if not plan["admitted"]:
-                raise ResidencyError("; ".join(b["reason"] for b in plan["blockers"]))
+                raise ResidencyRefused("; ".join(b["reason"] for b in plan["blockers"]),
+                                       plan["blockers"])
             # The pool lease establishes ownership; this separate non-blocking
             # transaction claim closes the planner-to-mutation race with live
             # text, image, or video inference.  Runtime hooks may omit it for

@@ -27,7 +27,7 @@ class IntakeAdversarial(unittest.TestCase):
     def test_rejects_prompt_injection_in_repo_url(self):
         # scheme not https/ssh => rejected atomically.
         v = self.gate.inspect(
-            repo_url="javascript:alert(1)//autoedu.ai",
+            repo_url="javascript:alert(1)//example.com",
             revision=SHA, license_name="MIT", license_url="https://e/l",
             files=[{"name": "config.json"}],
         )

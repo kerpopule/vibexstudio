@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Media Lab v2 — video / music / images / characters / storyboard.
 Single-flight worker queue, persisted jobs, ETA stats, PIN admin, remix."""
-import asyncio, base64, fcntl, hashlib, hmac, json, math, mimetypes, os, posixpath, random, re, shlex, shutil, subprocess, tempfile, threading, time, urllib.error, urllib.request, uuid
+import asyncio, base64, fcntl, hashlib, hmac, ipaddress, json, math, mimetypes, os, posixpath, random, re, secrets, shlex, shutil, subprocess, tempfile, threading, time, urllib.error, urllib.request, uuid
 from pathlib import Path
 from functools import lru_cache
 from contextlib import asynccontextmanager, contextmanager
@@ -12,17 +12,26 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from media_lab_core import studio_library, studio_jobs, studio_inputs, background_host, background_setup
 from media_lab_core import local_config
+from media_lab_core import engine_licences, local_overlay
+from media_lab_core import embed_gate
+from media_lab_core import studio_health as _studio_health
+from media_lab_core import door_lockout, family_code, local_token, secret_files
 from media_lab_core.job_store import JobStore
 from media_lab_core.director_context import project_context_message
 from media_lab_core import installer as engine_installer
 from media_lab_core import cut as cut_core
+from media_lab_core import stitch as stitch_core, seam_critic, director_school
 from media_lab_core.durable_gpu_protocol import CapacityUnqualified, LeaseBusy, StaleFence
 from media_lab_core.gpu_lease_runtime import delegation_env, delegation_headers, open_protocol
-from media_lab_core.solh3_control_guard import current_heartbeat_allows_h3, write_runtime_environment
+from media_lab_core import gpu_handoff as _gpu_handoff
+from media_lab_core.solh3_control_guard import (current_heartbeat_allows_h3, read_pressure_sample,
+                                                write_runtime_environment)
 from runner.audio_signal_gate import audio_signal_metrics
 from runner import h3_reference as _h3ref   # H3 Ref2VA / Qwen quality contract
+from runner import h3_singularity as _h3sing   # Real / Long (H3 Singularity) geometry
+from media_lab_core import av_sync, render_eta
 from runner.maestro_safety import admission_error as maestro_admission_error, reap_orphan_runners as reap_orphan_maestro_runners
-from residency import ResidencyController, ResidencyError
+from residency import ResidencyController, ResidencyError, ResidencyRefused
 from qwen_activity import probe_text_activity
 from chat_operator import (MUTATION_TOOLS, StudioOperator, ToolError,
                            action_authorized, parse_model_envelope,
@@ -61,11 +70,12 @@ for d in (JOBS_DIR, MEDIA, SCREENSHOT_SONGS_DIR):
 JOBS_FILE = ROOT / "jobs.json"
 ETA_FILE = ROOT / "eta-stats.json"
 CHARS_FILE = ROOT / "characters.json"
-KNOWN_CHARS_FILE = ROOT / "config/h3-known-characters.json"
-
-def _known_chars_file() -> Path:
-    """A data root that only holds state has no registry: use the checkout's."""
-    return KNOWN_CHARS_FILE if KNOWN_CHARS_FILE.exists() else SOURCE_DIR / "config/h3-known-characters.json"
+def _known_chars_file() -> Optional[Path]:
+    """The studio's own prompt-only known-character catalog, if it keeps one in
+    the local overlay (config/local/known-characters.json, docs/LOCAL-OVERLAY.md).
+    The public tree ships none: a list of franchise characters and the actors who
+    play them is each studio owner's own call, never a default."""
+    return local_overlay.known_characters_file()
 BOARDS_FILE = ROOT / "storyboards.json"
 PIN_FILE = ROOT / "admin-pin.txt"
 # Chat completions endpoint for Sparky (thinking-off shim by default; MEDIA_LAB_CHAT_URL overrides).
@@ -208,28 +218,24 @@ for _grp, _entries in STYLE_LIB:
         STYLES[_sid] = {"prefix": _prefix, "emoji": _emoji, "label": _label, "group": _grp}
 
 # ---------- the H3 visual template registry ----------
-# MiniMax H3 ships style-specific "skills" on GitHub, each with its own
-# animated example GIF in the repo's assets/. Community/source-captured entries
-# keep their full attributed prompt in prompt-templates instead of duplicating
-# thousands of characters here. The app fails closed at startup if an expected
-# prompt artifact is missing or malformed.
-# Each entry: (id, emoji, label, prompt_prefix, gif_path, blurb).
+# MiniMax H3 ships style-specific "skills" on GitHub; the entries below carry our
+# own short prompt prefixes for those styles. Their example GIFs belong to their
+# authors and are not redistributed here: a studio that has them locally (in
+# static/templates/ or its config/local/templates/) shows them, others show the
+# emoji tile. A studio's own templates -- including long attributed prompts kept
+# as config/local/prompt-templates/<id>.json -- come from the gitignored overlay
+# (config/local/templates.json, docs/LOCAL-OVERLAY.md) and are appended below.
+# Each entry: (id, emoji, label, prompt_prefix, gif_name, blurb).
 def _load_prompt_template(template_id):
-    path = ROOT / "prompt-templates" / f"{template_id}.json"
-    if not path.exists():
-        path = SOURCE_DIR / "prompt-templates" / f"{template_id}.json"
+    """A long prompt kept in the local overlay's prompt-templates/<id>.json."""
+    path = local_overlay.prompt_template_path(template_id)
+    if path is None:
+        raise RuntimeError(f"Missing prompt template: {template_id}")
     spec = json.loads(path.read_text(encoding="utf-8"))
     if spec.get("template_id") != template_id or not isinstance(spec.get("prompt"), str):
         raise RuntimeError(f"Malformed prompt template: {path}")
     return spec["prompt"].rstrip() + "\n"
 
-
-_H3_EXPLOSIVE_MOTION_PROMPT = _load_prompt_template("h3-explosive-flat-motion-graphics")
-_H3_SURREAL_HANDDRAWN_OR_PROMPT = _load_prompt_template("h3-surreal-hand-drawn-operating-room")
-_H3_FOUR_COLOR_SHERLOCK_PROMPT = _load_prompt_template("h3-four-color-sherlock-motion-design")
-_H3_ALCATRAZ_STICKMAN_PROMPT = _load_prompt_template("h3-alcatraz-stickman-doodle-history")
-_H3_FLOORPLAN_BUILD_PROMPT = _load_prompt_template("h3-floorplan-to-building-timelapse")
-_AAS_PAPER_MOTION_PROMPT = _load_prompt_template("aas-tactile-paper-motion-brand-explainer")
 
 TEMPLATE_LIB = [
  ("Official H3 templates", [
@@ -280,39 +286,7 @@ TEMPLATE_LIB = [
    "h3-storyboard-sequence.gif",
    "H3 Ref2VA workflow: one storyboard reference becomes ordered beats while a separate reference locks identity."),
  ]),
- ("Proven Media Lab templates", [
-  ("aas-tactile-paper-motion-brand-explainer", "✂️", "Full paper-motion brand explainer",
-   _AAS_PAPER_MOTION_PROMPT,
-   "aas-tactile-paper-motion-brand-explainer.gif",
-   "Repeatable 32-beat tactile paper-collage system: LTX for the fast production lane, selective H3 upgrades for premium hero beats, and deterministic text, audio, Foley, and final assembly."),
- ]),
- ("Community H3 templates", [
-  ("h3-floorplan-to-building-timelapse", "🏗️", "Floor plan → finished building",
-    _H3_FLOORPLAN_BUILD_PROMPT,
-    "h3-floorplan-to-building-timelapse.gif",
-    "Attributed H3 F2VA workflow: an uploaded floor plan stays geometrically authoritative while a matched-view timelapse builds it into a photoreal finished house or building."),
-  ("h3-alcatraz-stickman-doodle-history", "🏝️", "Alcatraz stickman escape",
-    _H3_ALCATRAZ_STICKMAN_PROMPT,
-    "h3-alcatraz-stickman-doodle-history.gif",
-    "Attributed 15-second H3 whiteboard-history recipe: seven escalating stickman escape beats, two exact text stamps, tense synchronized audio, and an unresolved raft-in-fog freeze."),
-  ("h3-surreal-hand-drawn-operating-room", "🖍️", "Surreal hand-drawn operating room",
-    _H3_SURREAL_HANDDRAWN_OR_PROMPT,
-    "h3-surreal-hand-drawn-operating-room.gif",
-    "Attributed 15-second H3 one-take recipe: rough hand-drawn creatures continuously reshape across a live-action operating room while the handheld camera reacts slightly late."),
-   ("h3-four-color-sherlock-motion-design", "🔎", "Four-color Sherlock mystery",
-    _H3_FOUR_COLOR_SHERLOCK_PROMPT,
-    "h3-four-color-sherlock-motion-design.gif",
-    "Attributed 15-second H3 graphic-motion recipe: nine precisely timed Victorian mystery beats in deep black, warm white, cobalt blue, and acid yellow."),
-  ("h3-explosive-flat-motion-graphics", "💥", "Explosive flat motion graphics",
-   _H3_EXPLOSIVE_MOTION_PROMPT,
-   "h3-explosive-flat-motion-graphics.gif",
-   "Attributed 15-second H3 text-only kinetic-typography recipe: nine distinct cuts, three moving layers, black/white inversions, and orange impact accents."),
- ]),
  ( "Music video", [
-   ( "heather-woman-in-red-cinematic-mv", "🌧️", "Woman in Red — cinematic narrative",
-    "Heather woman-in-red cinematic music video, not a talking-head video. Dark smoky late-night nightclub and lonely wet-road world, deep-red wardrobe and lipstick, vintage microphone, warm amber haze and bokeh, rain-softened blue night exteriors, subtle 35mm grain. Build a dynamic sequence dominated by narrative and environmental shots: rain-streaked car glass and empty highway; restrained synchronized stage performance; passenger-side profile and reflection through the wet window; wide chorus push-in; Heather dancing alone as a backlit silhouette through spotlight smoke; mirror and dark-window reflections; one small car alone on a broad rain-slick road; interior driving shot with real background parallax; controlled orbital final chorus; taillights receding into darkness. Keep frontal singing close-ups short and purposeful, never the whole video. Preserve Heather's exact actual mature identity, natural skin texture, softly rounded face, blue eyes and warm-blonde hair from separate QA-approved references. Small believable mouth and eye movement, no beauty smoothing, no age drift, no camera rush, no text, no religious imagery. ",
-    "woman-in-red-cinematic-mv.gif",
-    "Heather's promoted dynamic smoky-nightclub, reflection, rain-window and lone-car narrative music-video grammar."),
    ( "mv-subtitles", "🎤", "MV lyric typography",
     "music video, beat-reactive spatial lyric typography, glowing text over footage, "
     "stage lighting haze, warm bokeh, stylish. ",
@@ -337,6 +311,7 @@ TEMPLATE_LIB = [
     "Cinematic FPV drone movement: swooping, parallax, height, speed, real-scene aerial energy."),
   ]),
  ]
+TEMPLATE_LIB.extend(local_overlay.template_groups(_load_prompt_template))
 TEMPLATES = {}
 for _grp, _entries in TEMPLATE_LIB:
     for _tid, _emoji, _label, _prefix, _gif, _desc in _entries:
@@ -594,50 +569,9 @@ RULES:
 - NEVER use format words — "video", "reel", "short-form", "montage", "vlog", "clip" — or meta-phrases like "in every shot": the video model literally PAINTS them as stacked panels and captions. Call it "footage" and state constants declaratively.
 Return ONLY the JSON object, no markdown fences, no commentary."""
 
-BOARD_SYS = """You are a film director breaking a story into scenes for the LTX-2 AI video generator. LTX-2 natively PERFORMS spoken dialogue written in double quotes (with lip sync and voices), plus sound effects and on-screen text — so dialogue belongs IN the prompts.
-
-WORK IN TWO PASSES. FIRST read the user's whole brief and extract a STORY BIBLE — the constants every
-shot must share. THEN write the beats against that bible.
-
-Respond with ONLY a JSON object:
-{"title": "short film title",
- "bible": {
-   "style": "<ONE sentence naming medium, era, palette, film stock or render look, lighting and mood — this sentence is pasted into EVERY shot>",
-   "characters": [{"name": "<exact name>", "look": "<canonical 30-50 word appearance line: age, build, hair, eyes, skin, exact clothing, distinguishing details — no camera words, no action>", "voice": "<ONE canonical voice line, 10-25 words: sex, age, accent, pitch, pace, energy — e.g. 'warm American woman in her mid-30s, medium pitch, bright unhurried delivery'. Invent one if the user gave none and keep it for every shot.>"}],
-   "world": "<setting, era, time of day and production-design constants shared by every shot>",
-   "camera": "<the lens and camera-movement language used throughout>"},
- "beats": [{"title": "...", "description": "...", "characters": ["<bible names present in THIS shot>"], "speaker": "<bible name of whoever SPEAKS in this shot (on camera OR narrating over it), or "">", "video_prompt": "...", "duration": "5"}]}
-
-BIBLE RULES — these decide whether the clips match each other:
-- If the user's brief already gives a cast list, character descriptions, an animation/style statement, or a world, PRESERVE THEIR WORDING VERBATIM in the bible. Copy their sentences across. Do not paraphrase, do not "improve", do not invent a replacement. Their wording IS the quality.
-- Only invent a style, world, camera or character look when the user gave none — then commit to it and apply that same invention to every beat.
-- Every character who appears anywhere in the story gets EXACTLY ONE entry in bible.characters, under ONE name. NEVER rename a character between beats, never redesign them, never give the same person two looks.
-- bible.style, bible.world and bible.camera must be shot-agnostic: no per-scene action, no one-off props.
-- bible fields describe what the CAMERA SEES — never the artifact or the edit. FORBIDDEN in style/world: "video", "short-form", "reel", "clip", "montage", "recipe video", "vlog format", and meta-instructions like "in every shot" or "always" — the model PAINTS those words as split-screen video collages. Translate the user's format intent into pure visual language (palette, light, lens, mood) and their every-shot rules into concrete descriptions repeated per beat.
-
-BEAT RULES:
-- If the user's brief contains a numbered or bulleted shot list, produce EXACTLY ONE beat per shot, in their order, keeping their shot text. Otherwise give 3 to 8 beats with a beginning, middle and end.
-- If the user states a TOTAL runtime (e.g. "a two-minute film"), plan enough beats that the durations sum close to it (each beat is 3-12 seconds, up to 16 beats). If they gave only a few scenes for a longer runtime, invent the missing scenes in the same style so the whole runtime is covered — their scenes stay verbatim, in order.
-- "title" is 2-5 words; "description" is one plain-English sentence for the storyboard card.
-- "characters" lists the bible names VISIBLE ON SCREEN in that shot, spelled EXACTLY as in bible.characters. Use [] for a shot with nobody in it — insert shots, product shots, food close-ups, scenery. Someone merely narrating over the shot is NOT visible.
-- Refer to cast characters BY NAME in every beat they appear in — never as "a woman", "the presenter", "the host". If the cast has exactly one person and the story has a single performer/presenter/narrator on camera, that performer IS the cast character: use their name.
-- A shot with characters [] must SAY so in the video_prompt: open with the camera framing (e.g. "Top-down close-up." / "Extreme close-up, hands only.") and include "no people visible" or "hands only" so the camera stays on the subject.
-- ONE atomic physical action per beat. "Pour the butter, spread it, then add onions" is three beats, not one — multi-step actions in a single shot come out as physics soup.
-CRAFT RULES for every video_prompt — the model renders these reliably; break them and the shot comes out wrong. These rules OUTRANK the brief's wording: translate conflicting requests (crowds -> 1-2 faces + faceless background figures; fast cameras -> smooth decisive moves + more, shorter beats) instead of obeying them literally:
-- Short declarative sentences, one idea each. Present tense, concrete camera verbs (dolly in, pan, track, push-in).
-- ONE pair of hands in any close-up. ONE utensil or container in motion. ONE pour/sprinkle/cut at a time — never "salt and pepper" pouring together (the model fuses the shakers), never two hands from different people, never two simultaneous streams.
-- Name the target's STARTING state: "pours the sauce into the empty glass dish", not "the dish of sauce". Describing the finished state alongside the action makes the model render both at once.
-- At most TWO people with visible faces per shot; groups appear from behind, in silhouette, or cropped below the shoulders.
-- Motion at a natural, deliberate pace — never "frantic" or "rapid"; fast motion tears the image.
-- Kill the plastic look: include "shot on a 35mm lens, raw footage, subtle film grain, natural skin texture, 180-degree shutter, natural motion blur" and ONE coherent light source per shot. Never "smooth", "flawless" or "perfect" for skin or hands.
-- EXACTLY ONE pair of hands, belonging to one unseen person, in every hands-only shot — never a second person, never a second pair of hands entering.
-- "video_prompt" is that one continuous shot — 40-150 words, present tense: subject, action, setting, camera move, lighting.
-- Write ONLY what happens in this shot. The style sentence, the world constants and each character's look line are attached to every prompt automatically, so do NOT restate them.
-- PRESERVE THE USER'S OWN WORDS. If they wrote the shot, keep their description and dialogue verbatim; split only at natural cut points.
-- Dialogue: include the exact spoken words in double quotes with speaker and delivery, e.g.: He turns, smirks, and says in a mocking deep voice: "I am big mad." The model performs quoted lines aloud.
-- "speaker" is whoever performs the shot's spoken words — INCLUDING narration over a shot they are not visible in (a cooking step voiced by the host is speaker: host, characters: []). Use "" only for a truly silent shot. The same narrator keeps the same speaker across every shot they voice; their bible voice line is attached automatically, so the voice never changes mid-film.
-- "duration": whole seconds 3-12, as a string. If the user says how long a scene runs, use THEIR number (clamped to 3-12). Otherwise: "12" if the beat carries more than one spoken line, "8" for one spoken line or complex action, "5" for everything else.
-Return ONLY the JSON object, no markdown fences, no commentary."""
+# The director's system prompt lives with the rest of the director's rules
+# (media_lab_core/director_school.py) so the CLI and agents use the same one.
+BOARD_SYS = director_school.BOARD_SYS
 
 MV_CONCEPT_SYS = """You are a music video director. Given a song's production brief and lyrics,
 write ONE short music-video concept (under 60 words, a single paragraph): who we see (one clearly
@@ -667,6 +601,9 @@ into a renderable form instead of obeying it literally —
     (a confident push-in, a clean lateral track). Never render fast camera or limb motion.
 Everything else in the concept stays word-for-word.
 - Short declarative sentences, one idea each. A long winding sentence produces drifting motion.
+- Vary the framing between consecutive scenes (wide, then medium, then close) — two scenes in a row at the same
+  size on the same performer read as a jump cut. Open with a wide that shows the place. The performer keeps the
+  same side of the frame and never looks into the lens unless the concept is a performance to camera.
 - A scene 8 seconds or longer MAY contain ONE internal cut ("Cut to a close-up of…") — the model
   holds the performer and lighting across it. Re-establish framing after the cut.
 - Present tense, concrete motion verbs (dolly in, pan left, track alongside, push-in, tilt up).
@@ -697,8 +634,15 @@ def _load(p: Path, default):
         return json.loads(p.read_text())
     except Exception:
         return default
-def _save(p: Path, data):
+def _save(p: Path, data, private: bool = False):
     with _iolock:
+        # JSON files holding a key or other people's data (the fal key, push
+        # subscriptions, the gate's per-IP attempt log) are born 0600 — never
+        # readable by others, not even between write and chmod. (A literal, not
+        # a module global: tests lift this function out of the module.)
+        if private or p.name in ("providers.json", "push-subs.json", "auth-attempts.json"):
+            secret_files.write_private(p, json.dumps(data))
+            return
         tmp = p.with_name(p.name + ".tmp")
         tmp.write_text(json.dumps(data))
         tmp.replace(p)
@@ -719,11 +663,7 @@ def _providers_load() -> dict:
     return d if isinstance(d, dict) else {}
 
 def _providers_save(cfg: dict):
-    _save(PROVIDERS_FILE, cfg)
-    try:
-        os.chmod(PROVIDERS_FILE, 0o600)   # the API key lives in here
-    except Exception:
-        pass
+    _save(PROVIDERS_FILE, cfg, private=True)   # the API key lives in here
 
 def fal_config() -> dict:
     """The fal entry with defaults merged; never raises."""
@@ -906,6 +846,9 @@ async def _studio_lifespan(application):
     try:
         yield
     finally:
+        # A planned stop (systemctl stop/restart, a deploy) runs this; a crash or
+        # SIGKILL never does, so only a graceful stop can hand warm residency on.
+        _gpu_write_handoff_on_shutdown()
         await _stop_studio_background_host()
 
 
@@ -922,7 +865,7 @@ cv = threading.Condition()
 online_cv = threading.Condition()
 _state = _load(JOBS_FILE, {})
 jobs: dict = _state.get("jobs", {})
-# A take interrupted by a restart is RESUMED, not abandoned. Steve's rule for a
+# A take interrupted by a restart is RESUMED, not abandoned. The owner's rule for a
 # production box: if something catastrophic happens, get it working and kick the
 # queue back off — nobody should have to find the failures and press Retry.
 _resumed = []
@@ -970,38 +913,136 @@ def save_state():
     _save(JOBS_FILE, {"jobs": keep, "queue": list(queue),
                       "online_queue": list(online_queue)})
 
-# ---------- public access gate ----------
+# ---------- the front door: one family code, one admin code ----------
 # The app may be public via a tunnel / reverse proxy (MEDIA_LAB_PUBLIC_HOSTS).
-# FLEET RULE: behind the tunnel every request looks like localhost — NEVER trust
-# client IPs for auth. Trust is decided by (a) the Host header — the tunnel only
-# forwards the two public hostnames, so a tailnet/localhost Host can only arrive
-# over the tailnet — or (b) a signed long-lived cookie set by the access code.
-ACCESS_CODE_FILE = ROOT / "access-code.txt"
+# FLEET RULE: never trust where a request SAYS it came from. The Host header is
+# whatever the client typed ("Host: localhost" used to open the door for anyone
+# who could reach the socket), and the socket address is no better: cloudflared
+# and `tailscale serve` connect from this very machine, so every public visitor
+# would look local. Exactly three things let a request in:
+#   (a) a cookie or studio pass THIS server signed when someone entered the
+#       family code or the admin code at POST /api/gate;
+#   (b) the admin code in X-Lab-Pin (owner scripts; owner-only routes);
+#   (c) the local tool token (local-token.txt, 0600) in X-Media-Lab-Local — how
+#       the watchdog, the deploy script and the runners on this machine get in.
+#       Reading that file takes the same access as reading the codes.
+# Tailnet devices get no free pass: they enter the family code once, like
+# everyone else, and then stay signed in for a year.
+#
+# The two codes (media_lab_core/family_code.py):
+#   * FAMILY code (access-code.txt; the file name is kept so existing installs
+#     keep their code) — one shared code, one permission set: make, edit, use
+#     and tidy the Library. Role "user".
+#   * ADMIN code (admin-pin.txt) — the owner's own code. Everything the family
+#     can do, plus server settings: provider keys, engine installs, GPU
+#     profiles, rotating the family code. Role "admin".
+# Rotating a code (`media-lab code --rotate [--admin]`, or the admin-only
+# POST /api/admin/family-code) signs out every device that used it, at once:
+# the code is mixed into every cookie and pass signature. A running server
+# notices a rewritten code file within a second — no restart needed.
+ACCESS_CODE_FILE = ROOT / "access-code.txt"          # the FAMILY code
 ACCESS_SECRET_FILE = ROOT / "access-secret.txt"
-if not ACCESS_CODE_FILE.exists():
-    ACCESS_CODE_FILE.write_text("".join(
-        random.choice("ABCDEFGHJKMNPQRSTUVWXYZ23456789") for _ in range(8)) + "\n")
-ACCESS_CODE = ACCESS_CODE_FILE.read_text().strip().upper()
-# ONE front door, two codes. Which code you type decides your role — there is no
-# second PIN anywhere. admin-pin.txt now holds the ADMIN LOGIN code, not a pin
-# that gets typed into the queue drawer.
-if not PIN_FILE.exists():
-    PIN_FILE.write_text(f"{random.randrange(0, 10000):04d}\n")
-ADMIN_CODE = PIN_FILE.read_text().strip().upper()
-if not ACCESS_SECRET_FILE.exists():
-    ACCESS_SECRET_FILE.write_text(uuid.uuid4().hex + uuid.uuid4().hex)
+LOCAL_TOKEN_FILE = local_token.token_path(ROOT)
+# Every file here holds a secret (or, for push-subs/auth-attempts, private
+# data): created 0600 and re-tightened at every start, so a file an older build
+# left at 0664 stops being readable by other accounts on the box.
+PRIVATE_FILES = (ACCESS_CODE_FILE, PIN_FILE, ACCESS_SECRET_FILE, LOCAL_TOKEN_FILE,
+                 ROOT / "vapid_private.pem", PROVIDERS_FILE, ROOT / "push-subs.json",
+                 ROOT / "auth-attempts.json")
+# Existing installs keep whatever code they have (even a weak one) until the
+# owner rotates; a NEW install gets word codes, never a 4-digit default.
+secret_files.ensure(ACCESS_CODE_FILE, lambda: family_code.mint_family() + "\n")
+secret_files.ensure(PIN_FILE, lambda: family_code.mint_admin() + "\n")
+secret_files.ensure(ACCESS_SECRET_FILE, lambda: secrets.token_hex(32) + "\n")
+LOCAL_TOKEN = local_token.ensure(ROOT)
+_tightened = secret_files.tighten(PRIVATE_FILES)
+if _tightened:
+    print(f"[media-lab] made {len(_tightened)} secret file(s) private (0600): "
+          + ", ".join(p.name for p in _tightened), flush=True)
 ACCESS_SECRET = ACCESS_SECRET_FILE.read_text().strip()
-print(f"[media-lab] access code: {ACCESS_CODE} · admin code: {ADMIN_CODE}", flush=True)
-if ACCESS_CODE == ADMIN_CODE:
-    print("[media-lab] WARNING: access code == admin code, everyone is admin", flush=True)
+ACCESS_CODE = ""     # normalised (family_code.normalize); filled by _refresh_codes
+ADMIN_CODE = ""
+_codes_lock = threading.Lock()
+_codes_seen = {"at": 0.0, "stamp": None}
+
+
+def _code_stamp():
+    out = []
+    for p in (ACCESS_CODE_FILE, PIN_FILE):
+        try:
+            st = p.stat()
+            out.append((st.st_ino, st.st_mtime_ns, st.st_size))
+        except OSError:
+            out.append(None)
+    return tuple(out)
+
+
+def _read_code_file(p: Path) -> str:
+    try:
+        return family_code.normalize(p.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return ""
+
+
+def _refresh_codes(force: bool = False):
+    """Pick up a rotated code without a restart (checked at most once a second).
+
+    A code file that goes missing or empty keeps the PREVIOUS code: deleting the
+    file must never leave the door open. Codes are never logged — only which
+    file changed."""
+    global ACCESS_CODE, ADMIN_CODE
+    now = time.monotonic()
+    if not force and now - _codes_seen["at"] < 1.0:
+        return
+    with _codes_lock:
+        _codes_seen["at"] = now
+        stamp = _code_stamp()
+        if not force and stamp == _codes_seen["stamp"]:
+            return
+        _codes_seen["stamp"] = stamp
+        for name, path in (("family", ACCESS_CODE_FILE), ("admin", PIN_FILE)):
+            new = _read_code_file(path)
+            old = ACCESS_CODE if name == "family" else ADMIN_CODE
+            if not new:
+                print(f"[media-lab] WARNING: the {name} code file {path.name} is missing or "
+                      "empty — keeping the current code", flush=True)
+                continue
+            if new == old:
+                continue
+            if name == "family":
+                ACCESS_CODE = new
+            else:
+                ADMIN_CODE = new
+            if old:
+                print(f"[media-lab] the {name} code changed — every device signed in "
+                      f"with the old one is signed out", flush=True)
+            if family_code.is_weak(new):
+                hint = "media-lab code --rotate" + (" --admin" if name == "admin" else "")
+                print(f"[media-lab] WARNING: the {name} code is short and guessable — "
+                      f"rotate it with `{hint}`", flush=True)
+        if ACCESS_CODE and ACCESS_CODE == ADMIN_CODE:
+            print("[media-lab] WARNING: the family code and the admin code are the same — "
+                  "everyone who has it is admin", flush=True)
+
+
+_refresh_codes(force=True)
+# The codes themselves are never printed: the journal is readable by more than
+# the owner, and it ends up in backups and bug reports. Say where they live.
+print(f"[media-lab] door codes: family code in {ACCESS_CODE_FILE.name}, admin code in "
+      f"{PIN_FILE.name} (both under the data root, mode 0600) — `media-lab code` shows them",
+      flush=True)
 
 # ---------- signed session cookie (carries the ROLE) ----------
 # The role lives in the cookie, so the MAC has to cover it: flipping "user" to
 # "admin" in devtools produces a value this server will not verify. The role's
 # own code is mixed into the MAC too, so rewriting access-code.txt invalidates
-# every user cookie and rewriting admin-pin.txt invalidates every admin cookie.
+# every family cookie and rewriting admin-pin.txt invalidates every admin cookie.
 SESSION_COOKIE = "mlab_access"
-SESSION_MAX_AGE = 60 * 60 * 24 * 180
+# Family members enter the code once a year, not once a month: a signed-in
+# browser and every studio pass (library / create) a paired app holds last a
+# year. Rotating the code is how you take them all back early.
+SESSION_MAX_AGE = 60 * 60 * 24 * 365
+STUDIO_PASS_AGE = 60 * 60 * 24 * 365
 ROLES = ("user", "admin")
 
 def _role_code(role: str) -> str:
@@ -1039,12 +1080,16 @@ def session_role(raw: str) -> str:
         return "user"
     return ""
 
-# Loopback, the bind address and MEDIA_LAB_TAILNET_HOST (config/local.env).
-TRUSTED_HOSTS = local_config.trusted_hosts()
-# The only hostnames the Cloudflare tunnel ingress ever sends us. A request
-# carrying one of these came through the edge, which means Cloudflare set
-# CF-Connecting-IP itself (it overwrites whatever the client sent) — that is the
-# one client-identity signal we can trust here.
+# Loopback, the bind address and MEDIA_LAB_TAILNET_HOST (config/local.env): this
+# machine's OWN addresses. Never an authority — used only to recognise a
+# connection from one of our own proxies when picking a throttling identity.
+OWN_ADDRESSES = local_config.own_addresses()
+# The hostnames the tunnel ingress sends us. A request carrying one of these
+# that ALSO arrived through one of our own proxies came through the edge, which
+# means Cloudflare set CF-Connecting-IP itself (it overwrites whatever the
+# client sent) — the one client-identity signal we can trust here. List EVERY
+# public hostname that reaches this app (e.g. the served-Studio hostname too),
+# or its visitors all share one backoff key.
 # MEDIA_LAB_PUBLIC_HOSTS in config/local.env (comma separated); empty when the
 # studio is not published through a tunnel.
 PUBLIC_HOSTS = local_config.public_hosts()
@@ -1075,78 +1120,66 @@ def gate_exempt(p: str) -> bool:
         return False
     return p in GATE_EXEMPT or p in PUBLIC_STATIC
 
-# ---------- brute-force lockout ----------
+# ---------- the code prompt's lockout ----------
+# The owner's rule (2026-09-26; media_lab_core/door_lockout.py has the details
+# and the arithmetic): 3 wrong codes within 10 minutes from one client locks the
+# code prompt for that client for 1 hour; each later lockout of the same client
+# doubles (2 h, 4 h, 8 h, ... capped at a week); a clean day steps it back down
+# one level; `media-lab code --unlock` lifts it at once. It guards the PROMPT
+# only: a device that is already signed in keeps working, because its cookie or
+# studio pass is checked without ever coming through here.
+#
+# WHO is "one client" — never who to TRUST (nothing here grants access):
 # FLEET RULE (again): behind the Cloudflare tunnel every request arrives from
-# 127.0.0.1 at the socket level, so the peer address is worthless here. But the
-# tunnel ingress only ever forwards the two public hostnames, and for those the
+# this machine at the socket level, so the peer address is worthless there. But
+# the tunnel ingress only forwards the public hostnames, and for those the
 # Cloudflare edge sets CF-Connecting-IP itself, overwriting anything the client
-# sent — so on public-host traffic that header IS a trustworthy client identity.
-# Three layers:
-#   1. per-key exponential backoff. The key is the caller's device cookie when
-#      they present a SERVER-SIGNED one, otherwise their CF-Connecting-IP. A curl
-#      loop that sends no cookie therefore all lands on one IP key and backs off,
-#      instead of minting a brand-new identity for every guess (which is what
-#      made the old per-device layer free to evade).
-#   2. bounded identity minting. Signed device cookies are handed out at most
-#      ISSUE_MAX per hour per IP to anyone who has not passed the gate, so an
-#      attacker cannot farm clean keys to reset their own backoff.
-#   3. global SOFT throttle. The old third layer was a hard ceiling on guesses
-#      the whole server would evaluate per minute, and it was a denial of service:
-#      a stranger could keep the window permanently full and nobody — including
-#      Steve, with the right code — could get in. The global layer now REFUSES
-#      NOTHING. When the server-wide failure rate is hot it only (a) delays the
-#      responses to attempts that already turned out to be WRONG, and (b) adds a
-#      bonus to the failing key's own next wait. A correct code is never delayed
-#      and never refused by anything global, and a device with a clean record is
-#      never made to wait at all.
+# sent — so on public-host traffic that header IS a trustworthy client
+# identity. A direct (tailnet / LAN) connection is keyed by its own address.
+# The key is the network, not the browser — an IPv4 address or an IPv6 /64 —
+# so throwing cookies away or hopping addresses inside one /64 buys nothing.
+# Traffic with no identity at all (this machine's own scripts, or one of our
+# proxies on a host not listed in MEDIA_LAB_PUBLIC_HOSTS) shares the key "anon".
+#
+# Two counters with the same rule: "gate" (the code prompt) and "admin" (the
+# admin code in X-Lab-Pin, and the prompt WHILE "gate" is locked — then only
+# the admin code is checked, so family typos never lock the owner out).
+#
+# A global SOFT throttle stays on top: when the server-wide failure rate is hot
+# it only DELAYS answers that already turned out to be wrong. Nothing global
+# ever refuses, so a stranger cannot hold the door shut against anybody else's
+# network, and a correct code is never delayed.
 ATTEMPTS_FILE = ROOT / "auth-attempts.json"
-DEVICE_COOKIE = "mlab_device"
-DEVICE_FREE_TRIES = 2        # attempts 1-2 are immediate
-DEVICE_MAX_WAIT = 15 * 60    # 15 min ceiling on the per-key backoff
 GLOBAL_WINDOW = 60           # rolling window, seconds
 GLOBAL_SOFT_FAILS = 12       # failures per window before the soft throttle engages
 THROTTLE_MIN = 1.0           # artificial delay added to a WRONG answer when hot
 THROTTLE_MAX = 3.0
-PRESSURE_BONUS = 20          # extra seconds on a FAILING key's next wait when hot
-ISSUE_WINDOW = 3600          # device-cookie minting window, seconds
-ISSUE_MAX = 60               # signed device cookies per hour per un-gated IP
-KEY_TTL = 6 * 3600           # forget a key this long after its last failure
-KEY_MAX = 400                # hard cap on tracked keys per namespace
 _attempt_lock = threading.Lock()
 _attempts = _load(ATTEMPTS_FILE, {})
+if not isinstance(_attempts, dict):
+    _attempts = {}
+# Earlier builds kept a per-browser backoff here; its keys mean nothing now.
+for _old_key in ("devices", "issued", "reserve"):
+    _attempts.pop(_old_key, None)
+_lockouts = door_lockout.load_tables(_attempts)
 _att_dirty = False
 
-def _att_ns(ns):
-    return (_attempts.setdefault("devices", {}).setdefault(ns, {}),
-            _attempts.setdefault("global", {}).setdefault(ns, []))
 
-def device_wait(n):
-    """Required wait after n recorded failures: 0, 0, 1, 2, 4, 8 ... capped."""
-    if n < DEVICE_FREE_TRIES:
-        return 0
-    return min(2 ** min(n - DEVICE_FREE_TRIES, 24), DEVICE_MAX_WAIT)
+def _door_now() -> float:
+    """The lockout's clock (one seam, so tests can move time forward)."""
+    return time.time()
+
 
 def _att_prune(now):
-    # A key only matters until its backoff expires; keeping it a full day let an
-    # attacker grow this file without bound. Drop it once it cannot lock anyone
-    # out any more, and cap the table so a flood can never blow up memory/disk.
-    for devs in _attempts.get("devices", {}).values():
-        for k in [k for k, v in devs.items()
-                  if now - v.get("last", 0) > max(
-                      KEY_TTL, v.get("wait", device_wait(v.get("fails", 0))) * 3)]:
-            devs.pop(k, None)
-        if len(devs) > KEY_MAX:
-            for k, _v in sorted(devs.items(),
-                                key=lambda kv: kv[1].get("last", 0))[:len(devs) - KEY_MAX]:
-                devs.pop(k, None)
-    for bucket in ("global", "reserve"):
-        for ts in _attempts.get(bucket, {}).values():
-            ts[:] = [t for t in ts if now - t < GLOBAL_WINDOW]
-    iss = _attempts.get("issued", {})
-    for k in [k for k, v in iss.items() if not v or now - max(v) > ISSUE_WINDOW]:
-        iss.pop(k, None)
-    for v in iss.values():
-        v[:] = [t for t in v if now - t < ISSUE_WINDOW]
+    for table in _lockouts.values():
+        door_lockout.prune(table, now)
+    glob = _attempts.get("global")
+    if not isinstance(glob, dict):
+        glob = _attempts["global"] = {}
+    for ns in list(glob):
+        ts = glob[ns] if isinstance(glob[ns], list) else []
+        glob[ns] = [t for t in ts if isinstance(t, (int, float)) and now - t < GLOBAL_WINDOW]
+
 
 def _att_touch():
     # Rewriting the whole file on every guess meant O(n) synchronous disk I/O
@@ -1155,113 +1188,133 @@ def _att_touch():
     global _att_dirty
     _att_dirty = True
 
+
+def _door_take_unlock() -> int:
+    """Apply the owner's `media-lab code --unlock`, if a request is waiting
+    (auth-unlock.json under the data root; the CLI writes it, this deletes
+    it). The journal says how many lockouts were lifted, never which address."""
+    target = door_lockout.take_unlock_request(ROOT)
+    if target is None:
+        return 0
+    with _attempt_lock:
+        n = door_lockout.unlock(_lockouts, target)
+    _att_touch()
+    print(f"[media-lab] the owner lifted {n} code-prompt lockout record(s) "
+          f"({'every client' if target == 'all' else 'one client'})", flush=True)
+    return n
+
+
 def _att_flusher():
     global _att_dirty
     while True:
         time.sleep(3)
+        try:
+            _door_take_unlock()
+        except Exception as exc:          # never let the writer thread die
+            print(f"[media-lab] unlock request not applied: {exc.__class__.__name__}", flush=True)
         if not _att_dirty:
             continue
         with _attempt_lock:
             _att_dirty = False
-            _att_prune(time.time())
+            _att_prune(_door_now())
             snap = json.loads(json.dumps(_attempts))
         _save(ATTEMPTS_FILE, snap)
+
+
+_door_take_unlock()              # a request left while the studio was down
 threading.Thread(target=_att_flusher, daemon=True).start()
 
+
+def _proxy_peer(peer: str) -> bool:
+    """Did this connection come from one of OUR proxies (cloudflared, tailscale
+    serve, a local reverse proxy)? Loopback or one of this machine's own
+    addresses. Anything that is not an IP at all (a unix socket, a test client)
+    carries no identity either, so it counts as a proxy too."""
+    try:
+        ip = ipaddress.ip_address((peer or "").strip("[]"))
+    except ValueError:
+        return True
+    return ip.is_loopback or peer in OWN_ADDRESSES
+
+
 def _client_ip(request: Request) -> str:
-    """Trustworthy only for tunnel traffic — see the note above."""
+    """WHO to lock out — never who to trust (auth never looks at this).
+
+    * A direct connection (the peer is not one of our proxies): the peer
+      address is the caller. A tailnet or LAN device therefore has its own
+      lockout and cannot mint a fresh identity by forging CF-Connecting-IP
+      next to "Host: <public hostname>".
+    * Through one of our proxies on a public hostname: CF-Connecting-IP, which
+      the Cloudflare edge overwrites on every request.
+    * Anything else: "" (one shared anonymous key).
+    Either address goes through _throttle_ip, so an IPv6 visitor cannot walk
+    through the 2^64 addresses of its own /64 for a fresh key per guess."""
+    peer = request.client.host if request.client else ""
+    if peer and not _proxy_peer(peer):
+        return _throttle_ip(peer)
     host = (request.headers.get("host") or "").split(":")[0].lower()
     if host in PUBLIC_HOSTS:
-        return (request.headers.get("cf-connecting-ip") or "").strip()[:45]
+        return _throttle_ip(request.headers.get("cf-connecting-ip") or "")
     return ""
 
-def device_sign(did: str) -> str:
-    return hmac.new(ACCESS_SECRET.encode(), f"dev:{did}".encode(),
-                    hashlib.sha256).hexdigest()[:12]
 
-def device_new() -> str:
-    d = uuid.uuid4().hex
-    return f"{d}.{device_sign(d)}"
+def _throttle_ip(raw: str) -> str:
+    """The lockout key for one address: IPv4 as-is, a public IPv6 address by
+    its /64, an IPv4-mapped one by its IPv4 address, tailnet (fd7a:…) and
+    other private addresses as they are (door_lockout.throttle_key)."""
+    return door_lockout.throttle_key(raw)
 
-def device_valid(raw: str) -> str:
-    """The id, or "" — an unsigned/forged cookie buys you nothing, so a guesser
-    cannot hand themselves a fresh identity per attempt."""
-    m = re.fullmatch(r"([0-9a-f]{32})\.([0-9a-f]{12})", raw or "")
-    if m and hmac.compare_digest(m.group(2), device_sign(m.group(1))):
-        return m.group(1)
-    return ""
 
-def _req_key(request: Request) -> str:
-    did = getattr(request.state, "device_id", "")
-    if did:
-        return "dev:" + did
-    ip = getattr(request.state, "client_ip", "")
-    return ("ip:" + ip) if ip else "anon"
+def _door_key(request: Request) -> str:
+    ip = getattr(request.state, "client_ip", None)
+    if ip is None:
+        ip = _client_ip(request)
+    return door_lockout.client_key(ip)
 
-def issue_allowed(ip: str) -> bool:
-    if not ip:
-        return True
-    now = time.time()
+
+def door_wait(ns, key) -> int:
+    """Seconds the `ns` door stays shut for this client (0 = open). Checked
+    BEFORE any code is compared: a guesser who is told "wrong" at full speed
+    and only then locked out has learned everything they wanted."""
+    now = _door_now()
     with _attempt_lock:
-        iss = _attempts.setdefault("issued", {}).setdefault(ip, [])
-        iss[:] = [t for t in iss if now - t < ISSUE_WINDOW]
-        if len(iss) >= ISSUE_MAX:
-            return False
-        iss.append(now)
-    _att_touch()
-    return True
+        return door_lockout.remaining(_lockouts[ns], key, now)
 
-def device_block(ns, key):
-    """(seconds, scope) this caller must wait before their next guess is even
-    EVALUATED. Per-key ONLY — the global layer refuses nothing, which is what
-    makes it impossible for a stranger to hold the door shut against Steve.
-
-    The block still gates evaluation rather than just delaying the answer: a
-    guesser who gets told "wrong" at full speed and only then gets throttled has
-    learned everything they wanted, so the backoff would be decorative."""
-    now = time.time()
-    with _attempt_lock:
-        _att_prune(now)
-        devs, _g = _att_ns(ns)
-        e = devs.get(key)
-        if not e:
-            return 0, ""                     # never failed here: always immediate
-        left = e.get("wait", device_wait(e.get("fails", 0))) - (now - e.get("last", 0))
-        return (int(math.ceil(left)), "device") if left > 0 else (0, "")
 
 def global_hot(ns) -> bool:
     """Is the server-wide failure rate above the soft threshold right now?"""
-    now = time.time()
+    now = _door_now()
     with _attempt_lock:
-        _devs, g = _att_ns(ns)
-        g[:] = [t for t in g if now - t < GLOBAL_WINDOW]
+        glob = _attempts.setdefault("global", {})
+        g = glob[ns] = [t for t in glob.get(ns, []) if now - t < GLOBAL_WINDOW]
         return len(g) >= GLOBAL_SOFT_FAILS
 
-def record_fail(ns, key):
-    """Book a WRONG answer. Returns (delay_seconds, next_wait): `delay` is the
-    artificial pause to add to this failing response, `next_wait` is how long
-    this key must now sit out. Both only ever apply to failures."""
-    now = time.time()
+
+def door_fail(ns, key):
+    """Book a WRONG code. Returns (delay_seconds, verdict): `delay` is the
+    artificial pause to add to this failing answer when the server is hot;
+    `verdict` is door_lockout.strike's (locked, retry_after, tries_left, ...)."""
+    now = _door_now()
     hot = global_hot(ns)
     with _attempt_lock:
-        devs, g = _att_ns(ns)
-        g.append(now)
-        e = devs.setdefault(key, {"fails": 0, "last": 0})
-        e["fails"] += 1
-        e["last"] = now
-        e["wait"] = min(DEVICE_MAX_WAIT,
-                        device_wait(e["fails"]) + (PRESSURE_BONUS if hot else 0))
-        nxt = e["wait"]
+        _attempts.setdefault("global", {}).setdefault(ns, []).append(now)
+        verdict = door_lockout.strike(_lockouts[ns], key, now)
     _att_touch()
+    if verdict["locked"]:
+        # which client is private; that it happened is not
+        print(f"[media-lab] code prompt locked for one client: {ns} counter, lockout "
+              f"#{verdict['level']}, {door_lockout.human(verdict['retry_after'])}", flush=True)
     delay = random.uniform(THROTTLE_MIN, THROTTLE_MAX) if hot else 0.0
-    return delay, nxt
+    return delay, verdict
 
-def record_ok(ns, key):
+
+def door_ok(ns, key):
+    now = _door_now()
     with _attempt_lock:
-        devs, _g = _att_ns(ns)
-        gone = devs.pop(key, None) is not None
-    if gone:
+        changed = door_lockout.succeed(_lockouts[ns], key, now)
+    if changed:
         _att_touch()
+
 
 def _secure_cookie(request: Request) -> bool:
     """Mark cookies Secure only when this request really came over HTTPS. The Lab
@@ -1273,9 +1326,15 @@ def _secure_cookie(request: Request) -> bool:
     proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
     return proto == "https" or request.url.scheme == "https"
 
-def locked_response(wait, scope, extra=None):
-    body = {"ok": False, "error": "locked", "locked": True,
-            "retry_after": wait, "scope": scope}
+def locked_response(wait, extra=None):
+    """429 for a client whose code prompt is shut: when it opens again, and
+    the reminder that signed-in devices are not affected."""
+    wait = max(1, int(wait))
+    body = {"ok": False, "error": "locked", "locked": True, "retry_after": wait,
+            "scope": "network",
+            "message": (f"Too many wrong codes from this network. Try again in "
+                        f"{door_lockout.human(wait)}. Devices that are already signed in "
+                        "keep working.")}
     return JSONResponse(body | (extra or {}), status_code=429,
                         headers={"Retry-After": str(wait)})
 
@@ -1298,9 +1357,13 @@ body{min-height:100dvh;display:flex;align-items:center;justify-content:center;pa
 h1{font-family:'Space Grotesk',system-ui,sans-serif;font-weight:600;letter-spacing:-0.01em;
  font-size:2rem;margin:.4rem 0 .3rem}
 p{color:rgba(255,255,255,.6);font-size:.9rem;margin-bottom:22px}
-input{width:100%;text-align:center;letter-spacing:.5em;text-indent:.5em;font-size:1.6rem;
+input{width:100%;text-align:center;letter-spacing:.03em;font-size:1.15rem;
  background:rgba(10,7,5,.62);border:1px solid rgba(255,255,255,.14);border-radius:13px;
  color:#E8C193;font-family:'Space Grotesk',monospace;padding:16px 14px;outline:none}
+.show{display:inline-block;margin-top:10px;background:none;border:0;padding:4px 8px;width:auto;
+ color:rgba(255,255,255,.55);font-size:.8rem;letter-spacing:.04em;text-transform:none;font-weight:400;
+ cursor:pointer;font-family:'Barlow',sans-serif}
+.hint{margin:14px 0 0;font-size:.78rem;color:rgba(255,255,255,.42)}
 input:focus{border-color:#C99A6A}
 input:disabled{opacity:.45}
 button{width:100%;margin-top:14px;padding:15px;font-size:.9rem;font-weight:600;letter-spacing:.12em;
@@ -1308,26 +1371,39 @@ button{width:100%;margin-top:14px;padding:15px;font-size:.9rem;font-weight:600;l
  background:linear-gradient(140deg,#E8C193,#C99A6A 55%,#A97B4E);color:#160D06}
 button:disabled{filter:grayscale(.7);opacity:.5;cursor:not-allowed}
 .err{display:none;margin-top:12px;color:#C8455A;font-size:.85rem}
-.wait{color:#C99A6A}</style></head><body>
+.wait{color:#C99A6A}
+[hidden]{display:none!important}</style></head><body>
 <div class="card"><div class="k">VibeX Studio</div><h1>Media Lab</h1>
-<p>A private studio. Enter your code.</p>
-<form id="f"><input id="c" type="password" autocomplete="off"
- autocorrect="off" autocapitalize="off" spellcheck="false" maxlength="12" placeholder="····">
+<p>Enter your family code. Each device only needs it once.</p>
+<form id="f"><input id="c" type="password" autocomplete="current-password" aria-label="Family code"
+ autocorrect="off" autocapitalize="off" spellcheck="false" maxlength="80" placeholder="family code">
+<button id="s" class="show" type="button" aria-pressed="false">Show code</button>
 <button id="b" type="submit">Enter the studio</button></form>
-<div class="err" id="e">That code doesn't open this door — check it and try again.</div></div>
+<div class="err" id="e"></div>
+<button id="o" class="show" type="button" hidden>Studio owner? Enter the admin code</button>
+<p class="hint">Spaces, dashes and capitals don't matter. Studio owner? Your admin code works here too.</p></div>
 <script>
-const F=document.getElementById('f'),C=document.getElementById('c'),
-      B=document.getElementById('b'),E=document.getElementById('e');
-const BAD="That code doesn't open this door — check it and try again.";
+const F=document.getElementById('f'),C=document.getElementById('c'),O=document.getElementById('o'),
+      B=document.getElementById('b'),E=document.getElementById('e'),S=document.getElementById('s');
+const BAD="That's not the family code — check it and try again.";
+S.onclick=()=>{const on=C.type==='password';C.type=on?'text':'password';
+ S.textContent=on?'Hide code':'Show code';S.setAttribute('aria-pressed',String(on));C.focus();};
 let timer=null;
-function lock(sec,scope){clearInterval(timer);B.disabled=true;C.disabled=true;
+// 3 wrong codes in 10 minutes shut this prompt for the whole network: 1 h,
+// then 2 h, 4 h, 8 h ... Devices already signed in are not affected, and the
+// owner's admin code still works (it has its own counter).
+function span(sec){const d=Math.floor(sec/86400),h=Math.floor(sec%86400/3600),m=Math.floor(sec%3600/60);
+ if(d)return d+' d '+h+' h';if(h)return h+' h '+String(m).padStart(2,'0')+' min';
+ return m+':'+String(sec%60).padStart(2,'0');}
+function lock(sec){clearInterval(timer);B.disabled=true;C.disabled=true;O.hidden=false;
  E.className='err wait';E.style.display='block';
- const tick=()=>{if(sec<=0){clearInterval(timer);B.disabled=false;C.disabled=false;
-   E.className='err';E.style.display='none';C.focus();return;}
-  const m=Math.floor(sec/60),s=String(sec%60).padStart(2,'0');
-  E.textContent='Too many tries from this device — try again in '+m+':'+s;
+ const tick=()=>{if(sec<=0){clearInterval(timer);B.disabled=false;C.disabled=false;O.hidden=true;
+   E.className='err';E.style.display='none';C.placeholder='family code';C.focus();return;}
+  E.textContent='Too many wrong codes from this network. Try again in '+span(sec)+
+   '. Devices that are already signed in keep working.';
   sec--;};
  tick();timer=setInterval(tick,1000);}
+O.onclick=()=>{B.disabled=false;C.disabled=false;C.placeholder='admin code';O.hidden=true;C.focus();};
 F.onsubmit=async ev=>{ev.preventDefault();
  let r,d={};
  try{r=await fetch('/api/gate',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -1335,39 +1411,78 @@ F.onsubmit=async ev=>{ev.preventDefault();
   E.textContent='The studio is unreachable — try again.';E.style.display='block';return;}
  if(r.ok){location.replace('/');return;}
  try{d=await r.json();}catch(err){}
- if(r.status===429||d.retry_after>=3){lock(Math.max(1,Math.ceil(d.retry_after||1)),d.scope);}
- else{E.className='err';E.textContent=BAD;E.style.display='block';}
+ if(r.status===429||d.locked){lock(Math.max(1,Math.ceil(d.retry_after||1)));}
+ else{E.className='err';E.style.display='block';
+  E.textContent=BAD+(d.tries_left===1?' One more wrong try locks this network out for '+
+   span(d.next_lock||3600)+'.':'');}
  C.value='';C.focus();};
 C.focus();
 </script></body></html>"""
 
 def request_role(request: Request) -> str:
-    """"admin" | "user" | "" for this request. The cookie is the only thing that
-    can grant admin — the tailnet still skips the door, but it walks in as a
-    plain user until someone signs in with the admin code."""
+    """"admin" | "user" | "" for this request.
+
+    "admin" comes only from a cookie signed for the admin code. "user" (the
+    family permission set) comes from a cookie signed for the family code, or
+    from the local tool token that only processes on this machine can read.
+    Nothing about the network — Host header, tailnet, client address — grants
+    anything any more."""
     role = session_role(request.cookies.get(SESSION_COOKIE, ""))
     if role:
         return role
-    host = (request.headers.get("host") or "").split(":")[0].lower()
-    return "user" if host in TRUSTED_HOSTS else ""
+    # The studio shown inside the VibeX Studio app signs in through the embed
+    # handshake (media_lab_core/embed_gate.py); that cookie carries the role of
+    # the device pass that minted it and counts only on the studio page's own
+    # same-origin requests.
+    role = embed_gate.cookie_role(request, ACCESS_SECRET, _role_code)
+    if role:
+        return role
+    if local_token.matches(request.headers.get(local_token.HEADER), LOCAL_TOKEN):
+        return "user"
+    return ""
 
 def _gate_ok(request: Request) -> bool:
-    return bool(request_role(request))
+    return bool(getattr(request.state, "role", "") or request_role(request))
+
+def _pin_role(request: Request) -> tuple[str, int]:
+    """X-Lab-Pin carrying the ADMIN code lets an owner script in without a
+    cookie. Returns ("admin", 0), or ("", wait) where wait > 0 means this
+    client's admin counter is locked. Same rule as the prompt, on the separate
+    "admin" counter, so the header is no cheaper to guess than the door. The
+    family code is not accepted here."""
+    key = _door_key(request)
+    wait = door_wait("admin", key)
+    if wait:
+        return "", wait
+    if is_admin(request.headers.get("x-lab-pin")):
+        door_ok("admin", key)
+        return "admin", 0
+    _delay, verdict = door_fail("admin", key)
+    return "", (verdict["retry_after"] if verdict["locked"] else 0)
+
+
+def _door_refusal(request: Request, p: str):
+    """What a visitor with no sign-in gets."""
+    if request.method == "GET" and embed_gate.is_frame_navigation(request):
+        # Inside the VibeX Studio app: sign in through the frame handshake
+        # instead of showing a code screen whose cookie the frame can't keep.
+        return embed_gate.bootstrap_redirect(p, request.url.query)
+    if request.method == "GET" and ("text/html" in request.headers.get("accept", "") or p == "/"):
+        return HTMLResponse(GATE_HTML, status_code=401)
+    return JSONResponse({"error": "locked"}, status_code=401)
 
 @app.middleware("http")
 async def gate_middleware(request: Request, call_next):
     # Decide on the COLLAPSED path: StaticFiles resolves ".." after routing, so
     # testing the raw path let /static/icons/../index.html past the exemption.
     p = gate_path(request.url.path)
-    # A visitor is only tracked separately from their IP once they carry a cookie
-    # this server signed. An unsigned or forged one counts as no cookie at all.
-    did = device_valid(request.cookies.get(DEVICE_COOKIE, ""))
-    request.state.device_id = did
+    # A rotated code takes effect here, before anything checks a cookie or pass.
+    _refresh_codes()
     request.state.client_ip = _client_ip(request)
     request.state.role = request_role(request)
-    fresh = not did
 
-    scoped = studio_library.is_library_path(p) or studio_jobs.is_jobs_path(p)
+    scoped = (studio_library.is_library_path(p) or studio_jobs.is_jobs_path(p)
+              or p in embed_gate.BRIDGE_PATHS)
     bridge = p == '/api/gate' or scoped
     if bridge and request.method == 'OPTIONS':
         resp = Response(status_code=204)
@@ -1379,16 +1494,16 @@ async def gate_middleware(request: Request, call_next):
         resp = await call_next(request)
     elif request.state.role:
         resp = await call_next(request)
-    elif request.method == "GET" and ("text/html" in request.headers.get("accept", "") or p == "/"):
-        resp = HTMLResponse(GATE_HTML, status_code=401)
     else:
-        resp = JSONResponse({"error": "locked"}, status_code=401)
-    # Anyone through the gate gets an identity for free; anyone still outside it
-    # gets one out of a per-IP hourly budget, so clean keys can't be farmed.
-    if fresh and (_gate_ok(request) or issue_allowed(request.state.client_ip)):
-        resp.set_cookie(DEVICE_COOKIE, device_new(), max_age=60 * 60 * 24 * 730,
-                        httponly=True, samesite="lax", path="/",
-                        secure=_secure_cookie(request))
+        # an owner script with the admin code in X-Lab-Pin and no cookie
+        pin_role, pin_wait = _pin_role(request) if request.headers.get("x-lab-pin") else ("", 0)
+        if pin_role:
+            request.state.role = pin_role
+            resp = await call_next(request)
+        elif pin_wait:
+            resp = locked_response(pin_wait)
+        else:
+            resp = _door_refusal(request, p)
     # NOTHING behind the gate may be stored by a SHARED cache. We sit behind a
     # Cloudflare tunnel, and .mp4 is on Cloudflare's default cache-by-extension
     # list — so an origin that says nothing about caching was letting the edge
@@ -1415,6 +1530,9 @@ async def gate_middleware(request: Request, call_next):
         resp.headers['Access-Control-Expose-Headers'] = 'X-Content-SHA256, X-Studio-Portable'
         resp.headers['Cache-Control'] = 'private, no-store'
         resp.headers['Vary'] = 'Authorization, Origin'
+    # Only this studio, the VibeX Studio app's own origins and (over loopback)
+    # local dev servers may frame any page here: no clickjacking of the studio.
+    embed_gate.apply_frame_headers(resp, request.headers.get("host") or "", BROWSER_ORIGINS)
     return resp
 
 # ---------- admin authority ----------
@@ -1422,30 +1540,51 @@ async def gate_middleware(request: Request, call_next):
 # front door. The X-Lab-Pin header survives only so existing scripts and fleet
 # agents keep working, and it must carry the ADMIN LOGIN code.
 def is_admin(pin: Optional[str]) -> bool:
-    return bool(pin) and hmac.compare_digest(pin.strip().upper().encode("utf-8", "replace"),
-                                             ADMIN_CODE.encode())
+    _refresh_codes()
+    return bool(pin) and bool(ADMIN_CODE) and hmac.compare_digest(
+        family_code.normalize(pin).encode("utf-8", "replace"), ADMIN_CODE.encode())
+
+OWNER_ONLY = ("Only the studio owner can change this. Sign in with the admin code "
+              "(not the family code) to do it.")
 
 def admin_guard(request: Request, pin: Optional[str]):
-    """None when the caller is admin, else the JSONResponse to return.
-    Steve's directive 2026-08-16: EVERYONE signed in is a studio manager —
-    any valid session (either door code) passes. The admin code still exists
-    as a second door, and scripted callers can still use X-Lab-Pin."""
+    """The STUDIO-MANAGER check: None when the caller may manage the studio's
+    work (queue order, cancel, retry, archive, delete, import), else the
+    JSONResponse to return.
+    Studio policy (2026-08-16), kept by the one-family-login change: EVERYONE
+    signed in is a studio manager — the family code opens all of it. Server
+    SETTINGS are different; they go through owner_guard. Scripted callers can
+    still use X-Lab-Pin with the admin code."""
     if getattr(request.state, "role", "") in ("admin", "user") or request_role(request) in ("admin", "user"):
         return None
+    return _pin_guard(request, pin, "not admin")
+
+def owner_guard(request: Request, pin: Optional[str]):
+    """The OWNER check for server settings — provider keys, engine installs, GPU
+    residency changes, rotating the family code. Only the admin code opens it:
+    an admin session cookie, or the admin code in X-Lab-Pin. The family code and
+    the local tool token never do."""
+    if getattr(request.state, "role", "") == "admin" or request_role(request) == "admin":
+        return None
+    return _pin_guard(request, pin, OWNER_ONLY)
+
+def _pin_guard(request: Request, pin: Optional[str], refusal: str):
     p = (pin or "").strip()
     if not p:
-        return JSONResponse({"ok": False, "error": "not admin", "role": "user"},
-                            status_code=403)
-    key = _req_key(request)
-    wait, scope = device_block("admin", key)
+        return JSONResponse({"ok": False, "error": refusal, "owner_only": refusal == OWNER_ONLY,
+                             "role": request_role(request) or "user"}, status_code=403)
+    key = _door_key(request)
+    wait = door_wait("admin", key)
     if wait:
-        return locked_response(wait, scope, {"error": "locked"})
+        return locked_response(wait)
     if is_admin(p):
-        record_ok("admin", key)
+        door_ok("admin", key)
         return None
-    _delay, nxt = record_fail("admin", key)
-    return JSONResponse({"ok": False, "error": "bad code", "retry_after": nxt,
-                         "scope": "device"}, status_code=403)
+    _delay, verdict = door_fail("admin", key)
+    if verdict["locked"]:
+        return locked_response(verdict["retry_after"], {"wrong": True})
+    return JSONResponse({"ok": False, "error": "bad code", "retry_after": 0, "scope": "network",
+                         "tries_left": verdict["tries_left"]}, status_code=403)
 
 # ---------- ETA stats ----------
 ETA_DEFAULT = {"video": 6, "music": 12, "screenshotsong": 14, "image": 3, "character": 9, "storyboard": 4, "assemble": 2,
@@ -1458,7 +1597,7 @@ def eta_key(j):
     # when resident vs multi-minute cold loads.
     temp = "warm" if j.get("warm") else "cold"
     if j["kind"] == "video":
-        return f"video/{j.get('engine','ltx25')}/{j.get('frames',121)}/{temp}"
+        return f"video/{_eta_engine(j)}/{j.get('frames',121)}/{temp}"
     if j["kind"] in ("music", "screenshotsong"):
         req = j.get("request") or {}
         seconds = req.get("duration_seconds") or req.get("length", "auto")
@@ -1479,11 +1618,38 @@ def eta_key(j):
         req = j.get("request") or {}
         return f"enhance/avatar/{int(req.get('avatar_frames') or 129)}/30"
     return j["kind"]
+def _eta_engine(j):
+    """The render-eta table id of a video job ("h3-real" for Real / Long)."""
+    engine = j.get("engine", "ltx25")
+    if engine == "h3" and _h3ref.wants_singularity(j.get("request") or {}):
+        return "h3-real"
+    return engine
+
+
+def _video_eta(j):
+    """Table estimate for one queued/running video job (None when unknown)."""
+    req = j.get("request") or {}
+    try:
+        return render_eta.estimate(
+            _eta_engine(j), (j.get("frames") or 121) / 24.0, resident=bool(j.get("warm")),
+            image_refs=len(req.get("references") or []),
+            video_refs=len(req.get("video_references") or []),
+            audio_refs=len(req.get("audio_references") or []),
+            detail=str(req.get("reference_detail") or "match"),
+            timings_path=RENDER_TIMINGS_FILE)
+    except Exception:
+        return None
+
+
 def eta_estimate(j):
     k = eta_key(j)
     v = _load(ETA_FILE, {}).get(k)
     if v:
         return max(1, round(sum(v) / len(v) / 60))
+    if j["kind"] == "video" and j.get("engine") in ("h3", "h3-ltx25", "ltx25"):
+        est = _video_eta(j)
+        if est:
+            return max(1, round(est["total_s"] / 60))
     if k == "enhance/avatar/129/30":
         # No completed HVA sample exists yet; use a conservative cold-load estimate
         # rather than the generic six-minute enhancement fallback. Real completions
@@ -1512,6 +1678,21 @@ def eta_record(j):
     k = eta_key(j)
     stats[k] = (stats.get(k, []) + [round(j["finished"] - j["started"])])[-8:]
     _save(ETA_FILE, stats)
+    if j.get("kind") == "video" and j.get("status") == "done" and \
+            j.get("engine") in ("h3", "h3-ltx25", "ltx25"):
+        # measured takes keep the model picker's estimates honest
+        req = j.get("request") or {}
+        try:
+            render_eta.record(
+                RENDER_TIMINGS_FILE, _eta_engine(j), seconds=(j.get("frames") or 121) / 24.0,
+                total_s=j["finished"] - j["started"],
+                spinup_s=(j.get("admit_s") or 0.0) if (j.get("admit_s") or 0.0) >= 30 else 0.0,
+                image_refs=len(req.get("references") or []),
+                video_refs=len(req.get("video_references") or []),
+                audio_refs=len(req.get("audio_references") or []),
+                detail=str(req.get("reference_detail") or "match"))
+        except Exception as exc:
+            print(f"[eta] render timing not recorded: {exc}", flush=True)
 
 # ---------- qwen ----------
 def qwen(system, user, max_tokens=2400):
@@ -1627,11 +1808,42 @@ def make_video_job(request):
     style = STYLES.get(request.get("style", "none"), STYLES["none"])
     if request.get("model") == "fal-video" and not fal_ready():
         raise ValueError("fal.ai isn't set up — add your API key in Cloud providers.")
+    if request.get("model") == "h3-real" or \
+            str(request.get("h3_engine") or "").lower() == _h3ref.H3_SINGULARITY_VARIANT:
+        # Real / Long is the H3 engine's load-on-demand Singularity variant.
+        refusal = singularity_refusal()
+        if refusal:
+            raise ValueError(refusal)
+        if request.get("model") in ("h3-real", None, ""):
+            request["model"] = "h3"
+        request["h3_engine"] = _h3ref.H3_SINGULARITY_VARIANT
+    else:
+        request.pop("h3_engine", None)
     engine = request.get("model") if request.get("model") in ("ltx25", "h3", "h3-ltx25", "fal-video") else "ltx25"
     uses_h3 = engine in ("h3", "h3-ltx25")
+    if uses_h3 and not engine_licences.enabled("h3"):
+        raise ValueError(engine_licences.refusal("h3"))
     turbo_preset = _h3ref.required_turbo_preset(request)
     if turbo_preset and not uses_h3:
         raise ValueError("the managed H3 Turbo preset requires model 'h3'")
+    # H3 reference work runs on Real / Long where this host has it (Sol's
+    # Ref2VA needs more memory than a 128 GB box has). Stamp the decision on the
+    # job so a restart or a remix runs it the same way.
+    singularity = uses_h3 and _h3ref.wants_singularity(request)
+    if singularity:
+        request["h3_engine"] = _h3ref.H3_SINGULARITY_VARIANT
+        if turbo_preset:
+            raise ValueError("Real / Long runs its own pinned dual-sampling recipe; "
+                             "the managed H3 Turbo preset does not apply to it.")
+    audio_requested = request.get("audio_references") or []
+    if audio_requested:
+        if not singularity:
+            raise ValueError("audio references need the Real / Long engine; refusing to drop them.")
+        audio_usable = _h3ref.normalize_audio_references(audio_requested)
+        if len(audio_usable) != len(audio_requested):
+            raise ValueError("every audio reference must be a supported /media sound file "
+                             "with a non-negative start time")
+        request["audio_references"] = audio_usable
     request["h3_turbo"] = turbo_preset or False
     # H3 Ref2VA actor cloning: references are an explicit list of separate
     # pictures {b64, role}. They FAIL CLOSED here — a silently-dropped reference
@@ -1653,9 +1865,9 @@ def make_video_job(request):
                 "references were requested but none carried a decodable image "
                 "— refusing to boot the actor-cloning model with no actors.")
         # refuse contact-sheet concatenation of people if too many pictures
-        _h3ref.assert_ref_count_ok(len(usable))
+        _h3ref.assert_ref_count_ok(len(usable), singularity=singularity)
         # Keep only the validated references so garbage b64 never reaches the
-        # engine. Roles (Steve/Heather/DGX/style) are preserved verbatim.
+        # engine. Roles (e.g. person/product/style) are preserved verbatim.
         request["references"] = usable
         request["reference_detail"] = _h3ref.resolve_reference_detail(reference_detail)
     video_requested = request.get("video_references") or []
@@ -1697,16 +1909,25 @@ def make_video_job(request):
         # preflight() reads orientation back off w >= h. Anyone picking portrait
         # for a plain H3 clip got a landscape video and no warning.
         w, h = H3_SIZES.get(request.get("orientation", "landscape"), H3_SIZES["landscape"])
+    if singularity:
+        # Real / Long honours length (5-15 s) and shape; H3's 17k+5 grid, 24 fps.
+        frames = _h3sing.frames_for_seconds(_secs, singularity_max_frames())
+        orientation = request.get("orientation", "landscape")
+        w, h = _h3sing.output_size(orientation if orientation in _h3sing.ASPECTS else "landscape")
     # A cast character's canonical look line goes in verbatim, exactly as the
     # storyboard composes it — same words, so the same face turns up whether
     # they are cast in a one-off clip or in beat 7 of a film.
     looks = " ".join(cast_lines(request.get("cast")))
     full = style["prefix"] + (looks + " " if looks else "") + prompt
-    return submit_job("video", request, extra={"prompt": prompt, "style": request.get("style", "none"),
+    extra = {"prompt": prompt, "style": request.get("style", "none"),
         "engine": engine, "frames": frames, "w": w, "h": h, "full_prompt": full,
         # cloud renders never touch the local pool; "warm" is always true for them
         "warm": True if engine == "fal-video"
-                else engine_up("ltx" if engine == "ltx25" else "h3")})
+                else engine_up("ltx") if engine == "ltx25"
+                else h3_variant_warm(singularity)}
+    if singularity:
+        extra["engine_label"] = _h3sing.LABEL
+    return submit_job("video", request, extra=extra)
 
 RESUBMIT = {"video": make_video_job}
 
@@ -1794,8 +2015,8 @@ def fail(j, message, detail=""):
     j["retryable"] = not j.get("recovery_required") and any(m in low for m in INFRA_FAILURE_MARKS)
 
 # ---------- warm model pool ----------
-# DSV4 POLICY — Steve's directive 2026-08-15: all media models get priority over
-# dsv4 until he reverses it. ds4-sparky.service stays DOWN by default (it is
+# DSV4 POLICY — owner's directive 2026-08-15: all media models get priority over
+# dsv4 until it is reversed. ds4-sparky.service stays DOWN by default (it is
 # RefuseManualStart=yes). The flag file below (absent = off) records the policy
 # switch; NOTHING in this app ever starts dsv4.
 DSV4_FLAG = ROOT / "dsv4-default-on"
@@ -1815,6 +2036,26 @@ _gpu_protocol = None
 _gpu_protocol_mutex = threading.RLock()
 _gpu_active_lease = None
 _gpu_thread = threading.local()
+
+
+class PreloadAdmissionRefused(RuntimeError):
+    """An engine's memory admission was refused before anything was started
+    for this lease (the residency planner's phase floor, or the companion
+    memory guard). The outcome is known, so ``gpu_operation`` releases the
+    lease with fresh process and memory proof instead of holding the GPU."""
+
+
+def _note_preload_refusal(reason):
+    _gpu_thread.preload_refusal = str(reason)[:400]
+
+
+def _admission_failure(state):
+    """The exception that closes a lease whose engine admission did not come up."""
+    reason = getattr(_gpu_thread, "preload_refusal", None)
+    _gpu_thread.preload_refusal = None
+    if reason:
+        return PreloadAdmissionRefused(f"engine admission refused before load: {reason}")
+    return RuntimeError(f"engine admission: {state}")
 _gpu_cutover_ready = False
 
 
@@ -1880,16 +2121,97 @@ def _gpu_restart_adoption_proof(recovered):
             "pid": identity[0], "process_identity": identity[1], **warm}
 
 
+def _gpu_graceful_handoff_enabled():
+    """MEDIA_LAB_GRACEFUL_HANDOFF=1 (config/local.env): planned restarts hand an
+    idle parked residency to the next controller instead of holding the GPU."""
+    return local_config.int_value(_gpu_handoff.FLAG, 0) == 1
+
+
+def _gpu_resident_config(engine):
+    """What the engine says it has loaded, compared verbatim across a handoff."""
+    return h3_resident_config() if engine == "h3" else None
+
+
+def _gpu_handoff_warm(engine, resident):
+    healthy = _gpu_exact_idle(engine) and (engine != "h3" or resident is not None)
+    return {"healthy": bool(healthy), "busy": engine_busy(engine) if engine in ENGINES else True}
+
+
+def _gpu_write_handoff_on_shutdown():
+    """Planned stop: record an exact idle parked residency for the next start.
+
+    Takes the controller's protocol mutex and never releases it, so no fenced
+    GPU operation can begin after the record is written. If an operation is
+    running the mutex is busy and nothing is written: the next start holds, as
+    it always has. Every refusal is logged and harmless.
+    """
+    if os.getenv("MEDIA_LAB_DISABLE_BACKGROUND_WORKERS") == "1" or not _gpu_graceful_handoff_enabled():
+        return None
+    if not _gpu_protocol_mutex.acquire(timeout=5):
+        print("[gpu-lease] planned-stop handoff skipped: a GPU operation is running", flush=True)
+        return None
+    try:
+        protocol = gpu_protocol()
+        row = protocol.snapshot().get("lease")
+        lease = _gpu_active_lease
+        if lease is None or row is None or row.get("fence") != lease.fence:
+            raise _gpu_handoff.HandoffRefused("this controller does not own the durable lease")
+        engine, task = row["engine"], row["task"]
+        resident = _gpu_resident_config(engine)
+        record = _gpu_handoff.plan(
+            row, owner=f"media-lab-simple:{os.getpid()}", boot_id=protocol._boot_id(),
+            live_identity=_gpu_process_identity(engine),
+            warm=_gpu_handoff_warm(engine, resident), resident_config=resident,
+            running_jobs=sum(1 for j in jobs.values() if j.get("status") == "running"),
+            hold_exists=gpu_recovery_pending())
+        _gpu_handoff.write(GPU_HANDOFF, record)
+        print(f"[gpu-lease] planned stop: handed {engine}/{task} fence {record['fence']} "
+              f"to the next controller", flush=True)
+        return record
+    except Exception as exc:
+        print(f"[gpu-lease] planned-stop handoff skipped: {exc}", flush=True)
+        return None
+
+
+def _gpu_adopt_handoff(protocol, recovered, row, record):
+    """Adopt exactly the residency a graceful stop handed over, then re-park it."""
+    engine, task = row["engine"], row["task"]
+    resident = _gpu_resident_config(engine)
+    proof = _gpu_handoff.validate(
+        record, row, boot_id=protocol._boot_id(),
+        live_identity=_gpu_process_identity(engine),
+        warm=_gpu_handoff_warm(engine, resident), resident_config=resident,
+        running_jobs=sum(1 for j in jobs.values() if j.get("status") == "running"),
+        hold_exists=gpu_recovery_pending())
+    return _gpu_handoff.adopt(
+        protocol, recovered, owner=f"media-lab-simple:{os.getpid()}", proof=proof,
+        park_proof={"engine": engine, "task": task, "healthy": True, "busy": False})
+
+
 def initialize_gpu_cutover():
     """Adopt only exact idle ownership; quarantine every ambiguous restart."""
     global _gpu_active_lease, _gpu_cutover_ready
     protocol = gpu_protocol()
+    # Consumed on every start, used or not: a record can never be replayed.
+    handoff_record = _gpu_handoff.consume(GPU_HANDOFF)
     recovered = protocol.recover_startup()
     _gpu_active_lease = recovered
     lease = protocol.snapshot().get("lease")
     _gpu_cutover_ready = lease is None
     if lease is None:
         return True
+    if (recovered is not None and recovered._fd is not None and not GPU_RECOVERY_HOLD.exists()
+            and handoff_record is not None and _gpu_graceful_handoff_enabled()):
+        try:
+            _gpu_adopt_handoff(protocol, recovered, lease, handoff_record)
+            _gpu_active_lease = recovered
+            _gpu_cutover_ready = True
+            print(f"[gpu-lease] planned restart: adopted parked {recovered.engine}/"
+                  f"{recovered.task} for {recovered.job_id} (no hold)", flush=True)
+            return True
+        except Exception as exc:
+            print(f"[gpu-lease] planned-restart handoff refused: {exc}", flush=True)
+            lease = protocol.snapshot().get("lease") or lease
     if recovered is not None and recovered._fd is not None and not GPU_RECOVERY_HOLD.exists():
         try:
             proof = _gpu_restart_adoption_proof(recovered)
@@ -1976,6 +2298,32 @@ def _gpu_reclaim_all(j=None):
             "boot_id": boot_path.read_text().strip() if boot_path.exists() else "unknown"}
 
 
+# Right after a warm take finishes, the engine's decode buffers take a few
+# seconds to come back. An admission check inside that window measured 22.7 of
+# the 24.0 GiB a warm H3 take needs and failed the NEXT queued take outright:
+# 3 of 4 queued diner takes on 2026-09-18, 5 of 6 queued takes on 2026-09-26.
+# A multi-shot production queues takes back to back, so wait (bounded) for a
+# SMALL measured deficit to clear. Nothing is relaxed: retarget re-checks.
+WARM_SETTLE_MAX_DEFICIT_GIB = float(os.getenv("MEDIA_LAB_WARM_SETTLE_MAX_DEFICIT_GIB", "4"))
+WARM_SETTLE_WAIT_S = float(os.getenv("MEDIA_LAB_WARM_SETTLE_WAIT_S", "90"))
+_settle_sleep = time.sleep
+_settle_clock = time.monotonic
+
+
+def _wait_for_warm_settle(protocol, engine, task, deficit, j=None):
+    if deficit <= 0 or deficit > WARM_SETTLE_MAX_DEFICIT_GIB:
+        return deficit
+    if j is not None:
+        j["stage"] = "letting memory settle after the last take…"
+        save_state()
+    deadline = _settle_clock() + WARM_SETTLE_WAIT_S
+    while deficit > 0 and _settle_clock() < deadline:
+        _settle_sleep(2.0)
+        deficit = protocol.capacity_deficit_gib(engine, task, warm=True)
+    print(f"[gpu] warm {engine}/{task} admission after settle wait: deficit {deficit:.2f} GiB", flush=True)
+    return deficit
+
+
 @contextmanager
 def _exact_warm_video_admission(protocol, lease, engine, task, warm, j=None):
     """Reclaim proven-idle image weights before exact-warm video admission.
@@ -1998,7 +2346,10 @@ def _exact_warm_video_admission(protocol, lease, engine, task, warm, j=None):
     if not exact_parked:
         yield
         return
-    if protocol.capacity_deficit_gib(engine, task, warm=True) <= 0:
+    deficit = protocol.capacity_deficit_gib(engine, task, warm=True)
+    if deficit > 0 and not engine_up("image"):
+        deficit = _wait_for_warm_settle(protocol, engine, task, deficit, j)
+    if deficit <= 0:
         yield
         return
 
@@ -2165,6 +2516,45 @@ def gpu_operation(engine, task, j=None, *, ephemeral=False):
                     except StaleFence: pass
                     hold_gpu_recovery("capacity-rejected-before-safe-release", j)
             raise
+        except PreloadAdmissionRefused as exc:
+            # The engine's memory admission refused before anything was started
+            # (lease still in phase "load"). Prove it with a FRESH exact reclaim:
+            # every managed process gone and memory recovered. Only then release;
+            # anything unproven still quarantines like any uncertain outcome.
+            cleanup_reason = "preload-refusal-cleanup-uncertain"
+            released = False
+            if lease is not None and lease.state == "active" and lease.phase == "load":
+                try:
+                    protocol.advance(lease, "unload")
+                    refusal_proof = reclaim_operation()
+                    if refusal_proof.get("processes_gone") is not True:
+                        raise RuntimeError(
+                            f"GPU processes present after refused load: {refusal_proof.get('survivors')}")
+                    if refusal_proof.get("memory_recovered") is not True:
+                        raise RuntimeError(
+                            f"memory not recovered after refused load: {refusal_proof.get('available_gib')} GiB")
+                    protocol.advance(lease, "reclaim")
+                    if not restore_managed_qwen():
+                        raise RuntimeError("managed Qwen restoration failed")
+                    protocol.release(lease, proof=refusal_proof)
+                    _gpu_active_lease = None
+                    released = True
+                except Exception as cleanup_exc:
+                    cleanup_reason = f"preload-refusal-cleanup-uncertain:{type(cleanup_exc).__name__}"
+                    if j is not None:
+                        j["detail"] = f"refused-load cleanup failed: {cleanup_exc}"[:400]
+            if released:
+                print(f"[gpu] {engine}/{task} admission refused before load; lease released "
+                      f"with fresh reclaim proof (no hold): {exc}", flush=True)
+                if pool_cmd("acquire") != "OK":
+                    raise LeaseBusy(
+                        "refused load released the durable lease but legacy pool restore failed"
+                    ) from exc
+            elif lease is not None and lease.state == "active" and lease.phase != "parked":
+                try: protocol.mark_recovery(lease, cleanup_reason)
+                except StaleFence: pass
+                hold_gpu_recovery(cleanup_reason, j)
+            raise
         except Exception as exc:
             safely_released = False
             cleanup_reason = f"operation-uncertain:{type(exc).__name__}"
@@ -2218,6 +2608,7 @@ def gpu_render_ready(engine, task):
     return lease
 
 GPU_RECOVERY_HOLD = POOL_DIR / "gpu-recovery-hold.json"
+GPU_HANDOFF = POOL_DIR / "gpu-handoff.json"
 _gpu_recovery_blocked = False
 
 def gpu_recovery_pending():
@@ -2260,8 +2651,9 @@ def clear_gpu_recovery_hold(*, proof):
     _gpu_recovery_blocked = False
 
 # ---------- music engines ----------
-# YuE2 is the PRIMARY music engine (Steve, 2026-09-14): the default for every
-# new song. MiniMax Music 3 (ComfyUI, ENGINES["music"]) stays as a secondary
+# YuE2 is the PRIMARY music engine where the host has opted into it (its weights
+# are CC BY-NC 4.0, see media_lab_core/engine_licences.py): the default for every
+# new song there. Everywhere else Music 3 is the default. MiniMax Music 3 (ComfyUI, ENGINES["music"]) stays as a secondary
 # choice and remains the engine behind screenshot songs, whose Director QA
 # contract was measured against it. Request-level names are "yue2" | "music3";
 # MUSIC_ENGINE_UNITS maps them to the ENGINES residency slots.
@@ -2306,7 +2698,7 @@ ENGINES = {
     "yue2":  {"port": YUE2_PORT, "kind": "unit", "unit": "media-lab-yue2.service",
               "cmd": _yue2_command(), "health": "/health", "gb": 18, "boot_wait": 240},
 }
-# Steve's promoted Spark contract: PPLX-27B is the protected primary and exactly
+# The promoted studio-host contract: PPLX-27B is the protected primary and exactly
 # one heavyweight companion owns the remaining unified-memory slot.  The
 # Voicebox service shell may stay up while its model is unloaded; loaded TTS
 # weights count as the `voice` companion and are handled below through its API.
@@ -2319,6 +2711,115 @@ PPLX_MODELS_URL = local_config.text_upstream() + "/v1/models"   # MEDIA_LAB_TEXT
 QWEN_GB = local_config.int_value("MEDIA_LAB_QWEN_GB", 0)
 MEM_CAP_GB = local_config.int_value("MEDIA_LAB_MEM_CAP_GB", 120)
 IDLE_REAP_S = 3600  # 60-minute keep-warm for h3 / music / image; LTX is the idle default
+# Always-warm H3.  When the persistent idle profile includes h3 (qwen-h3):
+#  * the reaper never unloads H3 (it used to stop it after an idle hour and the
+#    idle reconciler reloaded it a minute later, a ~112 GB cold load roughly
+#    every 67 minutes; one of those loads tripped the memory guard);
+#  * the idle preload boots the Sol task real jobs use (text-only t2va by
+#    default), so a plain H3 job reuses the warm engine without a reload;
+#  * other GPU work still pushes H3 out (nothing heavy fits beside it); the
+#    queue finishes that non-H3 batch first, and H3 is reloaded once the studio
+#    has had no local GPU job for H3_RESTORE_QUIET_S seconds.
+H3_IDLE_TASKS = ("t2va", "fl2va")
+
+
+def _h3_idle_task(raw):
+    """The Sol task an idle H3 preload boots; anything unknown means t2va."""
+    task = str(raw or "").strip().lower()
+    return task if task in H3_IDLE_TASKS else "t2va"
+
+
+def _float_setting(key, default):
+    try:
+        return float(str(local_config.get(key, str(default))).strip() or default)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+H3_IDLE_TASK = _h3_idle_task(local_config.get("MEDIA_LAB_H3_IDLE_TASK", "t2va"))
+H3_RESTORE_QUIET_S = max(0, local_config.int_value("MEDIA_LAB_H3_RESTORE_QUIET_S", 300))
+H3_BATCH_MAX_WAIT_S = max(0, local_config.int_value("MEDIA_LAB_H3_BATCH_MAX_WAIT_S", 900))
+# Real / Long (H3 Singularity dual-sampling) is load-on-demand: it runs in the
+# H3 unit as its own variant, evicting Sol while it works. Once no queued take
+# needs it and it has idled this long, it is stood down and the idle reconciler
+# brings the warm Sol engine back (the always-warm H3 restore path).
+H3_SINGULARITY_LINGER_S = max(0, local_config.int_value("MEDIA_LAB_H3_SINGULARITY_LINGER_S", 600))
+RENDER_TIMINGS_FILE = POOL_DIR / "render-timings.json"
+
+
+def singularity_installed():
+    """The Real / Long runtime and weights are configured on this host."""
+    return local_config.singularity_configured()
+
+
+def singularity_refusal():
+    """Why Real / Long cannot take a job here, or None when it can."""
+    for engine in ("h3", "h3-singularity"):
+        if not engine_licences.enabled(engine):
+            return engine_licences.refusal(engine)
+    if not singularity_installed():
+        return "Real / Long (H3 Singularity) is not installed on this studio."
+    return None
+
+
+def singularity_enabled():
+    return singularity_refusal() is None
+
+
+def singularity_max_frames():
+    return _h3sing.aligned_frames(
+        local_config.int_value("H3_SINGULARITY_MAX_FRAMES", _h3sing.TRAINED_MAX_FRAMES),
+        _h3sing.HARD_MAX_FRAMES)
+
+
+def h3_variant_warm(singularity):
+    """True when the H3 variant a job needs is the one already resident."""
+    config = h3_resident_config()
+    if not config:
+        return False
+    return (config.get("variant") == _h3ref.H3_SINGULARITY_VARIANT) == bool(singularity)
+
+
+# H3 reference work routes to Real / Long on hosts that have it enabled.
+_h3ref.ROUTE_REFERENCES_TO_SINGULARITY = singularity_enabled()
+# Before any H3 cold load starts, wait (bounded) until memory has stopped moving
+# and memory pressure is calm, measured exactly the way the control-plane guard
+# measures it.  This never pauses or loosens the guard.
+H3_LOAD_SETTLE_MAX_PSI = max(0.0, _float_setting("MEDIA_LAB_H3_LOAD_SETTLE_MAX_PSI", 2.0))
+H3_LOAD_SETTLE_MAX_WAIT_S = max(0.0, _float_setting("MEDIA_LAB_H3_LOAD_SETTLE_MAX_WAIT_S", 120.0))
+H3_LOAD_SETTLE_STEADY_GIB = 0.5
+# 10 steady seconds (was 3) and a calm last minute (PSI full avg60): on
+# 2026-09-26 02:41 an fl2va cold load started 30 s after three back-to-back
+# image jobs, passed the old 3-sample check in 3 s, and tripped the guard at
+# PSI 52-60. The guard's own limits are unchanged; this only waits longer
+# (bounded by H3_LOAD_SETTLE_MAX_WAIT_S) before a load starts.
+H3_LOAD_SETTLE_SAMPLES = max(1, int(_float_setting("MEDIA_LAB_H3_LOAD_SETTLE_SAMPLES", 10)))
+H3_LOAD_SETTLE_MAX_PSI60 = max(0.0, _float_setting("MEDIA_LAB_H3_LOAD_SETTLE_MAX_PSI60", 3.0))
+
+
+def read_psi_full_avg60(path=Path("/proc/pressure/memory")):
+    """PSI full avg60 (the last minute), or None when the kernel has no PSI."""
+    try:
+        for line in path.read_text().splitlines():
+            if line.startswith("full"):
+                return float(dict(f.split("=", 1) for f in line.split()[1:])["avg60"])
+    except (OSError, ValueError, KeyError):
+        pass
+    return None
+
+
+def read_preload_memory(path=Path("/proc/meminfo")):
+    """Page cache, dirty pages and swap just before a load (evidence only)."""
+    try:
+        info = {}
+        for line in path.read_text().splitlines():
+            key, _, rest = line.partition(":")
+            info[key] = int(rest.split()[0])
+        return {"cached_gib": round(info.get("Cached", 0) / 1048576, 2),
+                "dirty_mib": round(info.get("Dirty", 0) / 1024, 1),
+                "swap_used_gib": round((info.get("SwapTotal", 0) - info.get("SwapFree", 0)) / 1048576, 2)}
+    except (OSError, ValueError, IndexError):
+        return {}
 _pool_mutex = threading.Lock()
 _idle_restore_mutex = threading.Lock()
 _last_ltx_attempt = 0.0
@@ -2625,8 +3126,146 @@ def sol_h3_control_guard_ready():
     return current_heartbeat_allows_h3()
 
 
+def wait_for_h3_load_headroom(j=None, *, read=None, sleep=time.sleep,
+                              clock=time.monotonic, read_avg60=None, flush=None):
+    """Hold an H3 cold load until memory has settled; bounded, never blocking.
+
+    Settled means memory pressure (PSI full avg10, the signal the guard trips
+    on) is at most H3_LOAD_SETTLE_MAX_PSI and MemAvailable has stopped moving
+    (within H3_LOAD_SETTLE_STEADY_GIB) for H3_LOAD_SETTLE_SAMPLES one-second
+    samples in a row.  On 2026-09-25 the reaper stopped H3 and a new H3 load
+    started three seconds later; that load tripped the guard.  After
+    H3_LOAD_SETTLE_MAX_WAIT_S the load proceeds as before and the result says
+    so: an admitted lease is never abandoned here.
+    """
+    read = read or read_pressure_sample
+    read_avg60 = read_avg60 or read_psi_full_avg60
+    started = clock()
+    deadline = started + H3_LOAD_SETTLE_MAX_WAIT_S
+    steady = 0
+    last = None
+    # Write dirty pages out now, not while the load is claiming memory.
+    try:
+        (flush or os.sync)()
+    except Exception:
+        pass
+    while True:
+        try:
+            sample = read()
+        except Exception as exc:
+            return {"settled": None, "waited_s": round(clock() - started, 1),
+                    "detail": f"no memory-pressure data: {type(exc).__name__}"}
+        avg60 = read_avg60()
+        calm = (sample.psi_full_avg10 <= H3_LOAD_SETTLE_MAX_PSI
+                and (avg60 is None or avg60 <= H3_LOAD_SETTLE_MAX_PSI60))
+        still = (last is not None and abs(sample.available_kib - last.available_kib)
+                 <= H3_LOAD_SETTLE_STEADY_GIB * 1048576)
+        steady = steady + 1 if (calm and still) else 0
+        last = sample
+        result = {"waited_s": round(clock() - started, 1),
+                  "available_gib": round(sample.available_kib / 1048576, 2),
+                  "psi_full_avg10": sample.psi_full_avg10,
+                  "psi_full_avg60": avg60}
+        if steady >= H3_LOAD_SETTLE_SAMPLES:
+            return {"settled": True, **result, **read_preload_memory()}
+        if clock() >= deadline:
+            return {"settled": False, **result, **read_preload_memory()}
+        if j is not None and j.get("cancel"):
+            return {"settled": None, **result, "detail": "cancelled"}
+        sleep(1.0)
+
+
+H3_LOAD_PRESSURE_LOG = POOL_DIR / "h3-load-pressure.jsonl"
+
+
+class H3LoadPressureRecorder:
+    """Record the memory pressure one H3 cold load produced (evidence only).
+
+    The guard only writes an incident when it trips, so successful loads left
+    no pressure record and no threshold could be tuned from evidence.  This
+    samples the same /proc signals once a second while the load runs and
+    appends one JSON line per load to pool/h3-load-pressure.jsonl.  It never
+    stops, delays, or signals anything.
+    """
+
+    def __init__(self, task=None, job_id=None, *, read=None, interval_s=1.0):
+        self.read = read or read_pressure_sample
+        self.interval_s = interval_s
+        self.row = {"task": task, "job_id": job_id, "started_at": time.time(),
+                    "samples": 0, "peak_psi_full_avg10": None, "peak_psi_some_avg10": None,
+                    "min_available_gib": None, "max_swap_growth_gib": None,
+                    "longest_run_at_guard_psi": 0, "guard_psi_limit": None}
+        self._baseline_swap_kib = None
+        self._run = 0
+        self._stop = threading.Event()
+        self._thread = None
+        try:
+            limits = (json.loads(Path(os.getenv("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+                                 .joinpath("solh3-control-plane-guard.json").read_text())
+                      .get("thresholds") or {})
+            self.row["guard_psi_limit"] = float(limits["max_psi_full_avg10"])
+        except Exception:
+            pass
+
+    def observe(self, sample):
+        row = self.row
+        row["samples"] += 1
+        full, some = float(sample.psi_full_avg10), float(sample.psi_some_avg10)
+        avail = round(sample.available_kib / 1048576, 2)
+        if self._baseline_swap_kib is None:
+            self._baseline_swap_kib = sample.swap_used_kib
+        growth = round((sample.swap_used_kib - self._baseline_swap_kib) / 1048576, 2)
+        row["peak_psi_full_avg10"] = max(full, row["peak_psi_full_avg10"] or 0.0)
+        row["peak_psi_some_avg10"] = max(some, row["peak_psi_some_avg10"] or 0.0)
+        row["min_available_gib"] = (avail if row["min_available_gib"] is None
+                                    else min(avail, row["min_available_gib"]))
+        row["max_swap_growth_gib"] = max(growth, row["max_swap_growth_gib"] or 0.0)
+        limit = row["guard_psi_limit"]
+        self._run = self._run + 1 if (limit is not None and full >= limit) else 0
+        row["longest_run_at_guard_psi"] = max(row["longest_run_at_guard_psi"], self._run)
+
+    def _loop(self):
+        while not self._stop.is_set():
+            try:
+                self.observe(self.read())
+            except Exception:
+                pass
+            self._stop.wait(self.interval_s)
+
+    def start(self):
+        self._thread = threading.Thread(target=self._loop, daemon=True,
+                                        name="h3-load-pressure")
+        self._thread.start()
+        return self
+
+    def finish(self, outcome, settle=None, path=None):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+        row = {**self.row, "outcome": outcome, "settle": settle,
+               "load_s": round(time.time() - self.row["started_at"], 1)}
+        try:
+            with Path(path or H3_LOAD_PRESSURE_LOG).open("a") as fh:
+                fh.write(json.dumps(row, sort_keys=True) + "\n")
+        except Exception:
+            pass
+        print(f"[h3-load] task={row['task']} outcome={outcome} load_s={row['load_s']} "
+              f"peak_psi_full={row['peak_psi_full_avg10']} "
+              f"longest_run_at_guard_psi={row['longest_run_at_guard_psi']} "
+              f"min_avail_gib={row['min_available_gib']} "
+              f"swap_growth_gib={row['max_swap_growth_gib']}", flush=True)
+        return row
+
+
 def _boot_engine(name, j=None, variant=None, turbo_preset=None, task=None):
+    settle = None
     if gpu_recovery_pending():
+        return False
+    # Personal / non-commercial engines never load on a host that has not opted
+    # in (MEDIA_LAB_PERSONAL_ENGINES), whichever route queued the work.
+    if not engine_licences.enabled(name):
+        if j is not None:
+            j["detail"] = engine_licences.refusal(name)
         return False
     # Stop is cooperative even while a heavyweight container is warming. Before
     # this check, a queued job cancelled during the worker handoff could spend the
@@ -2641,6 +3280,19 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None, task=None):
     lease = getattr(_gpu_thread, "lease", None)
     if lease is None or lease.phase != "load" or lease.engine != name:
         raise LeaseBusy(f"{name} boot requires its exact load-phase GPU lease")
+    if name == "h3" and not engine_up(name):
+        if j is not None:
+            j["stage"] = "letting memory settle before loading H3…"
+            save_state()
+        settle = wait_for_h3_load_headroom(j)
+        if settle.get("settled") is not True:
+            print(f"[h3-load] memory did not settle before the load: {settle}", flush=True)
+        # The heartbeat is an admission token with a 5 s lifetime: re-check it
+        # after the wait rather than relying on the pre-wait answer.
+        if not sol_h3_control_guard_ready():
+            if j is not None:
+                j["detail"] = "H3 control-plane guard is missing, stale, quarantined, or from another boot"
+            return False
     delegated_env = {**os.environ, **delegation_env(lease)}
     if e["kind"] == "docker":
         env = delegated_env
@@ -2649,7 +3301,7 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None, task=None):
                 raise ValueError(f"unsupported H3 variant: {variant!r}")
             env["H3_VARIANT"] = variant
             if task is not None:
-                if task not in ("t2va", "fl2va", "ref2va"):
+                if task not in _h3ref.H3_TASKS:
                     raise ValueError(f"unsupported H3 task family: {task!r}")
                 env["SOL_PRELOAD"] = task
             if turbo_preset is not None:
@@ -2664,8 +3316,11 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None, task=None):
         if name == "h3":
             if variant is not None and variant not in _h3ref.H3_VARIANTS:
                 raise ValueError(f"unsupported H3 variant: {variant!r}")
-            if task is not None and task not in ("t2va", "fl2va", "ref2va"):
+            if task is not None and task not in _h3ref.H3_TASKS:
                 raise ValueError(f"unsupported H3 task family: {task!r}")
+            if (variant == _h3ref.H3_SINGULARITY_VARIANT) != (task == _h3ref.H3_SINGULARITY_TASK) \
+                    and task is not None:
+                raise ValueError("the Real / Long variant and task family go together")
             if turbo_preset is not None and turbo_preset not in _h3ref.H3_TURBO_PRESETS:
                 raise ValueError(f"unsupported H3 Turbo preset: {turbo_preset!r}")
             sol = local_config.sol()
@@ -2690,6 +3345,13 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None, task=None):
                 runtime_env["SOL_PRELOAD"] = task
             if turbo_preset is not None:
                 runtime_env["H3_TURBO_PRESET"] = turbo_preset
+            if variant == _h3ref.H3_SINGULARITY_VARIANT:
+                refusal = singularity_refusal()
+                if refusal:
+                    if j is not None:
+                        j["detail"] = refusal
+                    return False
+                runtime_env.update({k: v for k, v in local_config.singularity().items() if v})
             runtime_dir = Path(os.getenv("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
             write_runtime_environment(runtime_dir / "media-lab-sol-h3.env", runtime_env)
             launched = subprocess.run(
@@ -2708,34 +3370,45 @@ def _boot_engine(name, j=None, variant=None, turbo_preset=None, task=None):
             if j is not None:
                 j["detail"] = f"{name} unit failed to start"
             return False
-    deadline = time.time() + e["boot_wait"]
-    while time.time() < deadline:
-        if name == "h3" and not sol_h3_control_guard_ready():
-            stop_engine(name)
-            if j is not None:
-                j["detail"] = "H3 control-plane guard heartbeat was lost during cold load"
-            maybe_release_pool()
-            return False
-        if j is not None and j.get("cancel"):
-            stop_engine(name)
-            maybe_release_pool()
-            return False
-        if engine_up(name):
-            if name == "h3" and task is not None:
-                try:
-                    health = http_json(
-                        f"http://127.0.0.1:{e['port']}{e['health']}", timeout=3) or {}
-                except Exception:
-                    health = {}
-                expected = {"variant": variant, "task": task,
-                            "turbo_preset": turbo_preset or None}
-                if health.get("loaded") is not True or h3_resident_config() != expected:
-                    time.sleep(3)
-                    continue
-            touch_engine(name)
-            return True
-        time.sleep(3)
-    return False
+    recorder = (H3LoadPressureRecorder(task=task, job_id=(j or {}).get("id")).start()
+                if name == "h3" else None)
+    outcome = "error"
+    try:
+        deadline = time.time() + e["boot_wait"]
+        while time.time() < deadline:
+            if name == "h3" and not sol_h3_control_guard_ready():
+                outcome = "guard-lost"
+                stop_engine(name)
+                if j is not None:
+                    j["detail"] = "H3 control-plane guard heartbeat was lost during cold load"
+                maybe_release_pool()
+                return False
+            if j is not None and j.get("cancel"):
+                outcome = "cancelled"
+                stop_engine(name)
+                maybe_release_pool()
+                return False
+            if engine_up(name):
+                if name == "h3" and task is not None:
+                    try:
+                        health = http_json(
+                            f"http://127.0.0.1:{e['port']}{e['health']}", timeout=3) or {}
+                    except Exception:
+                        health = {}
+                    expected = {"variant": variant, "task": task,
+                                "turbo_preset": turbo_preset or None}
+                    if health.get("loaded") is not True or h3_resident_config() != expected:
+                        time.sleep(3)
+                        continue
+                touch_engine(name)
+                outcome = "ready"
+                return True
+            time.sleep(3)
+        outcome = "timeout"
+        return False
+    finally:
+        if recorder is not None:
+            recorder.finish(outcome, settle=settle)
 
 
 def ensure_h3_variant(j=None):
@@ -2937,7 +3610,7 @@ def _ensure_engine_under_lease(name, j=None):
             return "fail"
         need = ENGINES.get(name, {}).get("gb", 20) + MEM_FLOOR_GB
         if _mem_available_gb() < need:
-            # Music/image get the box to themselves (Steve 2026-08-20):
+            # Music/image get the box to themselves (2026-08-20):
             # stand down resident VIDEO engines first so music never stalls
             # on the memory floor while Qwen stays up. LTX/H3 go first; the
             # FL2VA canary (long-lived container outside ENGINES) also stands
@@ -2974,6 +3647,7 @@ def _ensure_engine_under_lease(name, j=None):
                 if j is not None:
                     j["detail"] = f"memory guard: {avail:.0f}G free, engine needs {need}G"
                 pool_cmd("release")
+                _note_preload_refusal(f"memory guard: {avail:.0f}G free, {name} needs {need}G")
                 return "busy"
         if name == "h3":
             resident = resident_engines()
@@ -2998,6 +3672,8 @@ def _gpu_task_for_engine(name, j=None):
     if job.get("_gpu_task"):
         return str(job["_gpu_task"])
     if name == "h3":
+        if _h3ref.wants_singularity(request):
+            return _h3ref.H3_SINGULARITY_TASK
         if request.get("references") or request.get("video_references"):
             return "ref2va"
         if (request.get("source") or request.get("start_image")
@@ -3020,6 +3696,7 @@ def _gpu_finish_job_operation(exc_type=None, exc=None, tb=None):
 
 def ensure_engine(name, j=None):
     """Load/reuse an engine only while its exact durable GPU lease is live."""
+    _gpu_thread.preload_refusal = None   # set only by this admission's own refusal
     task = _gpu_task_for_engine(name, j)
     active = getattr(_gpu_thread, "lease", None)
     if (active is not None and (active.engine, active.task) != (name, task)
@@ -3039,11 +3716,20 @@ def ensure_engine(name, j=None):
         return state
 
     if j is None or not j.get("id"):
-        with gpu_operation(name, task, j):
-            state = _ensure_engine_under_lease(name, j)
-            if state == "up":
-                gpu_render_ready(name, task)
-            return state
+        try:
+            with gpu_operation(name, task, j):
+                state = _ensure_engine_under_lease(name, j)
+                if state == "up":
+                    gpu_render_ready(name, task)
+                else:
+                    failure = _admission_failure(state)
+                    if isinstance(failure, PreloadAdmissionRefused):
+                        raise failure
+                return state
+        except PreloadAdmissionRefused:
+            # gpu_operation released the lease (or, if it could not prove the
+            # box clean, held it); either way this admission is simply busy.
+            return "busy"
 
     target = (name, task)
     if getattr(_gpu_thread, "job_context", None) is not None:
@@ -3059,7 +3745,7 @@ def ensure_engine(name, j=None):
         if state == "up":
             gpu_render_ready(name, task)
         else:
-            failure = RuntimeError(f"engine admission: {state}")
+            failure = _admission_failure(state)
             _gpu_finish_job_operation(type(failure), failure, None)
         return state
     except Exception as exc:
@@ -3196,7 +3882,7 @@ class _ResidencyRuntime:
             return self.model_healthy("qwen")
         lease = getattr(_gpu_thread, "lease", None)
         if model in ENGINES and lease is None:
-            task = "fl2va" if model == "h3" else "t2va"
+            task = H3_IDLE_TASK if model == "h3" else "t2va"
             restore_job = {"id": f"idle-restore-{model}", "_gpu_task": task,
                            "request": {}}
             with gpu_operation(model, task, restore_job):
@@ -3209,6 +3895,9 @@ class _ResidencyRuntime:
                 raise LeaseBusy(f"idle restore lease is {lease.engine}/{lease.phase}, not {model}/load")
             if model == "h3":
                 target = {**_h3ref.required_runtime_config({}), "task": lease.task}
+                if lease.task == _h3ref.H3_SINGULARITY_TASK:
+                    # a Real / Long job's load lease: boot the variant it admitted
+                    target.update(variant=_h3ref.H3_SINGULARITY_VARIANT, turbo_preset=None)
                 return _boot_engine(
                     model, variant=target["variant"],
                     turbo_preset=target["turbo_preset"], task=target["task"],
@@ -3285,6 +3974,20 @@ RESIDENCY = ResidencyController(_residency_policy,
                                 POOL_DIR / "residency", _ResidencyRuntime())
 
 
+def singularity_residency_phases():
+    """The residency phase row for a Real / Long load, from its measured GPU
+    capacity row (config/gpu-capacity-receipts.json, h3/singularity: peak 97 GiB
+    on the 2026-09-25 eval). The box's residency policy prices the h3 slot with
+    Sol-H3's whole-box row (decode 115 GiB), which refused a Real / Long load
+    at 116.7 GiB free although it needs about 97."""
+    rows = json.loads(GPU_CAPACITY_RECEIPTS.read_text()).get("qualifications", [])
+    row = next(r for r in rows if r["engine"] == "h3" and r["task"] == _h3ref.H3_SINGULARITY_TASK)
+    peak = float(row["peak_gib"])
+    warm = max(1.0, peak - float(row.get("warm_render_gib") or 0))
+    return {"cold_load": peak, "warm_idle": warm, "sampler": peak, "decode": peak,
+            "mux": 1, "handoff_overlap": warm}
+
+
 def ensure_video_residency(name, j=None):
     """Admit a video transaction without changing the user's desired profile."""
     try:
@@ -3312,7 +4015,11 @@ def ensure_video_residency(name, j=None):
             target = "qwen-h3" if name == "h3" else "qwen-ltx-default"
             slots = None
         if j is not None:
-            j["stage"] = f"reconciling {target} residency…"
+            loading_real_long = (name == "h3"
+                                 and _h3ref.wants_singularity(j.get("request") or {})
+                                 and not h3_variant_warm(True))
+            j["stage"] = ("loading H3 Real / Long — about 7 min the first time…"
+                          if loading_real_long else f"reconciling {target} residency…")
             save_state()
         # Admission is priced from MemAvailable.  Idle image weights can hold
         # 20-30 GiB, but the controller cannot execute its planned release step
@@ -3334,12 +4041,20 @@ def ensure_video_residency(name, j=None):
             )
             if released is None:
                 raise ResidencyError("image engine would not release weights before video admission")
-        RESIDENCY.apply(target, slots, commit_desired=False)
+        overrides = None
+        if name == "h3" and j is not None and _h3ref.wants_singularity(j.get("request") or {}):
+            overrides = {"h3": singularity_residency_phases()}
+        if overrides:
+            RESIDENCY.apply(target, slots, commit_desired=False, phase_overrides=overrides)
+        else:
+            RESIDENCY.apply(target, slots, commit_desired=False)
         return "up"
     except ResidencyError as exc:
         print(f"[residency] refusing {name}: {exc}", flush=True)
         if j is not None:
             j["detail"] = str(exc)[:400]
+        if isinstance(exc, ResidencyRefused) and exc.memory_only:
+            _note_preload_refusal(exc)
         return "busy"
 
 AUTO_RETRY_MAX = 3
@@ -3501,18 +4216,62 @@ def auto_requeue():
         print(f"[recovery] verified retry admission for {jid}", flush=True)
         return
 
+def idle_profile_models():
+    """Models the persistent idle profile keeps resident (empty if unreadable)."""
+    try:
+        return set(RESIDENCY.desired()["models"])
+    except Exception:
+        return set()
+
+
+def h3_kept_warm():
+    """True when the idle profile keeps H3 loaded between jobs (qwen-h3)."""
+    return "h3" in idle_profile_models()
+
+
 def reap_idle_engines():
     """Stop only engines that are both stale and provably not working.
 
     Engine timestamps mark residency activity, not inference progress.  A long
     H3 render can therefore exceed IDLE_REAP_S without being idle.  The busy
     probe is the authoritative guard against killing that active transaction.
+
+    An engine the persistent idle profile keeps resident is never reaped.
+    Under qwen-h3 the reaper used to stop H3 after an idle hour and the idle
+    reconciler reloaded it a minute later: a 112 GB cold load roughly every
+    67 minutes, each one a chance for the memory guard to trip and freeze the
+    studio behind a recovery hold (2026-09-25).
     """
+    wanted = idle_profile_models()
     for name in ("h3", "music", "yue2", "image"):
+        if name in wanted:
+            continue
         idle = engine_idle_s(name)
         if (idle is not None and idle > IDLE_REAP_S
                 and engine_up(name) and not engine_busy(name)):
             stop_engine(name)
+
+
+def stand_down_idle_real_long(now=None):
+    """Real / Long is load-on-demand. Once no queued or running take needs it
+    and it has idled H3_SINGULARITY_LINGER_S, stop it; the idle reconciler then
+    restores the idle profile (warm Sol t2va under qwen-h3) the usual way."""
+    config = h3_resident_config()
+    if not config or config.get("variant") != _h3ref.H3_SINGULARITY_VARIANT:
+        return False
+    if engine_busy("h3") or gpu_recovery_pending() or ENGINE_MAINTENANCE.exists():
+        return False
+    for job in list(jobs.values()):
+        if (job.get("status") in ("running", "queued") and job_engine(job) == "h3"
+                and _h3ref.wants_singularity(job.get("request") or {})):
+            return False
+    idle = engine_idle_s("h3")
+    if idle is None or idle < H3_SINGULARITY_LINGER_S:
+        return False
+    print(f"[residency] Real / Long idle {idle:.0f}s; standing it down so warm Sol returns",
+          flush=True)
+    stop_engine("h3")
+    return True
 
 
 def reaper():
@@ -3522,6 +4281,10 @@ def reaper():
             auto_requeue()
         except Exception as e:
             print(f"[recovery] auto-requeue skipped: {e}", flush=True)
+        try:
+            stand_down_idle_real_long()
+        except Exception as e:
+            print(f"[residency] Real / Long stand-down skipped: {e}", flush=True)
         try:
             reap_idle_engines()
             if not video_work_pending():
@@ -3620,7 +4383,8 @@ def media_path(ref: str):
 
 def known_characters():
     """Return prompt-only H3 catalog identities as safe virtual cast records."""
-    payload = _load(_known_chars_file(), {})
+    catalog = _known_chars_file()
+    payload = _load(catalog, {}) if catalog is not None else {}
     records = payload.get("characters", []) if isinstance(payload, dict) else []
     out = []
     for row in records:
@@ -3644,7 +4408,7 @@ def known_characters():
         rec = {"id": cid, "name": name, "actor": actor, "franchise": franchise,
                "known_status": status, "known": True, "prompt_only": True,
                "appearance": identity}
-        # harvested face thumbs (runner/known_char_thumbs.py) — one frame from
+        # harvested face thumbs (a studio's own, under media/known-thumbs/) — one frame from
         # the catalog's own test clip, keyed by the id hash
         thumb = MEDIA / "known-thumbs" / f"{cid.split(':', 1)[-1]}.jpg"
         if thumb.is_file():
@@ -3924,6 +4688,31 @@ def _h3_v2v_stage(j):
     return staged_refs, first_frame
 
 
+def _stage_audio_references(j, refs):
+    """Real / Long reference audio: decode each /media sound from its start into
+    a WAV the engine reads from its staging dir. None after a fail(): a requested
+    reference is never silently dropped."""
+    out_dir = POOL_DIR / "h3-out"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    seconds = float(j.get("frames") or 124) / 24.0
+    staged = []
+    for i, ref in enumerate(refs, 1):
+        src = media_path(ref.get("source") or "")
+        if not src or src.suffix.lower() not in _h3ref.H3_AUDIO_EXTENSIONS:
+            fail(j, "A reference sound is missing or unsupported — refusing to render without it.")
+            return None
+        name = f"{j['id']}-audio-{i}.wav"
+        target = out_dir / name
+        done = _ff(["-ss", f"{float(ref.get('start_sec') or 0.0):.3f}", "-i", str(src),
+                    "-t", f"{max(1.0, seconds):.3f}", "-vn", "-ac", "2", "-ar", "48000",
+                    str(target)], timeout=300)
+        if done.returncode != 0 or not _nonempty(target):
+            fail(j, "A reference sound could not be decoded — refusing to render without it.")
+            return None
+        staged.append({"file": name, "role": ref.get("role") or "voice and sound"})
+    return staged
+
+
 def _h3_v2v_cast_references(j, jd):
     """Materialize selected character identities as separate Ref2VA pictures."""
     req = j.get("request") or {}
@@ -3990,7 +4779,7 @@ def _h3_v2v_prepare_first_frame(j, first_frame, identity_ref):
 
     This is deliberately before ensure_engine('h3'). If segmentation, image
     recovery, or editing fails, the job fails; the original frame is never used
-    as a silent substitute (the Heather grey-canvas lesson).
+    as a silent substitute (the grey-canvas lesson).
     """
     req = j.get("request") or {}
     release_video_engines("H3 video-to-video first-frame preparation")
@@ -4158,13 +4947,18 @@ def _run_h3_ltx_video(j, *, references, staged_video_refs, start_b64):
     _write_h3_ltx_receipt(job_dir, receipt)
 
     ref2va = bool(references or staged_video_refs)
+    real_long = _h3ref.wants_singularity(req)
     h3_body = {
-        "prompt": h3_prompt(j["full_prompt"], start_image=bool(start_b64) and not ref2va),
+        "prompt": h3_prompt(j["full_prompt"], start_image=bool(start_b64) and not ref2va and not real_long),
         "frames": max(124, int(j.get("frames") or 124)),
         "width": int(j.get("w") or 1344),
         "height": int(j.get("h") or 768),
         "seed": seed,
     }
+    if real_long:
+        orientation = "landscape" if h3_body["width"] >= h3_body["height"] else "portrait"
+        h3_body.update(h3_engine=_h3ref.H3_SINGULARITY_VARIANT, orientation=orientation)
+        h3_body["width"], h3_body["height"] = _h3sing.output_size(orientation)
     if references:
         h3_body["references"] = [
             {key: value for key, value in ref.items() if not str(key).startswith("_")}
@@ -4365,31 +5159,47 @@ def run_video(j):
         if prepared is None:
             return
         start_b64 = base64.b64encode(prepared.read_bytes()).decode()
+    staged_audio_refs = []
+    if eng == "h3" and req.get("audio_references"):
+        # Real / Long reference sounds are decoded before any engine loads
+        staged_audio_refs = _stage_audio_references(j, req.get("audio_references") or [])
+        if staged_audio_refs is None:
+            return
     st = ensure_engine(eng, j)
+    # start-to-admission: seconds on a warm engine, the whole spin-up on a cold one
+    j["admit_s"] = round(time.time() - float(j.get("started") or time.time()), 1)
     if st == "busy":
         return fail(j, BUSY_MSG)
     if st == "up":
         j["stage"] = "generating"
-        ref2va_request = bool((references or staged_video_refs) and eng == "h3")
+        real_long = eng == "h3" and _h3ref.wants_singularity(req)
+        ref2va_request = bool((references or staged_video_refs) and eng == "h3" and not real_long)
         # Ref2VA does not consume image_start. The engine promotes a supplied
         # source into Picture 1 as a composition reference instead. Do NOT add
         # h3_prompt's pre-tagged Picture 1 header here: that suppresses Maestro's
         # complete relationship map and previously made Picture 1 point at the
         # first identity portrait while the real source frame was ignored.
         _p = h3_prompt(j["full_prompt"],
-                       start_image=bool(start_b64) and not ref2va_request) \
+                       start_image=bool(start_b64) and not ref2va_request and not real_long) \
              if eng == "h3" else j["full_prompt"]
         body = {"prompt": _p, "frames": j["frames"],
                 "width": j["w"], "height": j["h"],
                 "seed": int((j.get("request") or {}).get("seed")
                             or int(j["id"][:8], 16) % 1_000_000_000 or 1)}
+        if real_long:
+            # Real / Long honours length and shape; references ride along below
+            body["h3_engine"] = _h3ref.H3_SINGULARITY_VARIANT
+            body["orientation"] = req.get("orientation") or _h3sing.orientation_of(j["w"], j["h"])
+            if staged_audio_refs:
+                body["audio_references"] = staged_audio_refs
         # H3 Ref2VA actor-cloning: references ride the request (validated in
         # make_video_job) and are forwarded to the engine verbatim, with the
         # reference detail. FAIL CLOSED on the resident checkpoint: reference
         # pictures must never reach a fl2va-resident engine.
         if (references or staged_video_refs) and eng == "h3":
             if h3_resident_variant() not in (
-                    _h3ref.H3_REF2VA_VARIANT, _h3ref.H3_FUSED_R1024_VARIANT):
+                    _h3ref.H3_REF2VA_VARIANT, _h3ref.H3_FUSED_R1024_VARIANT,
+                    _h3ref.H3_SINGULARITY_VARIANT):
                 return fail(j, "Ref2VA actor-cloning was requested but the resident "
                                "H3 checkpoint is not actor-capable — refusing to feed "
                                "reference pictures/video to the wrong model. Boot an "
@@ -4411,6 +5221,8 @@ def run_video(j):
         r = engine_generate(eng, body, j, timeout=5400)
         touch_engine(eng)
         if r.get("ok"):
+            if r.get("av_sync"):
+                j["av_sync"] = r["av_sync"]   # the lip-sync check's receipt
             out = POOL_DIR / f"{eng}-out" / r["file"]
             if out.exists():
                 j["stage"] = "encoding"
@@ -4430,13 +5242,14 @@ def run_video(j):
                    "engine is healthy.")
 
 def _music_engine_for(j) -> str:
-    """'yue2' | 'music3' for a music-family job. New songs default to YuE2;
-    screenshot songs stay on Music 3 unless the request names an engine."""
+    """'yue2' | 'music3' for a music-family job. New songs default to the host's
+    default (YuE2 where its licence was opted into, else Music 3); screenshot
+    songs stay on Music 3 unless the request names an engine."""
     r = j.get("request") or {}
     engine = str(r.get("engine") or "").strip().lower()
     if engine in MUSIC_ENGINES:
         return engine
-    return "yue2" if j.get("kind") == "music" else "music3"
+    return default_music_engine() if j.get("kind") == "music" else "music3"
 
 
 def _style_line_from_caption(caption: str) -> str:
@@ -5021,6 +5834,10 @@ KONTEXT_CLIP = COMFY_IMAGE_DIR / "models/text_encoders/clip_l.safetensors"
 KONTEXT_VAE = COMFY_IMAGE_DIR / "models/vae/ae.safetensors"
 
 def kontext_ready():
+    # FLUX.1 Kontext [dev] is non-commercial: installed is not enough, the host
+    # must also have opted in (MEDIA_LAB_PERSONAL_ENGINES).
+    if not engine_licences.enabled("kontext"):
+        return False
     return all(p.exists() for p in (KONTEXT_UNET, KONTEXT_T5, KONTEXT_CLIP, KONTEXT_VAE))
 
 def kontext_graph(prompt, prefix, seed, edit_image=None, w=1024, h=1024):
@@ -5174,7 +5991,14 @@ def image_via_service(j, r, prompt, iw, ih):
     """Render through the warm image engine on :8295.
     -> "done" | "failed" (already reported on the job). Infrastructure failure
     never falls through to an uncoordinated local Comfy request."""
-    body = {"prompt": prompt, "model": r.get("engine") or "auto",
+    model = r.get("engine") or "auto"
+    if not engine_licences.enabled("kontext"):
+        if model == "kontext":
+            fail(j, engine_licences.refusal("kontext"))
+            return "failed"
+        if model == "auto":
+            model = "qwen"   # the service's "auto" may pick Kontext for likeness work
+    body = {"prompt": prompt, "model": model,
             "seed": int(r["seed"]) if r.get("seed") is not None
                     else int(j["id"][:8], 16) % (2 ** 31)}
     if r.get("quality"):
@@ -5697,7 +6521,7 @@ def char_likeness(rec, chars=None, role="closeup"):
         return _sharpen(out) if _nonempty(out) else None
 
     def _sharpen(p: Path):
-        """A picked panel can be small (Heather's was 241x352 out of a whole
+        """A picked panel can be small (one was 241x352 out of a whole
         sheet). Blown up to fill a frame it is soft, and a soft face makes the
         edit model redraw the person and leaves the video model no mouth detail
         to animate. Real-ESRGAN it back up before anyone uses it."""
@@ -5772,6 +6596,12 @@ def still_prompt(p):
                 "no collage, no panels, no storyboard grid. Absolutely no on-screen text: "
                 "no subtitles, no captions, no words, no lettering, no watermarks, no logos.")
 
+# The H3 three-field schema, or the Ref2VA schema Real / Long reads (the realism
+# LoRA trigger word and/or subject_definitions / summary / detailed_description).
+H3_SCHEMA_RE = re.compile(r"^(For the target video[^\n]*\n+)?(integrated_multimodal_description:"
+                          r"|(r34l1sm\s+)?(subject_definitions|summary|detailed_description):"
+                          r"|r34l1sm\b)", re.I)
+
 def h3_prompt(text, speaker_desc="", music="none", start_image=False, line=""):
     """MiniMax H3's OFFICIAL prompt schema — three named fields, in this order,
     separated by blank lines, and (when a start frame is supplied) an I2VA
@@ -5790,8 +6620,20 @@ def h3_prompt(text, speaker_desc="", music="none", start_image=False, line=""):
     instruction line must match what is actually sent — the I2VA form for ONE
     start image. Sending the FL2VA form promises a second keyframe that never
     arrives, and the model spends the tail of the clip converging on nothing.
-    LTX keeps the flowing paragraph — never send this structure to LTX."""
+    LTX keeps the flowing paragraph — never send this structure to LTX.
+
+    A prompt that ALREADY carries the schema (a director or agent composed it,
+    e.g. media_lab_core.director_school.compose_h3_prompt) passes through
+    untouched apart from the I2VA line. Wrapping it again sent H3 a nested
+    "integrated_multimodal_description: [Shot 1] integrated_multimodal_description:
+    [Shot 1] ..." with two soundscape and two music fields: every take of the
+    2026-09-18 diner cut went out that way."""
     t = str(text or "").strip()
+    if H3_SCHEMA_RE.search(t):
+        head = ("For the target video, at 0.00 seconds into the target video, "
+                "<Picture 1> (from [Shot 1]) is fully referenced.\n\n") \
+            if start_image and not t.startswith("For the target video") else ""
+        return head + t
     spoke = {"n": 0}
     def _d(m):
         spoke["n"] += 1
@@ -5937,6 +6779,8 @@ def clean_bible(raw, cast=()):
         if isinstance(c, dict) and str(c.get("name", "")).strip():
             e = {"name": str(c["name"]).strip()[:80], "look": str(c.get("look", "")).strip()[:900],
                  "voice": str(c.get("voice", "")).strip()[:300]}
+            if str(c.get("wardrobe") or "").strip():
+                e["wardrobe"] = str(c["wardrobe"]).strip()[:400]
             if c.get("char_id"):
                 e["char_id"] = str(c["char_id"])
             chars.append(e)
@@ -5955,10 +6799,15 @@ def clean_bible(raw, cast=()):
         else:
             chars.append({"name": str(sc.get("name") or "").strip()[:80],
                           "look": appearance[:900], "char_id": sc.get("id")})
-    return {"style": str(raw.get("style", "")).strip()[:900],
-            "world": str(raw.get("world", "")).strip()[:900],
-            "camera": str(raw.get("camera", "")).strip()[:900],
-            "characters": chars[:12]}
+    bible = {"style": str(raw.get("style", "")).strip()[:900],
+             "world": str(raw.get("world", "")).strip()[:900],
+             "camera": str(raw.get("camera", "")).strip()[:900],
+             "characters": chars[:12]}
+    # director-school continuity constants (optional; older boards lack them)
+    for key, limit in (("palette", 300), ("time_of_day", 200)):
+        if str(raw.get(key) or "").strip():
+            bible[key] = str(raw[key]).strip()[:limit]
+    return bible
 
 def compose_beat_prompt(board, beat, chars=None):
     """The prompt actually sent to the video model, built deterministically:
@@ -5986,8 +6835,14 @@ def compose_beat_prompt(board, beat, chars=None):
         t = re.sub(r"\b(vertical|short.?form|recipe)?\s*(video|reel|montage|vlog)\b",
                    "footage", str(t or ""), flags=re.I)
         return re.sub(r"\b(in|on) every (shot|scene|frame)\b", "throughout", t, flags=re.I)
+    size = director_school.shot_size(beat.get("shot_size"))
+    if size and director_school.SIZE_PHRASE[size].lower() not in seen:
+        angle = str(beat.get("angle") or "").strip()
+        add(director_school.SIZE_PHRASE[size] + (f", {angle}" if angle else ""))
     add(scrub(bible.get("style")))
     add(scrub(bible.get("world")))
+    add(scrub(bible.get("time_of_day")))
+    add(scrub(bible.get("palette")))
     add(scrub(bible.get("camera")))
     bchars = bible.get("characters") or []
     names = beat.get("characters")
@@ -5997,7 +6852,17 @@ def compose_beat_prompt(board, beat, chars=None):
     for c in bchars:
         if _norm_name(c.get("name")) in wanted:
             add(_look_line(c.get("name"), c.get("look")))
-    # Cast scoping (the "Heather in every shot" fix, 2026-08-16):
+            wardrobe = str(c.get("wardrobe") or "").strip()
+            if wardrobe and wardrobe.lower() not in str(c.get("look") or "").lower():
+                add(f"{c.get('name')} wears {wardrobe}")
+    sides = beat.get("screen_side") if isinstance(beat.get("screen_side"), dict) else {}
+    placed = [f"{n} on the {v} of the frame" for n, v in sides.items() if v in ("left", "right")]
+    if placed:
+        add("; ".join(placed))
+    if wanted and not re.search(r"\b((to|at|into) (the )?(camera|lens|viewer|audience)|presenter|selfie|"
+                                r"vlog|direct address|addresses the)\b", shot, re.I):
+        add("Nobody looks into the camera")
+    # Cast scoping (the "same performer in every shot" fix, 2026-08-16):
     #   beat-level cast  -> explicit, always attaches (the user tapped it).
     #   board-level cast -> attaches ONLY to beats that actually show the
     #     character (named in beat.characters, or named in the shot text).
@@ -6205,6 +7070,14 @@ def run_storyboard(j):
                                        if isinstance(b.get("characters"), list) else None),
                         "speaker": str(b.get("speaker") or "")[:80],
                         "duration": str(beat_seconds(b.get("duration"))),
+                        # director's grammar (media_lab_core.director_school reads these)
+                        "scene": str(b.get("scene") or "")[:80],
+                        "shot_size": str(b.get("shot_size") or "")[:12],
+                        "angle": str(b.get("angle") or "")[:40],
+                        "screen_side": ({str(k)[:80]: str(v).lower() for k, v in b["screen_side"].items()
+                                         if str(v).lower() in ("left", "right", "center")}
+                                        if isinstance(b.get("screen_side"), dict) else {}),
+                        "transition": str(b.get("transition") or "")[:24],
                         "still_url": None, "clip_url": None, "poster": None}
                        for b in beats],
              "final_url": None, "ts": int(time.time())}
@@ -6452,7 +7325,7 @@ def _commit_storyboard_assembly(board: dict, boards: list, j: dict, final: Path,
     board["final_sha256"] = digest
     board["last_assembly_job_id"] = j["id"]
     board["assembly_registered_at"] = time.time()
-    board["candidate_not_final_until_steve_approves"] = True
+    board[cut_core.CANDIDATE_KEY] = True
     board["private_internal_only"] = True
     board["publication_authorized"] = False
     board["external_sharing_authorized"] = False
@@ -6509,6 +7382,89 @@ def run_assemble(j):
         sources.append((beat, clip, start, end, duration))
     if not sources:
         return fail(j, "Film at least one scene first.")
+    song = MEDIA / f"{Path(str(board.get('song_id') or '')).name}.mp3"
+    if ASSEMBLY_ENGINE != "legacy":
+        return _run_assemble_director(j, board, boards, sources,
+                                      song if board.get("song_id") and song.exists() else None)
+    return _run_assemble_legacy(j, board, boards, sources)
+
+
+# The storyboard assembler. "director" (default) is media_lab_core.stitch:
+# dead head/tail frames trimmed, colour matched per scene, shots levelled and
+# the mix loudness-normalised, audio crossfaded at every seam (J/L cuts where
+# the director asked), hard cuts on the song's beat, one encode at CRF 18,
+# then the measured seam critic. "legacy" is the old plain concat, kept only
+# as an escape hatch (MEDIA_LAB_ASSEMBLY_ENGINE=legacy).
+ASSEMBLY_ENGINE = os.getenv("MEDIA_LAB_ASSEMBLY_ENGINE", "director").strip().lower() or "director"
+ASSEMBLY_QUALITY = os.getenv("MEDIA_LAB_ASSEMBLY_QUALITY", "high").strip().lower() or "high"
+
+
+def _critic_chat():
+    """The studio's multimodal companion as the critic's eyes, when it can see.
+
+    MEDIA_LAB_CRITIC_VISION=off skips the look; MEDIA_LAB_CRITIC_VISION_URL /
+    _MODEL point it elsewhere (a local model only). A text-only engine fails
+    the one-picture probe and the report says the look did not run."""
+    if os.getenv("MEDIA_LAB_CRITIC_VISION", "").strip().lower() in {"off", "0", "false", "no"}:
+        return None
+    url = os.getenv("MEDIA_LAB_CRITIC_VISION_URL", "").strip() or QWEN_VISION_URL
+    model = os.getenv("MEDIA_LAB_CRITIC_VISION_MODEL", "").strip() or QWEN_MODEL
+    chat = seam_critic.default_vision_chat(url, model, timeout=90)
+    return chat if seam_critic.vision_probe(chat) else None
+
+
+def _run_assemble_director(j, board, boards, sources, song):
+    j["stage"] = "encoding"
+    jd = JOBS_DIR / j["id"]
+    jd.mkdir(parents=True, exist_ok=True)
+    sizes = set()
+    for _beat, clip, *_rest in sources:
+        try:
+            info = stitch_core.probe(clip)
+            sizes.add((info["width"], info["height"]))
+        except stitch_core.StitchError as exc:
+            return fail(j, f"A scene clip could not be read: {exc}")
+    # every take on one canvas (all H3, or all LTX) -> keep it; mixed -> the board's
+    width, height = next(iter(sizes)) if len(sizes) == 1 else board_size(board)
+    plan = stitch_core.legacy_board_plan(board, sources, width=width, height=height,
+                                         song=song, quality=ASSEMBLY_QUALITY)
+    final = MEDIA / f"board_{board['id']}.mp4"
+    try:
+        receipt = stitch_core.render(plan, final)
+    except stitch_core.StitchError as exc:
+        return fail(j, f"The film could not be stitched together: {exc}")
+    except Exception as exc:
+        return fail(j, "The film could not be stitched together — try again.", exc)
+    (jd / "assembly-receipt.json").write_text(json.dumps(receipt, indent=1))
+    try:
+        j["stage"] = "checking every cut"
+        critic = seam_critic.review(final, receipt, frames_dir=jd / "seams",
+                                    bible=board.get("bible"), chat=_critic_chat(),
+                                    syncnet=seam_critic.syncnet_runner())
+        (jd / "critic.json").write_text(json.dumps(critic, indent=1))
+    except Exception as exc:   # the critic never blocks a delivery silently: it says it did not run
+        critic = {"summary": f"critic did not run ({type(exc).__name__})", "rerender": [], "seams": []}
+    trims = [{"beat": i + 1, "in": s["in"], "out": s["out"], "why": s["trim_reasons"]}
+             for i, s in enumerate(receipt["plan"]["shots"]) if s["trim_reasons"]]
+    board["assembly"] = {
+        "engine": "director-v1", "quality": receipt["quality"], "job_id": j["id"],
+        "receipt": f"jobs/{j['id']}/assembly-receipt.json", "trims": trims,
+        "beats": receipt["plan"].get("beats"), "notes": receipt["plan"].get("notes") or [],
+        "critic": critic.get("summary"), "rerender": critic.get("rerender") or [],
+    }
+    j["critic"] = {"summary": critic.get("summary"), "rerender": critic.get("rerender") or []}
+    j["assembly_notes"] = receipt["plan"].get("notes") or []
+    poster_path = MEDIA / f"board_{board['id']}.jpg"
+    subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", "1", "-i", str(final),
+                    "-frames:v", "1", str(poster_path)], check=False)
+    final_url = f"/media/board_{board['id']}.mp4"
+    poster_url = f"/media/board_{board['id']}.jpg" if _nonempty(poster_path) else ""
+    if _commit_storyboard_assembly(board, boards, j, final, final_url, poster_url) and not song:
+        gallery_add(f"board_{board['id']}", f"🎞 {board.get('title','Storyboard film')}", "boardfilm",
+                    final_url, poster_url, style="storyboard")
+
+
+def _run_assemble_legacy(j, board, boards, sources):
     j["stage"] = "encoding"
     clips = [item[1] for item in sources]
     n = len(sources)
@@ -6891,7 +7847,7 @@ def run_musicvideo(j):
             _sp = f"{style_prefix}{identity} {scenes[i]}".strip()
             if chain and i > 0:
                 _sp = ("Continue seamlessly from the supplied first frame. Preserve the same "
-                       "Heather, wardrobe, car, rainy road, camera side, lighting, direction of "
+                       "performer, wardrobe, vehicle, road, camera side, lighting, direction of "
                        "travel, and performance energy. No reset, no fade, no new person. " + _sp)
             if eng == "h3":
                 # song rides in as audio conditioning + is muxed after — the
@@ -7296,8 +8252,8 @@ FACE_MIN = 0.22
 # 32x32 block of output pixels. At the 864x480 canvas every judged take used, a
 # face at 0.36 was ~5 tokens tall and the MOUTH under 3 tokens wide — there is no
 # room to draw an eyelid or a lip closing, which is the "mangled eyes / mushy
-# mouth" complaint exactly. Steve's approved take measured 0.40; his "horrible"
-# one 0.12. Reframing is the cheapest lever we have: +33% face tokens for free.
+# mouth" complaint exactly. An approved take measured 0.40; a rejected
+# ("horrible") one 0.12. Reframing is the cheapest lever we have: +33% face tokens for free.
 # These numbers are OURS (MiniMax publishes nothing about faces) — a hypothesis
 # to measure, not a spec.
 FACE_TARGET_H3 = 0.48
@@ -7385,7 +8341,14 @@ def preflight(eng, body):
     """
     b = dict(body)
     fr = int(b.get("frames") or 121)
-    if eng == "h3":
+    if eng == "h3" and _h3ref.wants_singularity(b):
+        # Real / Long: 5-15 s on the 17k+5 grid; portrait, landscape or square.
+        b["frames"] = _h3sing.aligned_frames(fr, singularity_max_frames())
+        b["h3_engine"] = _h3ref.H3_SINGULARITY_VARIANT
+        if b.get("orientation") not in _h3sing.ASPECTS:
+            b["orientation"] = _h3sing.orientation_of(b.get("width"), b.get("height"))
+        b["width"], b["height"] = _h3sing.output_size(b["orientation"])
+    elif eng == "h3":
         b["frames"] = max(H3_MIN_FRAMES, min(H3_MAX_FRAMES, ((fr - 5 + 16) // 17) * 17 + 5))
         # the shim snaps to H3's trained 768 short edge; just keep the ASPECT
         # honest here. 864x480 was the preview preset and cost us the eyes.
@@ -7402,15 +8365,21 @@ def preflight(eng, body):
     return b
 
 def engine_generate(eng, body, j=None, timeout=7200):
-    task = ("ref2va" if eng == "h3" and (body.get("references") or body.get("video_references")) else
+    task = (_h3ref.H3_SINGULARITY_TASK if eng == "h3" and _h3ref.wants_singularity(body) else
+            "ref2va" if eng == "h3" and (body.get("references") or body.get("video_references")) else
             "fl2va" if eng == "h3" and body.get("start_image_b64") else "t2va")
     marker = object()
     previous = marker if j is None else j.get("_gpu_task", marker)
     if j is not None:
         j["_gpu_task"] = task
+    # The stage the caller put on screen for this render ("generating",
+    # "stage 1/2 · H3 draft", ...). Admission below overwrites it with its own
+    # progress labels, so remember it before any of that runs.
+    render_stage = j.get("stage") if j is not None else None
     try:
         with gpu_operation(eng, task, j):
-            return _engine_generate_authorized(eng, body, j=j, timeout=timeout, task=task)
+            return _engine_generate_authorized(eng, body, j=j, timeout=timeout, task=task,
+                                               render_stage=render_stage)
     finally:
         if j is not None:
             if previous is marker:
@@ -7419,7 +8388,26 @@ def engine_generate(eng, body, j=None, timeout=7200):
                 j["_gpu_task"] = previous
 
 
-def _engine_generate_authorized(eng, body, j=None, timeout=7200, task="t2va"):
+# Progress labels that engine admission writes while it reconciles residency,
+# frees memory or loads weights. None of them describes a render in progress.
+ADMISSION_STAGE_PREFIXES = (
+    "reconciling ", "releasing idle image weights", "loading H3", "warming up",
+    "making room", "making safe memory", "letting memory settle",
+    "adjusting for the engine",
+)
+
+
+def _render_stage_label(stage):
+    """The label to show once the engine is admitted and the render is running."""
+    if (not isinstance(stage, str) or not stage.strip()
+            or stage in ("queued", "starting")
+            or stage.startswith(ADMISSION_STAGE_PREFIXES)):
+        return "generating"
+    return stage
+
+
+def _engine_generate_authorized(eng, body, j=None, timeout=7200, task="t2va",
+                                render_stage=None):
     """Call a video engine, and CORRECT the request rather than failing it.
 
     Every engine has contracts the app can get wrong (H3: frames must be 17k+5
@@ -7435,6 +8423,9 @@ def _engine_generate_authorized(eng, body, j=None, timeout=7200, task="t2va"):
     body = preflight(eng, body)
     if j is not None and j.get("id"):
         body.setdefault("request_id", str(j["id"]))
+    if render_stage is None and j is not None:
+        render_stage = j.get("stage")
+    render_stage = _render_stage_label(render_stage)
     state = ensure_engine(eng, j)
     if state != "up":
         return {"ok": False, "error": f"engine admission failed: {state}"}
@@ -7445,6 +8436,13 @@ def _engine_generate_authorized(eng, body, j=None, timeout=7200, task="t2va"):
     for attempt in (1, 2, 3):
         if j is not None and j.get("cancel"):
             return {"ok": False, "error": "stopped by the studio"}
+        # Admission (and a corrected retry) leaves its own label behind, e.g.
+        # "reconciling qwen-h3 residency…". On a warm engine the render starts
+        # at once, so that label used to sit on screen for the whole render.
+        # The engine is admitted now: show what is actually running.
+        if j is not None and j.get("stage") != render_stage:
+            j["stage"] = render_stage
+            save_state()
         try:
             if gpu_recovery_pending():
                 return {"ok": False, "error": "GPU recovery hold", "recovery_required": True}
@@ -7616,7 +8614,7 @@ def run_say(j):
         framing = ("Medium shot, the person's whole head fully in frame with "
                    "comfortable headroom, upper body visible. ")
     # EXPRESSION RESTRAINT. "natural expressions" reads to LTX as permission to
-    # perform: Steve's workshop take (9eee3c19c7e4) starts from a calm start frame
+    # perform: a workshop take starts from a calm start frame
     # and drifts into raised, surprised eyebrows for the whole clip. The face is
     # already correct at frame 0 — what it needs is instruction to LEAVE IT ALONE
     # and move only the mouth. Name the brow explicitly; a generic "no exaggerated
@@ -7679,7 +8677,7 @@ def run_say(j):
         else int(j["id"][:8], 16) % 1_000_000_007
     # audio_scale scales the audio conditioning strength on LTX's DISTILLED
     # pipeline — engine_server calls it "THE lip-sync lever" and app.py has never
-    # sent it, so every take Steve has judged ran at the engine's own default.
+    # sent it, so every take judged so far ran at the engine's own default.
     # H3 ignores it (it takes audio_prompt_type instead), so only send it to LTX.
     try:
         _as = float(r.get("audio_scale") or 0)
@@ -7712,7 +8710,7 @@ def run_say(j):
     # headshots on flat grey with the shoulders smeared downward — went to the
     # engine as frame zero. The requested scene was silently dropped and LTX
     # animated two photographs on a wall (jobs 4dcb0bab / 1fd0ff94 / f0976f0e,
-    # 2026-08-18). Steve's verdict was "horrible", and he was right.
+    # 2026-08-18). The verdict was "horrible", and it was right.
     #
     # So: honour a supplied frame as-is only when no scene was asked for (the
     # "animate this picture" case). If a scene WAS asked for, the caller is saying
@@ -7818,7 +8816,7 @@ def run_say(j):
                 res = image_via_service(jj, {"source": src_ref, "engine": "auto"},
                                         place_prompt, w, h)
                 # "fallback" means the image engine was UNREACHABLE — it OOM'd and
-                # systemd restarted it under us (Heather's 16:02 take died exactly as
+                # systemd restarted it under us (one take died exactly as
                 # media-lab-image came back up). That is an infrastructure hiccup, not
                 # a decision about framing, so wait for it and try once more rather
                 # than treating a missing scene as a result.
@@ -7847,7 +8845,7 @@ def run_say(j):
                 ff = _face_frac(placed) if (res == "done" and _nonempty(placed)) else 0.0
                 if 0 < ff < face_m and _scene_canvas(lik, w, h, canvas, face=face_t * 1.5):
                     # The edit model sometimes redraws the person smaller than we
-                    # placed them (Heather came back at 0.16). Give it one more
+                    # placed them (one came back at 0.16). Give it one more
                     # go from a deliberately tighter canvas before falling back
                     # to the plain portrait — the scene is worth one retry.
                     print(f"[say] {j['id']} placement shrank the face to {ff:.2f} — "
@@ -7858,13 +8856,13 @@ def run_say(j):
                 if ff >= face_m:
                     start = placed
                 else:
-                    # A small face films as mush — Steve's "lip sync is horrible"
+                    # A small face films as mush — the "lip sync is horrible"
                     # take measured 0.12. The plain portrait syncs; use it and let
                     # the video prompt argue for the scene.
                     if res == "fallback":
                         # Still down after a retry. Filming the grey canvas here is
-                        # what produced Steve's "horrible" takes twice today: he asks
-                        # for a kitchen, gets a person on a blank wall, and nothing
+                        # what produced the "horrible" takes twice in one day: asking
+                        # for a kitchen gets a person on a blank wall, and nothing
                         # anywhere says the scene step never ran. Fail it instead —
                         # auto_requeue re-runs studio-broke takes when the box is
                         # healthy, which is exactly what this is.
@@ -7878,7 +8876,7 @@ def run_say(j):
                     # already has the face at the right size for THIS frame
                     # shape; a tall portrait dropped into H3's landscape frame
                     # renders the face at ~13% and will not lip-sync (measured
-                    # on Heather's H3 take). Grey around a correctly framed face
+                    # on an H3 take). Grey around a correctly framed face
                     # beats a correctly coloured backdrop around a tiny one.
                     if framed_fallback is not None:
                         start = framed_fallback
@@ -8012,6 +9010,8 @@ def latentsync_ready():
     return all(_nonempty(p) for p in required)
 
 def hunyuan_avatar_ready():
+    if not engine_licences.enabled("hunyuan-avatar"):
+        return False   # territory-restricted licence: opt-in per host
     if not all(_nonempty(p) for p in (HVA_SCRIPT, HVA_RUNNER, HVA_MANIFEST)):
         return False
     try:
@@ -8165,7 +9165,7 @@ def _run_topaz_master(j, src, out):
     """Hand the clip to the Mac's Topaz worker via the pool and wait.
 
     The Spark is arm64 and Topaz ships no arm64 Linux build, so mastering runs
-    on Steve's Mac under his subscription login. Fail-closed and honest: if the
+    on the owner's Mac under their own subscription login. Fail-closed and honest: if the
     worker is absent, expired, or slow, the take is left untouched and the job
     says exactly why.
     """
@@ -8731,16 +9731,49 @@ def job_engine(j):
 def pick_next_job():
     """Group the queue by engine instead of taking it strictly in order.
 
-    Steve's rule: LTX is the default; when H3 comes up, stand LTX down, run
+    Studio rule: LTX is the default; when H3 comes up, stand LTX down, run
     EVERY queued H3 job, then go back to LTX. Taking the queue in raw order
     would swap 40 GB of weights between every alternating job.
+
+    A warm H3 is the most expensive engine to rebuild (a ~5.5 minute, ~112 GB
+    cold load), so every queued H3 take runs before any job that would push
+    it out.  When the idle profile keeps H3 warm and something else has
+    already pushed it out, the rest of that non-H3 work runs first so H3 is
+    reloaded once, not once per job; an H3 take that has waited
+    H3_BATCH_MAX_WAIT_S goes next regardless.
     Caller holds cv."""
     if not queue:
         return None
     resident = next((n for n in VIDEO_ENGINE_NAMES if engine_up(n)), None)
+    if resident == "h3":
+        # Sol and Real / Long share the H3 unit; switching between them is a
+        # full cold load, so the resident variant's takes go first.
+        live = (h3_resident_config() or {}).get("variant")
+        live_real_long = live == _h3ref.H3_SINGULARITY_VARIANT
+        for i, jid in enumerate(queue):
+            job = jobs.get(jid) or {}
+            if (job_engine(job) == "h3" and
+                    _h3ref.wants_singularity(job.get("request") or {}) == live_real_long):
+                return queue.pop(i)
+        for i, jid in enumerate(queue):
+            if job_engine(jobs.get(jid)) == "h3":
+                return queue.pop(i)
     if resident:
         for i, jid in enumerate(queue):
             if job_engine(jobs.get(jid)) in (resident, None):
+                return queue.pop(i)
+    elif h3_kept_warm():
+        now = time.time()
+        for i, jid in enumerate(queue):
+            job = jobs.get(jid) or {}
+            try:
+                waited = now - float(job.get("ts") or now)
+            except (TypeError, ValueError):
+                waited = 0.0
+            if job_engine(job) == "h3" and waited >= H3_BATCH_MAX_WAIT_S:
+                return queue.pop(i)
+        for i, jid in enumerate(queue):
+            if job_engine(jobs.get(jid)) != "h3":
                 return queue.pop(i)
     return queue.pop(0)
 
@@ -8751,16 +9784,49 @@ ENGINE_MAINTENANCE = ROOT / ".engine-maintenance"
 IMAGE_JOB_KINDS = {"image", "charsheets", "character", "selfchar", "charremix", "enhance"}
 COMPANION_JOB_KINDS = IMAGE_JOB_KINDS | {"music", "screenshotsong", "speak", "stems"}
 
+def _local_gpu_job(j):
+    """A job that runs on this box's GPU (video engine or heavyweight companion)."""
+    return (job_queue_lane(j) == "local" and
+            bool(job_engine(j) or j.get("kind") in COMPANION_JOB_KINDS))
+
 def video_work_pending():
     """True while any queued/running companion work still needs exclusivity.
 
     Image, Music 3, and TTS jobs count too. Ignoring them let the 30-second
     settle thread resurrect LTX in the middle of a non-video companion job.
     """
-    return any(j.get("status") in ("running", "queued") and
-               job_queue_lane(j) == "local" and
-               (job_engine(j) or j.get("kind") in COMPANION_JOB_KINDS)
-               for j in jobs.values())
+    return any(j.get("status") in ("running", "queued") and _local_gpu_job(j)
+               for j in list(jobs.values()))
+
+_h3_restore_note = {"last": None}
+
+def h3_restore_deferred(desired, now=None):
+    """True while an idle profile that keeps H3 warm should not reload it yet.
+
+    Other GPU work (image, voice, music, LTX) has to push a warm H3 out, and
+    bringing H3 back is a ~5.5 minute, ~112 GB cold load.  Reloading it 30 s
+    after every short job turned bursts of small jobs into repeated cold
+    loads, and a job queued during a reload waits for it.  Wait until no local
+    GPU job has finished for H3_RESTORE_QUIET_S; the minute reaper retries,
+    so the restore still happens once the studio is quiet.  A real H3 job
+    never waits for this: it loads H3 itself.
+    """
+    if "h3" not in (desired.get("models") or ()) or engine_up("h3"):
+        return False
+    now = time.time() if now is None else now
+    last = 0.0
+    for j in list(jobs.values()):
+        if _local_gpu_job(j):
+            try:
+                last = max(last, float(j.get("finished") or 0))
+            except (TypeError, ValueError):
+                continue
+    deferred = now - last < H3_RESTORE_QUIET_S
+    if deferred and _h3_restore_note["last"] != last:
+        _h3_restore_note["last"] = last
+        print(f"[residency] H3 reload waits {H3_RESTORE_QUIET_S - (now - last):.0f}s "
+              "for a quiet studio", flush=True)
+    return deferred
 
 def restore_warm_ltx_idle():
     """Reconcile the selected idle residency contract, including after a crash.
@@ -8775,6 +9841,9 @@ def restore_warm_ltx_idle():
     try:
         if ENGINE_MAINTENANCE.exists() or gpu_recovery_pending() or video_work_pending():
             return False
+        desired = RESIDENCY.desired()
+        if h3_restore_deferred(desired):
+            return False
         if not release_voice_weights():
             raise ResidencyError("loaded TTS weights would not release before LTX restore")
         for music_engine in ("music", "yue2"):
@@ -8785,7 +9854,15 @@ def restore_warm_ltx_idle():
         released = release_image_weights("restoring chat after media work")
         if released is None and engine_up("image"):
             stop_engine("image")
-        desired = RESIDENCY.desired()
+        if "h3" in desired["models"] and not engine_up("h3"):
+            # H3 needs the whole box.  Stand every idle companion down exactly
+            # as an H3 job does; releasing image weights alone left the idle
+            # image ComfyUI shell holding ~2.4 GiB, which kept the planner's
+            # H3 decode floor out of reach until the hourly reaper stopped it.
+            companions = stand_down_other_companions("h3")
+            if companions != "up":
+                raise ResidencyError(
+                    f"idle companions would not stand down for the H3 restore: {companions}")
         target = desired["name"]
         slots = desired["slots"] if target == "custom" else None
         receipt = RESIDENCY.apply(target, slots, commit_desired=False)
@@ -8801,7 +9878,7 @@ def restore_warm_ltx_idle():
 def settle_video_transaction():
     """Restore the safe warm-idle state after a heavyweight media batch.
 
-    Steve's promoted runtime policy is Qwen + LTX warm by default.  H3 replaces
+    The promoted runtime policy is Qwen + LTX warm by default.  H3 replaces
     the active video slot only for its bounded batch unless a persistent profile
     says otherwise. Residency does not grant concurrent inference: heavyweight
     compute remains serialized by the inference transaction lock.
@@ -9103,7 +10180,7 @@ def inbox_watcher():
                             "sha256": str(sc.get("sha256") or "").lower().strip(),
                             "title": str(sc.get("title") or (board or {}).get("title") or "Storyboard film"),
                             "source": f"inbox:{f.name}", "private_internal_only": True,
-                            "candidate_not_final_until_steve_approves": True,
+                            cut_core.CANDIDATE_KEY: True,
                         }, extra={"board_id": board_id,
                                   "board_title": str((board or {}).get("title") or "")[:90],
                                   "prompt_label": f"🎞 Register assembly — {str((board or {}).get('title') or 'film')}"[:90]})
@@ -9147,7 +10224,7 @@ class GenReq(BaseModel):
     source: str = ""          # a picture to animate (LTX start-frame conditioning)
     seed: Optional[int] = None
     # H3 Ref2VA actor cloning: a list of separate reference PICTURES of the
-    # people who must appear, each {b64, role} (role = Steve/Heather/DGX/style).
+    # people who must appear, each {b64, role} (role = a name, e.g. person/product/style).
     # Present + engine h3 selects the ref2va actor-cloning variant (never fl2va);
     # carrying them in the typed request prevents the fl2va downgrade history
     # this model previously silently routed through.
@@ -9157,12 +10234,17 @@ class GenReq(BaseModel):
     v2v_swap_first_frame: bool = False # SAM 3 + local Qwen identity/outfit preparation
     v2v_wardrobe: str = ""
     h3_turbo: Union[bool, str] = False  # managed v4 six/eight-step preset only
+    # Real / Long (model "h3-real"): up to 3 /media sound references
+    # {source, role, start_sec}; "h3_engine": "singularity" is the same choice
+    # spelled on an "h3" request (remix keeps it).
+    audio_references: list = []
+    h3_engine: str = ""
 class MusicReq(BaseModel):
     vibe: str
     lyrics: str = ""
     length: str = "auto"
     duration_seconds: Optional[int] = None
-    engine: str = "yue2"            # "yue2" (primary, CC BY-NC 4.0 weights) | "music3"
+    engine: str = ""                # "" = default_music_engine() | "yue2" (CC BY-NC 4.0, opt-in) | "music3"
     style: str = ""                 # one-line genre/mood/instruments; empty = from the songwriter
     cot: str = "full"               # YuE2 chain-of-thought: full | melody | off
     abc: str = ""                   # an edited ABC score to record from
@@ -9288,9 +10370,23 @@ def maestro_model(r: MaestroModelReq):
     return {"id": j["id"], "eta_min": 15,
             "model": r.model_id, "lazy_download": bool(model.get("lazy_download"))}
 
+def default_music_engine() -> str:
+    """YuE2 where the host has opted into its non-commercial licence, else Music 3."""
+    return "yue2" if engine_licences.enabled("yue2") else "music3"
+
+
+def _licence_refusal(engine: str):
+    """None when the engine may run here, else the 403 to return: engines with a
+    personal / non-commercial licence are off until the host opts in."""
+    if engine_licences.enabled(engine):
+        return None
+    return JSONResponse({"error": engine_licences.refusal(engine), "licence": "personal"},
+                        status_code=403)
+
+
 def _validate_music_request(request: dict):
     """Normalise the engine-specific fields of a music request; str = the error."""
-    engine = str(request.get("engine") or "yue2").strip().lower()
+    engine = str(request.get("engine") or default_music_engine()).strip().lower()
     if engine not in MUSIC_ENGINES:
         return f"unknown music engine {engine!r}: choose yue2 or music3"
     request["engine"] = engine
@@ -9327,6 +10423,9 @@ def music(r: MusicReq):
     bad = _validate_music_request(request)
     if bad:
         return JSONResponse({"error": bad}, status_code=400)
+    refused = _licence_refusal(request["engine"])
+    if refused:
+        return refused
     try:
         request["duration_seconds"] = _music_seconds(request)
     except ValueError as exc:
@@ -9339,13 +10438,17 @@ def music(r: MusicReq):
 
 @app.get("/api/music/engines")
 def music_engines():
-    """What the music card offers: YuE2 first (default), Music 3 second."""
-    return {"default": "yue2",
+    """What the music card offers: YuE2 first, Music 3 second. YuE2 is the default
+    only where the host opted into its non-commercial licence."""
+    music3 = engine_licences.licence("music3")
+    return {"default": default_music_engine(),
             "engines": [
                 {"id": "yue2", "name": "YuE2", "license": YUE2_LICENSE,
                  "notice": YUE2_LICENSE_NOTICE, "installed": bool(local_config.yue2().get("YUE2_KIT")),
+                 "enabled": engine_licences.enabled("yue2"), "personal": True,
                  "warm": engine_up("yue2"), "edit_tools": True},
-                {"id": "music3", "name": "Music 3", "license": "", "notice": "",
+                {"id": "music3", "name": "MiniMax Music 3", "license": music3.licence,
+                 "notice": music3.notice, "enabled": True, "personal": False,
                  "installed": COMFY_MUSIC_DIR.is_dir(), "warm": engine_up("music"),
                  "edit_tools": False}],
             "stems": _melband_cli() is not None}
@@ -9355,6 +10458,9 @@ def music_engines():
 def music_plan(r: MusicPlanReq):
     """Ask YuE2 for a score (ABC) without recording: the score can be edited
     and handed back through /api/music {abc}. Synchronous; needs the engine."""
+    refused = _licence_refusal("yue2")
+    if refused:
+        return refused
     style = r.style.strip()[:300]
     if not style:
         return JSONResponse({"error": "style required"}, status_code=400)
@@ -9400,6 +10506,9 @@ def music_abc(song_id: str):
 @app.post("/api/music/{song_id}/rearrange")
 def music_rearrange(song_id: str, r: MusicRearrangeReq):
     """Record the same score again under a new style / lyrics (or an edited score)."""
+    refused = _licence_refusal("yue2")
+    if refused:
+        return refused
     sid = Path(song_id).name
     src = jobs.get(sid) or {}
     abc = r.abc.strip() or _music_song_abc(sid)
@@ -9439,6 +10548,9 @@ def music_rearrange(song_id: str, r: MusicRearrangeReq):
 def music_cover(song_id: str, r: MusicCoverReq):
     """A cover of any library song (uploads too): transcribe, keep the melody,
     record it under a new style."""
+    refused = _licence_refusal("yue2")
+    if refused:
+        return refused
     sid = Path(song_id).name
     song = _music_song_file(sid)
     if song is None:
@@ -9675,6 +10787,10 @@ def image(r: ImageReq):
     if r.engine == "fal-image" and not fal_ready():
         return JSONResponse({"error": "fal.ai isn't set up — add your API key in Cloud providers."},
                             status_code=400)
+    if r.engine == "kontext":
+        refused = _licence_refusal("kontext")
+        if refused:
+            return refused
     req = r.dict()
     if req.get("reference_source") and not req.get("source"):
         return JSONResponse({"error": "a separate identity reference needs a composition picture to edit"},
@@ -9753,14 +10869,17 @@ def image_models():
         return {"ok": False, "default": "auto", "models": []}
     out = []
     for m in d["models"]:
-        if not m.get("installed"):
+        if not m.get("installed") or not engine_licences.enabled(m["id"]):
             continue
         ui = IMG_MODEL_UI.get(m["id"], {})
         out.append({"id": m["id"],
                     "label": f"{ui.get('emoji','🖌')} {ui.get('short') or m.get('label') or m['id']}",
                     "plain": ui.get("plain") or m.get("note") or "",
                     "steps": m.get("steps")})
-    return {"ok": True, "default": d.get("default", "qwen"), "models": out}
+    default = d.get("default", "qwen")
+    if out and not any(m["id"] == default for m in out):
+        default = out[0]["id"]   # the service's default is a painter this host has not enabled
+    return {"ok": True, "default": default, "models": out}
 
 @app.get("/api/image/health")
 def image_health():
@@ -9916,7 +11035,7 @@ def character_edit(cid: str, r: CharEditReq):
 
 @app.post("/api/characters/{cid}/delete")
 def character_delete(cid: str):
-    """Deletion is deliberately OPEN TO EVERYONE (Steve's explicit call,
+    """Deletion is deliberately OPEN TO EVERYONE (the owner's explicit call,
     2026-08-15): sheets are public, anyone may remove one. Artifacts are
     archived, never destroyed."""
     chars = _load(CHARS_FILE, [])
@@ -10336,6 +11455,10 @@ def character_say(cid: str, r: SayReq):
     if not r.line.strip():
         return JSONResponse({"error": "empty"}, status_code=400)
     eng = "h3" if r.engine == "h3" else "ltx"
+    if eng == "h3":
+        refused = _licence_refusal("h3")
+        if refused:
+            return refused
     if r.drive_audio_source and eng != "h3":
         return JSONResponse({"error": "a separate face-drive stem currently requires engine 'h3'"},
                             status_code=400)
@@ -10483,6 +11606,10 @@ def musicvideo(r: MVReq):
     if r.h3_turbo and r.engine != "h3":
         return JSONResponse({"error": "the managed H3 Turbo preset requires engine 'h3'"},
                             status_code=400)
+    if r.engine in ("h3", "h3-ltx25"):
+        refused = _licence_refusal("h3")
+        if refused:
+            return refused
     try:
         turbo_preset = _h3ref.required_turbo_preset({"h3_turbo": r.h3_turbo}) or False
     except ValueError as exc:
@@ -10581,6 +11708,12 @@ class BeatEditReq(BaseModel):
     trim_in_seconds: Optional[float] = None
     trim_out_seconds: Optional[float] = None
     clear_trim: bool = False
+    # director's grammar (docs/DIRECTOR-SCHOOL.md)
+    scene: Optional[str] = None
+    shot_size: Optional[str] = None      # EWS|WS|FS|MWS|MS|MCU|CU|ECU|INSERT|OTS|TWO
+    angle: Optional[str] = None
+    screen_side: Optional[dict] = None   # {"Maya": "left", "Theo": "right"}
+    transition: Optional[str] = None     # cut|cut_on_action|match_cut|j_cut|l_cut|dissolve|fade_through_black
 
 @app.post("/api/storyboard/{sid}/beat")
 def storyboard_beat_edit(sid: str, r: BeatEditReq):
@@ -10625,6 +11758,20 @@ def storyboard_beat_edit(sid: str, r: BeatEditReq):
         beat["use_still"] = bool(r.use_still)
     if r.orientation is not None:
         beat["orientation"] = r.orientation if r.orientation in SIZES else None
+    if r.scene is not None:
+        beat["scene"] = str(r.scene)[:80]
+    if r.shot_size is not None:
+        beat["shot_size"] = director_school.shot_size(r.shot_size) or ""
+    if r.angle is not None:
+        beat["angle"] = str(r.angle)[:40]
+    if r.screen_side is not None:
+        beat["screen_side"] = {str(k)[:80]: str(v).lower() for k, v in r.screen_side.items()
+                               if str(v).lower() in ("left", "right", "center")}
+    if r.transition is not None:
+        kind = str(r.transition).strip().lower().replace(" ", "_").replace("-", "_")
+        if kind and kind not in stitch_core.TRANSITIONS:
+            return JSONResponse({"error": f"unknown transition {kind!r}"}, status_code=422)
+        beat["transition"] = kind
     beat["composed_prompt"] = compose_beat_prompt(board, beat)
     _save(BOARDS_FILE, boards)
     return {"ok": True, "beat": beat}
@@ -10705,11 +11852,24 @@ def storyboard_reorder(sid: str, r: ReorderReq):
     _save(BOARDS_FILE, boards)
     return {"ok": True, "beats": board["beats"], "dropped_queued": dropped}
 
+@app.get("/api/storyboard/{sid}/exam")
+def storyboard_exam(sid: str):
+    """Director school: grade the board before any GPU time is spent (coverage,
+    180-degree line, dialogue budget, faces per shot, transitions, lettering)
+    and say which engine each shot needs, with an estimate that includes
+    spin-up. Read-only."""
+    board = next((b for b in _load(BOARDS_FILE, []) if b.get("id") == sid), None)
+    if not board:
+        return JSONResponse({"error": "unknown board"}, status_code=404)
+    return director_school.plan_summary(board)
+
 class BibleReq(BaseModel):
     style: Optional[str] = None
     world: Optional[str] = None
     camera: Optional[str] = None
-    characters: Optional[list] = None    # [{"name":..., "look":...}]
+    palette: Optional[str] = None
+    time_of_day: Optional[str] = None
+    characters: Optional[list] = None    # [{"name":..., "look":..., "wardrobe":...}]
 
 @app.post("/api/storyboard/{sid}/bible")
 def storyboard_bible_edit(sid: str, r: BibleReq):
@@ -10720,7 +11880,7 @@ def storyboard_bible_edit(sid: str, r: BibleReq):
     if not board:
         return JSONResponse({"error": "unknown board"}, status_code=404)
     raw = dict(board.get("bible") or {})
-    for k in ("style", "world", "camera"):
+    for k in ("style", "world", "camera", "palette", "time_of_day"):
         v = getattr(r, k)
         if v is not None:
             raw[k] = str(v)
@@ -10828,6 +11988,19 @@ def enhance(r: EnhanceReq):
     j = submit_job("enhance", payload)
     return {"id": j["id"], "eta_min": eta_estimate(j)}
 
+def _template_preview_url(name: str) -> str:
+    """Where a template's preview animation is served from on THIS studio:
+    static/templates/ (the repo's own previews, or ones a host keeps there), the
+    local overlay's templates/ folder, or nowhere ("" = the page shows the emoji)."""
+    if not name or "/" in name or name.startswith("."):
+        return ""
+    if (STATIC_DIR / "templates" / name).is_file():
+        return f"/static/templates/{name}"
+    if local_overlay.asset_path(name) is not None:
+        return f"/local/templates/{name}"
+    return ""
+
+
 @app.get("/api/styles")
 def styles_catalog():
     """Everything the style shelves need, in one call."""
@@ -10840,7 +12013,7 @@ def styles_catalog():
         # each carries an animated example GIF (served from /static/templates) +
         # a one-line "what you get" description, so a person picks by seeing it.
         "templates": [{"group": g, "templates": [
-            {"id": tid, "emoji": e, "label": l, "gif": f"/static/templates/{gf}",
+            {"id": tid, "emoji": e, "label": l, "gif": _template_preview_url(gf),
              "prefix": prefix, "description": desc} for tid, e, l, prefix, gf, desc in entries]}
                       for g, entries in TEMPLATE_LIB],
         "char_engines": [{"id": "auto", "label": "Auto (best pick)"},
@@ -10903,7 +12076,7 @@ def providers_get():
 
 @app.post("/api/providers")
 def providers_set(r: ProviderReq, request: Request, x_lab_pin: Optional[str] = Header(None)):
-    bad = admin_guard(request, x_lab_pin)
+    bad = owner_guard(request, x_lab_pin)      # provider keys: the owner only
     if bad:
         return bad
     if r.provider != "fal":
@@ -11070,7 +12243,7 @@ class SetupInstallReq(BaseModel):
 @app.post("/api/setup/install")
 def setup_install(request: Request, r: SetupInstallReq,
                   x_lab_pin: Optional[str] = Header(default=None)):
-    guard = admin_guard(request, x_lab_pin)
+    guard = owner_guard(request, x_lab_pin)    # engine installs: the owner only
     if guard is not None:
         return guard
     cfg = _setup_install_cfg()
@@ -11182,11 +12355,35 @@ def brief(j):
             # which painter actually rendered it — recorded since the image
             # service existed, never shown until now
             "engine_used": j.get("engine_used") or None,
+            "engine_label": j.get("engine_label") or None,
+            "av_sync": j.get("av_sync") or None,
             "queue_lane": job_queue_lane(j),
             "fal_model_id": j.get("fal_model_id") or None,
             "fal_request_id": j.get("fal_request_id") or None,
             "masked": bool(j.get("masked")) or None,
             "meta": j.get("meta"), "request": brief_request(j.get("request"))}
+
+@app.get("/api/health")
+def studio_health_view():
+    """One read-only answer: ok / warn / action, with the reasons and the facts.
+
+    Behind the family door like every API route (the local tool token or a
+    signed-in pass). It never touches the GPU, a lease or a service.
+    """
+    def sol_state():
+        config = h3_resident_config()
+        return {"loaded": True, **config} if config else {"loaded": False}
+    boot = Path("/proc/sys/kernel/random/boot_id")
+    return _studio_health.collect(
+        root=ROOT, boot_id=boot.read_text().strip() if boot.exists() else "",
+        jobs=jobs, queue_ids=list(queue),
+        sol_root=Path(os.path.expanduser(local_config.get("SOL_ROOT") or "~/.local/share/sol-h3-spark")),
+        sol_configured=local_config.sol_configured(), runtime_dir=Path(local_config.runtime_dir()),
+        sol_state=sol_state if "h3" in ENGINES else None,
+        text_url=local_config.text_upstream(), eta=eta_estimate,
+        mem_available_gib=lambda: round(_mem_available_gb(), 2),
+        restarts=lambda: _studio_health.unit_restarts("media-lab-simple.service"))
+
 
 @app.get("/api/queue")
 def queue_view(offset: int = 0, limit: int = 40, hist: int = 1, lane: str = "local"):
@@ -11238,7 +12435,12 @@ def job(job_id: str, full: int = 0):
             # the painter that actually ran, so the UI can label the version
             # it just produced instead of leaving the user to guess
             "engine_used", "masked", "queue_lane", "fal_request_id", "fal_model_id",
-            "fal_input", "fal_seed", "fal_expanded_prompt")
+            "fal_input", "fal_seed", "fal_expanded_prompt",
+            # storyboard assembly: the seam critic's verdict and the editor's notes
+            "critic", "assembly_notes",
+            # why a job stopped (e.g. a capacity refusal), so agents can tell a
+            # transient admission refusal from a real failure
+            "detail")
     queued_in = online_queue if job_queue_lane(j) == "online" else queue
     result = {k: j.get(k) for k in keys} | {
         "queue_position": queued_in.index(job_id) + 1 if job_id in queued_in else 0}
@@ -11574,7 +12776,7 @@ def residency_state(request: Request, x_lab_pin: Optional[str] = Header(None)):
 @app.post("/api/residency/plan")
 def residency_plan(r: ResidencyReq, request: Request,
                    x_lab_pin: Optional[str] = Header(None)):
-    bad = admin_guard(request, x_lab_pin)
+    bad = owner_guard(request, x_lab_pin)      # GPU profiles: the owner only
     if bad:
         return bad
     try:
@@ -11586,7 +12788,7 @@ def residency_plan(r: ResidencyReq, request: Request,
 @app.post("/api/residency/apply")
 def residency_apply(r: ResidencyReq, request: Request,
                     x_lab_pin: Optional[str] = Header(None)):
-    bad = admin_guard(request, x_lab_pin)
+    bad = owner_guard(request, x_lab_pin)      # GPU profiles: the owner only
     if bad:
         return bad
     try:
@@ -11816,17 +13018,23 @@ def chat_options():
 
 @app.post("/api/chat")
 def chat(r: ChatReq, request: Request):
-    # request_role() deliberately lets tailnet hosts through the site door. The
-    # operative producer is stricter: only a server-signed role cookie can read
-    # studio state or mutate the queue. Client IP and Host are never authority.
+    # request_role() also admits the local tool token. The operative producer is
+    # stricter: only a server-signed role cookie can read studio state or mutate
+    # the queue. Client IP and Host are never authority.
     raw_cookie = request.cookies.get(SESSION_COOKIE, "")
-    if not signed_session_authorized(raw_cookie, session_role):
+    if not (signed_session_authorized(raw_cookie, session_role)
+            or embed_gate.cookie_role(request, ACCESS_SECRET, _role_code)):
         return JSONResponse({"error": "signed session required"}, status_code=401,
                             headers=CHAT_CORS)
     try:
         sysp = CHAT_PROMPT_FILE.read_text()
     except Exception:
         sysp = "You are the Media Lab guide and operative producer for this private local studio."
+    # The studio owner's private notes (config/local/sparky.md): who the regular
+    # performers are, house rules, the hardware. Never shipped in the repo.
+    notes = local_overlay.sparky_notes()
+    if notes:
+        sysp += "\n\n## THIS STUDIO (notes from its owner)\n" + notes[:8000]
     msgs = [{"role": "system", "content": sysp + "\n\n" + tool_instructions()}]
     clean = []
     for m in r.messages[-20:]:
@@ -11885,8 +13093,8 @@ def chat(r: ChatReq, request: Request):
                     if call is None:
                         message = envelope["message"].strip() or "No studio action was taken."
                         # No prefix here: "No queue action was accepted in this
-                        # reply" read as noise on every plain answer (Steve,
-                        # 2026-08-23). The receipt frames already say when an
+                        # reply" read as noise on every plain answer
+                        # (2026-08-23). The receipt frames already say when an
                         # action WAS taken; silence is the right signal when not.
                         yield _sse({"delta": message})
                         yield _sse({"done": True})
@@ -12006,8 +13214,8 @@ def _cut_gallery_item(job_id: str):
     return info
 
 def _cut_session_required(request: Request):
-    """Everyone signed in is a studio manager (Steve, 2026-08-16); an unsigned caller
-    on the tailnet is a plain user and may cut too. Only NO role is refused."""
+    """Everyone signed in is a studio manager (policy of 2026-08-16): the family code
+    (or a local tool) may cut. Only NO role is refused."""
     if getattr(request.state, "role", "") in ("admin", "user") or request_role(request) in ("admin", "user"):
         return None
     return JSONResponse({"error": "sign in to edit"}, status_code=403)
@@ -12244,38 +13452,59 @@ def cut_render_status(render_id: str, request: Request):
     return rec
 
 class GateReq(BaseModel):
-    code: str
+    code: str = Field(max_length=200)
     studio_library: bool = False
     studio_render: bool = False
     studio_device: Optional[str] = Field(default=None, pattern=r'^[a-f0-9]{32}$')
 
 @app.post("/api/gate")
 async def gate(r: GateReq, request: Request):
-    """One door. The code you type decides the role you get."""
-    key = _req_key(request)
-    # The ONLY thing that can refuse outright is this caller's own backoff, earned
-    # by their own wrong answers. Nothing global refuses, so a stranger hammering
-    # the door cannot keep anybody else out.
-    wait, scope = device_block("gate", key)
-    if wait:
-        return locked_response(wait, scope)
-    # compare as bytes — compare_digest raises on non-ASCII str, and a stray
-    # accented character in the box must read as "wrong code", not a 500
-    code = r.code.strip().upper().encode("utf-8", "replace")
+    """One door. The code you type decides the role you get.
+
+    3 wrong codes in 10 minutes shut it for this client (network) for 1 h,
+    then 2 h, 4 h, 8 h ... (media_lab_core/door_lockout.py). The ONLY thing
+    that can refuse outright is this client's own lockout, earned by its own
+    wrong answers: nothing global refuses, so a stranger hammering the door
+    cannot keep anybody else's network out."""
+    key = _door_key(request)
+    # Forgiving typing: case, spaces, dashes, dots and underscores do not
+    # matter ("Maple otter-LANTERN comet" == "maple-otter-lantern-comet").
+    # Compare as bytes — compare_digest raises on non-ASCII str, and a stray
+    # accented character in the box must read as "wrong code", not a 500.
+    code = family_code.normalize(r.code).encode("utf-8", "replace")
     role = ""
-    if hmac.compare_digest(code, ADMIN_CODE.encode()):
-        role = "admin"
-    elif hmac.compare_digest(code, ACCESS_CODE.encode()):
-        role = "user"
-    if not role:
-        delay, nxt = record_fail("gate", key)
-        if delay:
-            # async sleep: a sync one would tie up a threadpool worker and hand
-            # the attacker a cheaper denial of service than the one just removed
-            await asyncio.sleep(delay)
-        return JSONResponse({"ok": False, "retry_after": nxt, "scope": "device"},
-                            status_code=403)
-    record_ok("gate", key)
+    wait = door_wait("gate", key)
+    if wait:
+        # Shut for this network. Only the ADMIN code is checked now, on its own
+        # counter: family typos never lock the owner out, and the family code
+        # is not compared at all, so a guesser learns nothing during a lockout.
+        if not code or door_wait("admin", key):
+            return locked_response(wait)
+        if ADMIN_CODE and hmac.compare_digest(code, ADMIN_CODE.encode()):
+            role = "admin"
+            door_ok("admin", key)
+        else:
+            delay, _verdict = door_fail("admin", key)
+            if delay:
+                await asyncio.sleep(delay)
+            return locked_response(wait)
+    else:
+        if code and ADMIN_CODE and hmac.compare_digest(code, ADMIN_CODE.encode()):
+            role = "admin"
+        elif code and ACCESS_CODE and hmac.compare_digest(code, ACCESS_CODE.encode()):
+            role = "user"
+        if not role:
+            delay, verdict = door_fail("gate", key)
+            if delay:
+                # async sleep: a sync one would tie up a threadpool worker and hand
+                # the attacker a cheaper denial of service than the one removed
+                await asyncio.sleep(delay)
+            if verdict["locked"]:
+                return locked_response(verdict["retry_after"], {"wrong": True})
+            return JSONResponse({"ok": False, "retry_after": 0, "scope": "network",
+                                 "tries_left": verdict["tries_left"],
+                                 "next_lock": verdict["next_lock"]}, status_code=403)
+        door_ok("gate", key)
     if r.studio_library or r.studio_render:
         if r.studio_render and not r.studio_device:
             return JSONResponse({'error': 'A device identity is required for generation permission.'}, status_code=422)
@@ -12283,13 +13512,13 @@ async def gate(r: GateReq, request: Request):
         if r.studio_library:
             response.update(scope='library:read',
                             token=studio_library.ticket(ACCESS_SECRET, role, _role_code(role)),
-                            expiresIn=studio_library.TOKEN_AGE)
+                            expiresIn=STUDIO_PASS_AGE)
         if r.studio_render:
             render_token = studio_jobs.ticket(ACCESS_SECRET, role, _role_code(role), r.studio_device)
             if r.studio_library:
-                response.update(renderScope='jobs:own', renderToken=render_token, renderExpiresIn=studio_jobs.TOKEN_AGE)
+                response.update(renderScope='jobs:own', renderToken=render_token, renderExpiresIn=STUDIO_PASS_AGE)
             else:
-                response.update(scope='jobs:own', token=render_token, expiresIn=studio_jobs.TOKEN_AGE)
+                response.update(scope='jobs:own', token=render_token, expiresIn=STUDIO_PASS_AGE)
         return JSONResponse(response)
     resp = JSONResponse({"ok": True, "role": role})
     resp.set_cookie(SESSION_COOKIE, session_token(role), max_age=SESSION_MAX_AGE,
@@ -12299,7 +13528,7 @@ async def gate(r: GateReq, request: Request):
 
 app.include_router(studio_library.router(
     lambda: _load(ROOT / 'gallery.json', []), MEDIA,
-    lambda raw: studio_library.valid_ticket(raw, ACCESS_SECRET, _role_code)))
+    lambda raw: studio_library.valid_ticket(raw, ACCESS_SECRET, _role_code, max_age=STUDIO_PASS_AGE)))
 
 
 @lru_cache(maxsize=1)
@@ -12339,13 +13568,14 @@ def _studio_background_setup():
 
 app.include_router(background_setup.router(
     _studio_background_setup,
-    lambda request: session_role(request.cookies.get(SESSION_COOKIE, '')) == 'admin',
+    lambda request: (session_role(request.cookies.get(SESSION_COOKIE, '')) == 'admin'
+                     or embed_gate.cookie_role(request, ACCESS_SECRET, _role_code) == 'admin'),
     lambda: os.getenv('MEDIA_LAB_BACKGROUND_SETUP') == '1'))
 
 
 app.include_router(studio_jobs.router(
     _studio_job_store,
-    lambda raw: studio_jobs.identity(raw, ACCESS_SECRET, _role_code),
+    lambda raw: studio_jobs.identity(raw, ACCESS_SECRET, _role_code, max_age=STUDIO_PASS_AGE),
     lambda: _studio_background_host().engines(), _studio_admit, ROOT / 'studio-artifacts'))
 
 
@@ -12363,21 +13593,47 @@ def _studio_read_library_input(asset_id):
 
 app.include_router(studio_inputs.router(
     _studio_job_store,
-    lambda raw: studio_jobs.identity(raw, ACCESS_SECRET, _role_code),
-    lambda raw: studio_library.valid_ticket(raw, ACCESS_SECRET, _role_code),
+    lambda raw: studio_jobs.identity(raw, ACCESS_SECRET, _role_code, max_age=STUDIO_PASS_AGE),
+    lambda raw: studio_library.valid_ticket(raw, ACCESS_SECRET, _role_code, max_age=STUDIO_PASS_AGE),
     _studio_read_library_input))
+
+# The studio inside the VibeX Studio app: /embed handshake, tickets, status.
+GATE_EXEMPT.update(embed_gate.GATE_EXEMPT_PATHS)
+app.include_router(embed_gate.router(
+    secret=lambda: ACCESS_SECRET, role_code=_role_code, origins=lambda: BROWSER_ORIGINS,
+    secure=_secure_cookie, signed_in=_gate_ok, pass_max_age=STUDIO_PASS_AGE))
 
 @app.get("/api/me")
 def me(request: Request):
     """What the UI asks before it decides whether to draw the queue controls.
-    Everyone signed in is a studio manager (Steve, 2026-08-16), so any valid
-    session reports admin and gets the controls."""
-    return {"role": "admin" if request_role(request) else "user"}
+    Everyone signed in is a studio manager (policy of 2026-08-16), so any valid
+    session reports "admin" and gets the controls. ``owner`` is the real
+    distinction: true only for the admin code, the one that may change server
+    settings."""
+    role = getattr(request.state, "role", "") or request_role(request)
+    return {"role": "admin" if role else "user", "owner": role == "admin"}
+
+@app.post("/api/admin/family-code")
+def rotate_family_code(request: Request, x_lab_pin: Optional[str] = Header(None)):
+    """Owner only: replace the family code. Every device that signed in with the
+    old one — browsers and paired apps alike — is signed out at once, because
+    the code is part of every family cookie and pass signature. The new code is
+    returned to the owner, once, so they can hand it to the family; it is never
+    logged. The same thing from a terminal: `media-lab code --rotate`."""
+    bad = owner_guard(request, x_lab_pin)
+    if bad:
+        return bad
+    new = family_code.mint_family()
+    secret_files.write_private(ACCESS_CODE_FILE, new + "\n")
+    _refresh_codes(force=True)
+    return {"ok": True, "family_code": new,
+            "note": "Every family device is now signed out. Share the new code; "
+                    "each device enters it once."}
 
 @app.get("/gate")
 def gate_screen():
-    """The door, on demand — so an already-signed-in visitor (or anyone on the
-    tailnet, who never sees it) can come back and enter the other code."""
+    """The door, on demand — so an already-signed-in visitor can come back and
+    enter the other code (the owner switching from the family code to admin)."""
     return HTMLResponse(GATE_HTML)
 
 @app.post("/api/signout")
@@ -12399,6 +13655,7 @@ try:
         _v = Vapid()
         _v.generate_keys()
         _v.save_key(str(VAPID_KEY_FILE))
+        secret_files.tighten([VAPID_KEY_FILE])     # save_key uses the umask
     _vapid = Vapid.from_file(str(VAPID_KEY_FILE))
     VAPID_PUBLIC_B64 = b64urlencode(_vapid.public_key.public_bytes(
         serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint))
@@ -12418,7 +13675,9 @@ def push_all(title, body, url="/?queue=1"):
             webpush(subscription_info=s,
                     data=json.dumps({"title": title, "body": body, "url": url}),
                     vapid_private_key=str(VAPID_KEY_FILE),
-                    vapid_claims={"sub": "mailto:steve.darlow@gmail.com"},
+                    # contact for the push services: MEDIA_LAB_VAPID_SUBJECT in
+                    # config/local.env, else the project's page (never a person)
+                    vapid_claims={"sub": local_config.vapid_subject()},
                     timeout=15)
             keep.append(s)
         except WebPushException as e:
@@ -12483,16 +13742,18 @@ def push_unsubscribe(r: UnsubReq):
 # from the manifest, so the manifest has to change with the theme (the front end
 # re-points the <link rel=manifest> and relaunches). Keep in sync with THEMES in
 # index.html.
-THEME_INK = {"": "#0B0806", "coagent": "#0B0806", "autoedu": "#0F0F11", "source4ai": "#FFF8E7",
-             "mr-dark": "#15121C", "mr-rose": "#F7F2E9", "ocean": "#071019",
+THEME_INK = {"": "#0B0806", "coagent": "#0B0806", "ocean": "#071019",
              "emerald": "#06120C", "violet": "#0D0814", "paper": "#F7F7F8"}
 
 @app.get("/manifest.json")
 def manifest(theme: str = ""):
     data = json.loads((STATIC_DIR / "manifest.json").read_text())
-    ink = THEME_INK.get(theme, THEME_INK[""])
+    # a studio's own looks live in its local overlay (config/local/themes.json)
+    ink = THEME_INK.get(theme) or local_overlay.theme_ink(theme) or THEME_INK[""]
     # id/start_url stay fixed — changing them would orphan the installed app
     data["background_color"] = data["theme_color"] = ink
+    # Tells the VibeX Studio app this studio can be shown inside it (/embed).
+    data["vibexEmbed"] = 1
     # CORS open on purpose: this gate-exempt endpoint doubles as the pairing
     # liveness probe for VibeXStudio web/desktop builds (browser fetch).
     return JSONResponse(data, media_type="application/manifest+json",
@@ -12504,6 +13765,103 @@ def service_worker():
     return FileResponse(str(STATIC_DIR / "sw.js"),
                         media_type="application/javascript",
                         headers={"Cache-Control": "no-cache"})
+
+# ---------- the studio's local overlay (gitignored config/local/) ----------
+@app.get("/local/themes.css")
+def local_themes_css():
+    """Extra looks from config/local/themes.json, as CSS (empty when none)."""
+    return Response(local_overlay.themes_css(), media_type="text/css",
+                    headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/api/local/themes")
+def local_themes():
+    return {"themes": [{k: t[k] for k in ("id", "label", "accent", "ink")}
+                       for t in local_overlay.themes()]}
+
+
+@app.get("/local/templates/{name}")
+def local_template_asset(name: str):
+    path = local_overlay.asset_path(name)
+    if path is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return FileResponse(str(path))
+
+
+# ---------- engine licences (personal / non-commercial engines are opt-in) ----------
+@app.get("/api/engines/licences")
+def engines_licences():
+    return engine_licences.public_view()
+
+
+_eta_residency = {"at": 0.0, "value": None}
+
+
+def _picker_residency(max_age_s=5.0):
+    """Which picker engines are loaded right now (cached a few seconds: the
+    page asks on every slider move)."""
+    now = time.time()
+    if _eta_residency["value"] is not None and now - _eta_residency["at"] < max_age_s:
+        return _eta_residency["value"]
+    config = h3_resident_config() or {}
+    real_long = config.get("variant") == _h3ref.H3_SINGULARITY_VARIANT
+    sol = bool(config) and not real_long and config.get("task") == "t2va"
+    value = {"ltx25": engine_up("ltx"), "h3": sol, "h3-real": real_long, "h3-ltx25": sol}
+    _eta_residency.update(at=now, value=value)
+    return value
+
+
+@app.get("/api/engines/eta")
+def engines_eta(duration: str = "5", images: int = 0, videos: int = 0, audios: int = 0,
+                detail: str = "match"):
+    """Estimated wall time per video engine for the model picker, including the
+    spin-up an engine pays when it is not loaded (config/render-eta.json,
+    refreshed from completed takes)."""
+    try:
+        seconds = float(duration) if str(duration).strip().lower() != "auto" else 5.0
+    except ValueError:
+        seconds = 5.0
+    seconds = min(20.0, max(3.0, seconds))
+    images, videos, audios = (max(0, min(9, int(images))), max(0, min(3, int(videos))),
+                              max(0, min(3, int(audios))))
+    resident = _picker_residency()
+    table = render_eta.load_table()
+    real_long_ok = singularity_enabled()
+    route_refs = real_long_ok and bool(images or videos or audios)
+    out = {}
+    for model in ("ltx25", "h3", "h3-real", "h3-ltx25"):
+        if model == "h3-real" and not real_long_ok:
+            continue
+        engine = "h3-real" if (model in ("h3", "h3-ltx25") and route_refs) else model
+        refs = {"image_refs": images, "video_refs": videos, "audio_refs": audios} \
+            if engine == "h3-real" else {}
+        est = render_eta.estimate(engine, seconds, resident=resident.get(engine, False),
+                                  detail=detail, table=table,
+                                  timings_path=RENDER_TIMINGS_FILE, **refs)
+        if est is None:
+            continue
+        if engine != model:
+            est["routed_to"] = "h3-real"
+            est["text"] += " · references run on Real / Long"
+        out[model] = est
+    ahead = [j for j in jobs.values()
+             if j.get("status") in ("queued", "running") and _local_gpu_job(j)]
+    ahead_min = 0
+    for j in ahead:
+        try:
+            ahead_min += eta_estimate(j)
+        except Exception:
+            pass
+    return {"engines": out, "queue_ahead": len(ahead), "queue_ahead_min": ahead_min,
+            "real_long": {"available": real_long_ok,
+                          "max_seconds": _h3sing.seconds_of(singularity_max_frames()),
+                          "label": _h3sing.LABEL,
+                          # how long it stays loaded after the last take, and
+                          # what warm Cinematic then takes to come back
+                          "linger_s": H3_SINGULARITY_LINGER_S,
+                          "restore_s": int((table.get("engines", {}).get("h3") or {})
+                                           .get("spinup_s") or 0)}}
+
 
 app.mount("/media", StaticFiles(directory=str(MEDIA)), name="media")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

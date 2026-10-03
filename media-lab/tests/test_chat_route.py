@@ -28,16 +28,13 @@ _LOCK_PATH = "/run/user/1000/media-lab-inference.lock"
 ROOT.mkdir(parents=True, exist_ok=True)
 # Canonical live character IDs, resolved by NAME at runtime, never hard-coded.
 (ROOT / "characters.json").write_text(json.dumps([
-    {"id": "24da56c6229c", "name": "Steve"},
-    {"id": "1e9c9090d4a4", "name": "Heather"},
+    {"id": "24da56c6229c", "name": "Ava"},
+    {"id": "1e9c9090d4a4", "name": "Mia"},
 ]))
 shutil.copy(SRC / "chat-system-prompt.md", ROOT / "chat-system-prompt.md")
 # The residency controller reads ROOT/config/* — on Spark, ROOT IS the repo, so
 # mirror the repo's config tree into the disposable ROOT for this local run.
 shutil.copytree(SRC / "config", ROOT / "config", dirs_exist_ok=True)
-# Prompt templates are loaded eagerly by app.py. Keep the disposable fixture
-# complete as new promoted prompt contracts are added.
-shutil.copytree(SRC / "prompt-templates", ROOT / "prompt-templates", dirs_exist_ok=True)
 # app.py mounts /static from ROOT/static at import. On Spark ROOT IS the repo;
 # on this Mac ROOT is the disposable test store, so mirror the static tree too.
 shutil.copytree(SRC / "static", ROOT / "static", dirs_exist_ok=True)
@@ -52,7 +49,7 @@ for _kind in list(studio.RUNNERS):
         status="done", stage="STUB-MUST-NOT-RUN", message="stubbed renderer")
 
 _DISPOSABLE_ENVELOPE = {
-    "message": "Queuing a low-cost ltx25 qualification test with Steve and Heather.",
+    "message": "Queuing a low-cost ltx25 qualification test with Ava and Mia.",
     "tool_call": {
         "name": "queue_video",
         "arguments": {
@@ -60,7 +57,7 @@ _DISPOSABLE_ENVELOPE = {
             "model": "ltx25",
             "orientation": "landscape",
             "duration": "5",
-            "cast": ["Steve", "Heather"],
+            "cast": ["Ava", "Mia"],
             "seed": 424242,
         },
     },
@@ -94,7 +91,7 @@ class ChatRouteDisposableTest(unittest.TestCase):
                 "/api/chat",
                 json={"messages": [{"role": "user", "content":
                     "Queue a low-cost 5-second ltx25 landscape test clip with "
-                    "Steve and Heather now."}]},
+                    "Ava and Mia now."}]},
                 cookies=self.cookie)
 
     def _stop(self, jid):
@@ -174,7 +171,7 @@ class ChatRouteDisposableTest(unittest.TestCase):
         self.assertIs(rec.get("accepted"), True)
         self.assertEqual(rec.get("status"), "queued")
         self.assertEqual(rec.get("model"), "ltx25")
-        self.assertEqual(rec.get("cast_names"), ["Steve", "Heather"])
+        self.assertEqual(rec.get("cast_names"), ["Ava", "Mia"])
         self.assertIsInstance(rec.get("eta_min"), int)
         jid = rec["job_id"]
         self.assertEqual(rec["queue_url"], f"/api/jobs/{jid}")

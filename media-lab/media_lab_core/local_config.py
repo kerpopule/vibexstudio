@@ -38,8 +38,9 @@ DEFAULTS: dict[str, str] = {
     "MEDIA_LAB_MODELS_ROOT": "~/.local/share/media-lab-p2-models",
     # Where engine runtimes are checked out (LatentSync.stage, comfy-*, ...).
     "MEDIA_LAB_RUNTIME_ROOT": "~/runtime",
-    # This machine's tailnet address or MagicDNS name, if it has one. Trusted
-    # like localhost; the bind-readiness drop-in waits for it after boot.
+    # This machine's tailnet address or MagicDNS name, if it has one. Not a
+    # trust grant: tailnet devices enter the family code like everyone else.
+    # The bind-readiness drop-in waits for it after boot.
     "MEDIA_LAB_TAILNET_HOST": "",
     # The OpenAI-compatible text runtime (PPLX/Flash) behind the studio.
     "MEDIA_LAB_TEXT_UPSTREAM": "http://127.0.0.1:8004",
@@ -51,12 +52,52 @@ DEFAULTS: dict[str, str] = {
     "MEDIA_LAB_QWEN_GB": "0",
     "MEDIA_LAB_MEM_CAP_GB": "120",
     "MEDIA_LAB_H3_LTX_RETAKE_STRENGTH": "0.35",
+    # Always-warm H3 (idle profile qwen-h3): the Sol task the idle preload boots
+    # (t2va = text-only, what nearly every H3 job uses; or fl2va); the quiet
+    # seconds with no local GPU job before a pushed-out H3 is reloaded; how long
+    # a queued H3 take may wait behind other work while H3 is out; and the
+    # bounded memory-settle gate in front of every H3 cold load.
+    "MEDIA_LAB_H3_IDLE_TASK": "t2va",
+    "MEDIA_LAB_H3_RESTORE_QUIET_S": "300",
+    "MEDIA_LAB_GRACEFUL_HANDOFF": "0",
+    "MEDIA_LAB_HOLD_AUTORECOVER": "0",
+    "MEDIA_LAB_H3_CACHE_TRIM": "0",
+    "MEDIA_LAB_BOOT_AUTOCLEAR": "0",
+    "MEDIA_LAB_H3_BATCH_MAX_WAIT_S": "900",
+    "MEDIA_LAB_H3_LOAD_SETTLE_MAX_PSI": "2",
+    "MEDIA_LAB_H3_LOAD_SETTLE_MAX_PSI60": "3",
+    "MEDIA_LAB_H3_LOAD_SETTLE_SAMPLES": "10",
+    "MEDIA_LAB_H3_LOAD_SETTLE_MAX_WAIT_S": "120",
     # Sol-H3-Spark (the whole-box H3 video engine). Empty SOL_PKG = not installed.
     "SOL_PKG": "",
     "SOL_ROOT": "~/.local/share/sol-h3-spark",
     "SOL_H3_SPARK_RUNTIME_ROOT": "",
     "SOL_H3_SPARK_QWEN_WEIGHTS_ROOT": "~/.local/share",
     "SOL_H3_SPARK_QWEN_IMAGE": "sol-h3-spark-qwen",
+    # Real / Long: the H3 Singularity dual-sampling engine (runner/h3_singularity.py),
+    # a load-on-demand variant of the H3 unit. It needs its own isolated ComfyUI
+    # (with the MiniMax H3, KJNodes, rgthree, VideoHelperSuite and H3 latent
+    # upscaler nodes) and the lean weight set under H3_SINGULARITY_MODELS_ROOT
+    # (diffusion_models/, text_encoders/, vae/, loras/). Personal licence: it is
+    # also gated by MEDIA_LAB_PERSONAL_ENGINES=h3,h3-singularity.
+    "H3_SINGULARITY_COMFY_DIR": "",
+    "H3_SINGULARITY_MODELS_ROOT": "",
+    "H3_SINGULARITY_EXTRA_LORAS": "",
+    "H3_SINGULARITY_UPSCALERS": "",
+    "H3_SINGULARITY_PORT": "18188",
+    "H3_SINGULARITY_MAX_FRAMES": "362",
+    # how long a loaded Real / Long engine waits for the next take before the
+    # studio stands it down and brings the warm Sol engine back
+    "MEDIA_LAB_H3_SINGULARITY_LINGER_S": "600",
+    # Lip-sync check after each Real / Long take (media_lab_core/av_sync.py):
+    # a SyncNet environment (python with torch/opencv/scipy/python_speech_features)
+    # and a checkout holding eval/syncnet, eval/detectors and
+    # checkpoints/auxiliary/{syncnet_v2.model,sfd_face.pth}. auto = on when both
+    # exist; off disables it.
+    "MEDIA_LAB_AV_SYNC": "auto",
+    "MEDIA_LAB_AV_SYNC_PYTHON": "",
+    "MEDIA_LAB_AV_SYNC_ROOT": "",
+    "MEDIA_LAB_AV_SYNC_THREADS": "8",
     # YuE2 music engine (runner/yue2_engine_server.py): the isolated kit
     # (venv, YuE checkout, SheetSage2 venv), the weights root holding
     # YuE2-3B / YuE2-Vae / SheetSage2 / MERT-v2-FullSong, and the loopback port
@@ -68,12 +109,26 @@ DEFAULTS: dict[str, str] = {
     # <root>/.venv/bin/melband-roformer-infer and <root>/models/<model>.
     "MELBAND_ROFORMER_ROOT": "~/runtime/melband-roformer-0.1.5",
     "MELBAND_ROFORMER_MODEL": "melband-roformer-kim-vocals",
+    # Engines whose model licence is personal / non-commercial / restricted
+    # (see media_lab_core/engine_licences.py and docs/ENGINE-LICENCES.md) stay
+    # OFF until this host names them: a comma list of engine ids, or "all".
+    # Only enable one if your use fits its licence.
+    "MEDIA_LAB_PERSONAL_ENGINES": "",
+    # Web-push contact (the VAPID "sub" claim): mailto:you@example.com or an
+    # https:// URL. Empty = the project's public URL, never a person's inbox.
+    "MEDIA_LAB_VAPID_SUBJECT": "",
+    # Character names whose cast jobs get the likeness-qualification framing
+    # guard from the director (large faces, restrained expression). Comma
+    # separated, case-insensitive. Empty = no named qualification cast.
+    "MEDIA_LAB_QUALIFICATION_CAST": "",
 }
 
 _PATH_KEYS = {"MEDIA_LAB_HOME", "MEDIA_LAB_MODELS_ROOT", "MEDIA_LAB_RUNTIME_ROOT",
               "SOL_PKG", "SOL_ROOT", "SOL_H3_SPARK_RUNTIME_ROOT",
               "SOL_H3_SPARK_QWEN_WEIGHTS_ROOT", "YUE2_KIT", "YUE2_MODELS_ROOT",
-              "MELBAND_ROFORMER_ROOT"}
+              "MELBAND_ROFORMER_ROOT", "H3_SINGULARITY_COMFY_DIR", "H3_SINGULARITY_MODELS_ROOT",
+              "H3_SINGULARITY_EXTRA_LORAS", "H3_SINGULARITY_UPSCALERS",
+              "MEDIA_LAB_AV_SYNC_PYTHON", "MEDIA_LAB_AV_SYNC_ROOT"}
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 
@@ -203,9 +258,16 @@ def gpu_lock() -> str:
     return get("MEDIA_LAB_GPU_LOCK") or f"{runtime_dir()}/spark-gpu.lock"
 
 
-def trusted_hosts() -> set[str]:
-    """Hosts whose requests are treated as local: loopback, the bind address,
-    and the tailnet address when one is configured."""
+def own_addresses() -> set[str]:
+    """This machine's own studio addresses: loopback, the bind address and the
+    tailnet address when one is configured.
+
+    NEVER an authority. A Host header naming one of these proves nothing (any
+    client can send it), and a connection FROM one of these is usually a local
+    proxy (cloudflared, ``tailscale serve``) carrying someone else's request.
+    The studio uses this set only to recognise its own proxies when it picks a
+    throttling identity, and to decide where the local tool token may be sent.
+    """
     hosts = {"127.0.0.1", "localhost", bind_host()}
     if tailnet_host():
         hosts.add(tailnet_host())
@@ -257,6 +319,21 @@ def sol_configured() -> bool:
     return bool(sol().get("SOL_PKG"))
 
 
+def singularity() -> dict[str, str]:
+    """The H3_SINGULARITY_* and MEDIA_LAB_AV_SYNC* keys, resolved, for the Real /
+    Long engine's per-load runtime environment."""
+    values = load()
+    return {k: values[k] for k in values
+            if k.startswith("H3_SINGULARITY_") or k.startswith("MEDIA_LAB_AV_SYNC")}
+
+
+def singularity_configured() -> bool:
+    values = singularity()
+    comfy = values.get("H3_SINGULARITY_COMFY_DIR", "")
+    return bool(sol_configured() and comfy and values.get("H3_SINGULARITY_MODELS_ROOT")
+                and (Path(comfy) / "main.py").is_file())
+
+
 def yue2() -> dict[str, str]:
     """The YUE2_* keys, resolved, for the YuE2 music engine command."""
     values = load()
@@ -271,6 +348,43 @@ def melband() -> dict[str, str]:
     """The MELBAND_ROFORMER_* keys, resolved, for the stem separator."""
     values = load()
     return {k: values[k] for k in values if k.startswith("MELBAND_ROFORMER_")}
+
+
+def personal_engines() -> set[str]:
+    """Engine ids this host has opted into despite a personal / non-commercial
+    licence (MEDIA_LAB_PERSONAL_ENGINES). "all" enables every such engine."""
+    raw = get("MEDIA_LAB_PERSONAL_ENGINES")
+    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+
+# The VAPID "sub" claim push services may use to reach the server's operator.
+# A public install must never announce a person's inbox, so the default is the
+# project's own page; set MEDIA_LAB_VAPID_SUBJECT for a real contact.
+DEFAULT_VAPID_SUBJECT = "https://github.com/kerpopule/vibexstudio"
+
+
+def vapid_subject() -> str:
+    value = get("MEDIA_LAB_VAPID_SUBJECT").strip()
+    if value.startswith("mailto:") and "@" in value or value.startswith("https://"):
+        return value
+    return DEFAULT_VAPID_SUBJECT
+
+
+def qualification_cast() -> set[str]:
+    raw = get("MEDIA_LAB_QUALIFICATION_CAST")
+    return {n.strip().casefold() for n in raw.split(",") if n.strip()}
+
+
+def overlay_dirs() -> list[Path]:
+    """The per-studio overlay folders (gitignored config/local/), highest
+    precedence first: the data root's, then the checkout's. Existing ones only.
+    See docs/LOCAL-OVERLAY.md for what may live there."""
+    out: list[Path] = []
+    for base in (home(), SOURCE_ROOT):
+        d = base / "config" / "local"
+        if d.is_dir() and d.resolve() not in [o.resolve() for o in out]:
+            out.append(d)
+    return out
 
 
 def subprocess_env(base: dict[str, str] | None = None) -> dict[str, str]:

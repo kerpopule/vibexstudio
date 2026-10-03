@@ -1,9 +1,11 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { AgentApprovalHost } from '@/components/agent-approval-host';
 import { AppDialogHost } from '@/components/app-dialog-host';
 import { useFonts } from 'expo-font';
 import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider, router, useSegments } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider, router, useGlobalSearchParams, usePathname, useSegments } from 'expo-router';
+import Head from 'expo-router/head';
 import { useEffect } from 'react';
 import { AppState, Linking } from 'react-native';
 
@@ -16,7 +18,8 @@ import { mediaLabJobFromResponse, projectIdFromResponse } from '@/lib/notificati
 import { agentConnectRuntime } from '@/lib/agent-connect/runtime';
 import { parsePrivateInviteLink } from '@/lib/private-provider/links';
 import { useApp } from '@/lib/store';
-import { needsOnboardingRedirect } from '@/lib/onboarding-navigation';
+import { needsOnboardingRedirect, onboardingHrefFor } from '@/lib/onboarding-navigation';
+import { pageTitle } from '@/lib/page-titles';
 import { initPairedServerSync } from '@/lib/sync/auto-server';
 import { initDesktopFolderSync } from '@/lib/sync/auto-folder';
 import { initAndroidFolderSync } from '@/lib/sync/android-folder-sync';
@@ -35,14 +38,21 @@ function isBundleFileUrl(url: string): boolean {
 // never flashes a system-font fallback.
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
+const APP_FONTS = { ...FONT_ASSETS, ...Ionicons.font };
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const theme = useTheme();
-  const [fontsLoaded, fontError] = useFonts(FONT_ASSETS);
+  // Ionicons is registered here too so the static web render already knows
+  // the icon font: otherwise every <Ionicons> renders empty on the server and
+  // as a glyph on the client, and React discards the page on hydration (#418).
+  const [fontsLoaded, fontError] = useFonts(APP_FONTS);
   const hydrate = useApp((s) => s.hydrate);
   const hydrated = useApp((s) => s.hydrated);
   const onboardingComplete = useApp((s) => s.onboardingComplete);
   const segments = useSegments();
+  const pathname = usePathname();
+  const searchParams = useGlobalSearchParams();
 
   // Publish the ambient ground washes for the active theme. Web-only; a no-op
   // everywhere else. See lib/web-ground for why this is CSS and not a style.
@@ -67,9 +77,13 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (needsOnboardingRedirect(hydrated, onboardingComplete, segments[0])) {
-      router.replace('/onboarding' as never);
+      // Remember the deep link so setup can hand the visitor back to it.
+      router.replace(onboardingHrefFor(pathname, searchParams) as never);
     }
-  }, [hydrated, onboardingComplete, segments]);
+    // searchParams is read only at the moment of redirect; re-running on
+    // every query change would be pointless.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, onboardingComplete, segments, pathname]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -126,6 +140,10 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      {/* Browser tab + static-export <title>; a no-op on native. */}
+      <Head>
+        <title>{pageTitle(pathname)}</title>
+      </Head>
       <Stack screenOptions={{ headerBackTitle: 'Back' }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />

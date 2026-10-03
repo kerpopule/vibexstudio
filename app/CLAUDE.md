@@ -8,6 +8,8 @@ optionally publish to their own GitHub + Pages.
 
 - `npm run typecheck` — strict tsc, must stay clean
 - `npm run lint` — expo lint (eslint 9), zero warnings policy in CI
+  (`.github/workflows/app-desktop-checks.yml` runs `npm run lint -- --max-warnings 0`,
+  typecheck, tests and the web export on every app/ or desktop/ change)
 - `npm test` — vitest; tests cover the pure logic in `src/lib` (parser,
   prompts, share page). Modules with Expo/native imports are not unit-tested.
 
@@ -59,7 +61,8 @@ optionally publish to their own GitHub + Pages.
   "what's connected"). The marketing slides are `studio-tour.tsx`.
 - Reanimated `entering`/`exiting` must go through `enter()` from
   `src/lib/motion.ts` — the static web export otherwise leaves remounted
-  content `visibility:hidden`. Zustand selectors return primitives (an
+  content `visibility:hidden`. Pair it with `webEnter()` in the same view's
+  style for the web's CSS entrance. Design tokens: `DESIGN.md`. Zustand selectors return primitives (an
   object-returning selector re-renders forever on web).
 - Icons/splash are drawn programmatically by `scripts/generate-assets.js`
   (always overwrites — it is the artwork's source of truth; keep its color
@@ -93,6 +96,15 @@ optionally publish to their own GitHub + Pages.
 - Pairing: `vibex://pair?medialab=…&workbench=…&wbt=…` lands on
   `src/app/pair.tsx`; the in-app door is `src/app/pair-scan.tsx` (camera QR
   or typed link/address → `pairParamsFromInput` in `src/lib/media-pairing.ts`).
+- Media Lab inside Create: a paired studio that serves `/embed` (manifest
+  `vibexEmbed: 1`) opens first in the Create tab —
+  `src/components/media-lab/embedded-media-lab{.web,}.tsx` (iframe on
+  web/desktop, WebView on phones). The frame signs in by a postMessage
+  handshake: the app mints a one-time ticket with its generation pass
+  (`requestEmbedTicket`) and posts it to the studio's exact origin. Never put
+  a pass or ticket in a URL; server side is
+  `media-lab/media_lab_core/embed_gate.py` (CSP frame-ancestors from
+  MEDIA_LAB_BROWSER_ORIGINS).
 - Cut (Media Lab's editor): `src/lib/medialab-cut.ts` uploads an on-device
   item to the paired server (`/api/upload`, cookies shared with the
   WebView) and opens `/cut?project=<id>` in the Media Lab tab.

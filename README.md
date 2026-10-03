@@ -17,7 +17,7 @@ platform or engine has completed runtime qualification. See
 <p align="center">
   <img src="app/docs/screenshots/iphone-dark.png" width="220" alt="VibeXStudio on iPhone — NOIR dark">
   &nbsp;
-  <img src="media-lab/docs/screenshots/media-lab-desktop.png" width="500" alt="Media Lab — a real studio full of generated films">
+  <img src="media-lab/docs/screenshots/media-lab-desktop.png" width="500" alt="Media Lab — Sparky, the maker panel and a gallery of generated clips">
 </p>
 <p align="center">
   <img src="app/docs/screenshots/desktop-dark.png" width="360" alt="VibeXStudio Desktop — dark">

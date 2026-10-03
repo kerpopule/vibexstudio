@@ -1,8 +1,11 @@
 """``media-lab`` — the terminal control surface install.sh leaves behind.
 
     media-lab status [--json]      health, GPU, engines, service state
-    media-lab pair   [--json]      the pairing QR, URLs and access code again
-    media-lab code   [--rotate]    show / rotate the access code (admin: --admin)
+    media-lab pair   [--json]      the pairing QR, URLs and family code again
+    media-lab code   [--rotate]    show / rotate the family code (admin: --admin)
+    media-lab code --set-family    set a family code you chose (read from stdin / --from)
+    media-lab code --locks         who the code prompt is locked for right now
+    media-lab code --unlock [IP]   lift code-prompt lockouts (all, or one address)
     media-lab start|stop|restart   service-aware (systemd --user / launchd),
                                    foreground/detached fallback otherwise
     media-lab logs   [-f]          journal, launchd log file, or the pid-mode log
@@ -16,8 +19,9 @@ runs under the system Python when the venv is gone — ``status`` and
 Facts it relies on from app.py (never edited here):
   * the data root is ``~/media-lab-simple`` (``MEDIA_LAB_HOME`` is honoured by
     install.sh via a symlink, see there);
-  * ``access-code.txt`` / ``admin-pin.txt`` under that root are the two door
-    codes, read once at import — rotating them needs a restart;
+  * ``access-code.txt`` (the family code) / ``admin-pin.txt`` (the admin code)
+    under that root are the two door codes, mode 0600. A running server picks up
+    a rewritten code within a second, so rotating needs no restart;
   * ``/manifest.json`` is gate-exempt and CORS-open: the liveness probe;
   * ``/api/setup/status`` needs a session cookie from ``POST /api/gate``.
 """
@@ -28,7 +32,6 @@ import http.cookiejar
 import json
 import os
 import platform
-import random
 import shutil
 import signal
 import subprocess
@@ -38,7 +41,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from . import pairing
+from . import door_lockout, family_code, pairing, secret_files
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_PORT = pairing.DEFAULT_PORT
@@ -49,7 +52,6 @@ SYSTEMD_UNIT = "media-lab.service"
 LEGACY_UNIT = "media-lab-simple.service"     # a Spark deployed by hand
 LAUNCHD_LABEL = "com.medialab.server"
 MANAGED_MARKER = "managed by media-lab install.sh"
-CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
 
 # ---------------------------------------------------------------------------
@@ -98,8 +100,10 @@ def venv_python(cfg: dict | None = None) -> Path:
 
 
 def read_code(path: Path) -> str | None:
+    """The code as stored (word codes stay lower-case and dashed, which is how
+    people read them; the server ignores case and separators)."""
     try:
-        text = path.read_text().strip().upper()
+        text = path.read_text().strip()
     except OSError:
         return None
     return text or None
@@ -109,21 +113,19 @@ def code_paths(root: Path) -> tuple[Path, Path]:
     return root / "access-code.txt", root / "admin-pin.txt"
 
 
-def mint_access_code(rng=random.SystemRandom()) -> str:
-    return "".join(rng.choice(CODE_ALPHABET) for _ in range(8))
+def mint_access_code(rng=None) -> str:
+    """A new FAMILY code: four everyday words (about 41 bits)."""
+    return family_code.mint_family(rng)
 
 
-def mint_admin_code(rng=random.SystemRandom()) -> str:
-    return f"{rng.randrange(0, 10000):04d}"
+def mint_admin_code(rng=None) -> str:
+    """A new ADMIN code: six words (about 62 bits) — never a 4-digit PIN."""
+    return family_code.mint_admin(rng)
 
 
 def write_code(path: Path, value: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(value + "\n")
-    try:
-        path.chmod(0o600)
-    except OSError:
-        pass
+    """Atomically replace a code file; 0600 from birth, never world-readable."""
+    secret_files.write_private(path, value + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +143,21 @@ def manifest_up(port: int, bind: str = "0.0.0.0", timeout: float = 3.0) -> bool:
             return r.status == 200
     except (urllib.error.URLError, OSError, ValueError):
         return False
+
+
+def studio_health(port: int, bind: str = "0.0.0.0", timeout: float = 5.0):
+    """The studio's own /api/health (level, reasons, facts), or None.
+
+    Proves it runs on this machine with the local tool token, the same way the
+    watchdogs do; the token goes only to the studio's own address and port."""
+    from . import local_token
+    url = pairing.server_url(probe_host(bind), port) + "/api/health"
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(local_token.authorize(urllib.request.Request(url)), timeout=timeout) as r:
+            return json.load(r)
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
 
 
 def wait_for_manifest(port: int, bind: str = "0.0.0.0", timeout: float = 120,
@@ -175,7 +192,7 @@ def gpu_info() -> dict:
 
 
 def setup_status(port: int, bind: str, access_code: str | None, timeout: float = 8) -> dict | None:
-    """``/api/setup/status`` through the front door: POST the access code to
+    """``/api/setup/status`` through the front door: POST the family code to
     ``/api/gate`` for a session cookie, then read. None when unreachable."""
     if not access_code:
         return None
@@ -411,9 +428,21 @@ def stop_pid(root: Path, timeout: float = 20) -> bool:
 # commands
 # ---------------------------------------------------------------------------
 
+def _bind_from_local_env(root: Path) -> str | None:
+    try:
+        for line in (Path(root) / "config" / "local.env").read_text().splitlines():
+            if line.startswith("MEDIA_LAB_BIND_HOST="):
+                return line.split("=", 1)[1].strip().strip("\"'") or None
+    except OSError:
+        pass
+    return None
+
+
 def build_status(cfg: dict, root: Path, with_engines: bool = True) -> dict:
     port = int(cfg.get("port", DEFAULT_PORT))
-    bind = cfg.get("bind", "0.0.0.0")
+    # A studio bound to one address (MEDIA_LAB_BIND_HOST, e.g. the tailnet IP)
+    # does not answer on 127.0.0.1: probe where it really listens.
+    bind = cfg.get("bind") or os.environ.get("MEDIA_LAB_BIND_HOST") or _bind_from_local_env(root) or "0.0.0.0"
     access_path, admin_path = code_paths(root)
     up = manifest_up(port, bind)
     svc = service_state()
@@ -438,6 +467,7 @@ def build_status(cfg: dict, root: Path, with_engines: bool = True) -> dict:
         "engines": (engines or {}).get("engines") if engines else None,
         "first_run": (engines or {}).get("first_run") if engines else None,
         "fal_configured": (engines or {}).get("fal_configured") if engines else None,
+        "health": studio_health(port, bind) if up else None,
         "platform": {"system": platform.system(), "machine": platform.machine(),
                      "python": platform.python_version()},
     }
@@ -454,6 +484,10 @@ def print_status(st: dict) -> None:
     else:
         tag = "" if svc.get("managed") else "  (not managed by install.sh)"
         print(f"Service        {svc['name']} — {svc['state']}{tag}")
+    health = st.get("health")
+    if health:
+        print(f"Health         {health.get('level', '?').upper()}"
+              + (f" — {'; '.join(health.get('reasons') or [])}" if health.get("reasons") else ""))
     g = st["gpu"]
     print(f"GPU            {', '.join(g['names']) if g['names'] else ('present' if g['present'] else 'none')}")
     print(f"               {g['note']}")
@@ -465,7 +499,7 @@ def print_status(st: dict) -> None:
         if st.get("fal_configured"):
             print("  fal.ai     configured")
     elif st["ok"]:
-        print("Engines        (could not read /api/setup/status — is the access code file readable?)")
+        print("Engines        (could not read /api/setup/status — is the family code file readable?)")
 
 
 def cmd_status(args, cfg, root) -> int:
@@ -507,24 +541,198 @@ def cmd_pair(args, cfg, root) -> int:
     return 0
 
 
-def cmd_code(args, cfg, root) -> int:
+# ---------------------------------------------------------------------------
+# the door: a family code you choose, and the lockout
+# ---------------------------------------------------------------------------
+
+GATE_MAX_CHARS = 80      # the code box on the gate page takes at most this many
+UNLOCK_WAIT_S = 10.0     # the running studio checks for an unlock request every 3 s
+_pause = time.sleep      # (a seam for the tests)
+
+
+def read_chosen_code(source: str | None) -> str:
+    """The family code the owner chose, from a file or stdin -- never argv, so
+    it never shows up in `ps` or shell history. A terminal gets a hidden
+    prompt, asked twice."""
+    if source and source != "-":
+        text = Path(source).expanduser().read_text(encoding="utf-8")
+    elif sys.stdin.isatty():
+        import getpass
+        text = getpass.getpass("New family code: ")
+        if getpass.getpass("The same code again: ") != text:
+            raise ValueError("the two entries differ; nothing changed")
+    else:
+        text = sys.stdin.read(4096)
+    code = text.strip()
+    if "\n" in code or "\r" in code:
+        raise ValueError("the code must be one line")
+    if not family_code.normalize(code):
+        raise ValueError("the code is empty (spaces, dashes and dots do not count)")
+    if len(code) > GATE_MAX_CHARS:
+        raise ValueError(f"the code is longer than the gate's {GATE_MAX_CHARS}-character box")
+    if not code.isprintable():
+        raise ValueError("the code has a control character in it")
+    return code
+
+
+def set_family_code(root: Path, code: str) -> str:
+    """Write the owner's chosen family code. Returns "set" or "unchanged".
+    Refuses a code that equals the admin code (everyone with it would be
+    admin). A short code is allowed -- it is the owner's choice -- and the
+    caller warns; the door's lockout is what protects it."""
     access_path, admin_path = code_paths(root)
+    admin = read_code(admin_path)
+    if admin and family_code.normalize(admin) == family_code.normalize(code):
+        raise ValueError("that is the admin code; the family code must be different")
+    current = read_code(access_path)
+    if current is not None and current == code:
+        secret_files.tighten([access_path])
+        return "unchanged"
+    write_code(access_path, code)
+    return "set"
+
+
+def _auth_file(root: Path) -> Path:
+    return root / "auth-attempts.json"
+
+
+def unlock_saved(root: Path, target: str) -> int:
+    """Lift lockouts in the saved state directly (for a studio that is not
+    running; a running one holds the table in memory and uses the request)."""
+    path = _auth_file(root)
+    try:
+        state = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return 0
+    if not isinstance(state, dict):
+        return 0
+    n = door_lockout.unlock(door_lockout.load_tables(state), target)
+    if n:
+        secret_files.write_private(path, json.dumps(state))
+    return n
+
+
+def cmd_code_unlock(root: Path, raw: str, wait_s: float | None = None) -> int:
+    try:
+        target = door_lockout.target_key(raw)
+    except ValueError as exc:
+        print(f"media-lab code --unlock: {exc}", file=sys.stderr)
+        return 2
+    who = "every client" if target == "all" else (
+        "this machine's own scripts" if target == "anon" else target.removeprefix("ip:"))
+    wait_s = UNLOCK_WAIT_S if wait_s is None else wait_s
+    req = door_lockout.request_unlock(root, target)
+    deadline = time.monotonic() + wait_s
+    while time.monotonic() < deadline:
+        if not req.exists():
+            print(f"lockouts lifted for {who} (the running studio applied it; see `media-lab logs`)")
+            return 0
+        _pause(0.25)
+    if not req.exists():
+        print(f"lockouts lifted for {who} (the running studio applied it; see `media-lab logs`)")
+        return 0
+    n = unlock_saved(root, target)
+    print(f"the studio did not pick the request up within {wait_s:.0f} s (is it running?): "
+          f"cleared {n} saved lockout record(s) for {who} directly; the request stays in "
+          f"{req.name} and is applied at the next start")
+    return 0
+
+
+def cmd_code_locks(root: Path) -> int:
+    try:
+        state = json.loads(_auth_file(root).read_text())
+    except (OSError, ValueError):
+        state = {}
+    rows = door_lockout.describe(door_lockout.load_tables(state if isinstance(state, dict) else {}),
+                                 time.time())
+    if not rows:
+        print("no lockouts: the code prompt is open for everyone")
+        return 0
+    h = door_lockout.human
+    for r in rows:
+        state_txt = f"LOCKED for {h(r['locked_for'])}" if r["locked_for"] else "open"
+        print(f"{r['counter']:5}  {r['client']:<32}  {state_txt:<22}  lockouts so far {r['level']}"
+              f"  wrong in the last 10 min {r['recent_wrong']}  next lockout {h(r['next_lock'])}")
+    print("(up to 3 s behind the running studio)  lift one: media-lab code --unlock <address>;"
+          "  lift all: media-lab code --unlock")
+    return 0
+
+
+def cmd_code(args, cfg, root) -> int:
+    """Show, create or rotate the door codes.
+
+    ``--rotate`` replaces the family code (``--admin``: the admin code). The
+    running server notices within a second and every device signed in with the
+    old code is signed out — each one enters the new code once. ``--quiet``
+    never prints a code (for automation and remote shells): it names the file.
+    ``--ensure`` creates whichever code files are missing and changes nothing
+    that exists (install.sh uses it).
+
+    ``--set-family`` sets a family code the owner chose (read from ``--from
+    FILE`` or stdin, never the command line; never printed). ``--locks`` and
+    ``--unlock [ADDRESS]`` show and lift the code prompt's lockouts."""
+    access_path, admin_path = code_paths(root)
+    if args.locks:
+        return cmd_code_locks(root)
+    if args.unlock is not None:
+        return cmd_code_unlock(root, args.unlock)
+    if args.set_family:
+        try:
+            outcome = set_family_code(root, read_chosen_code(args.source))
+        except (OSError, ValueError) as exc:
+            print(f"media-lab code --set-family: {exc}", file=sys.stderr)
+            return 2
+        if outcome == "unchanged":
+            print(f"the family code in {access_path} is already that code; nothing changed")
+            return 0
+        print(f"new family code written to {access_path} (mode 0600; not shown)")
+        print("The server picks it up within a second: every device signed in with the "
+              "old family code is signed out and needs the new one once.", file=sys.stderr)
+        if family_code.is_weak(read_code(access_path)):
+            print("warning: this family code is short and guessable. The door's lockout is what "
+                  "protects it (3 wrong codes in 10 minutes shut the prompt for that network for "
+                  "1 h, then 2 h, 4 h, 8 h ...). A longer code is safer: `media-lab code --rotate`.",
+                  file=sys.stderr)
+        return 0
+    if args.ensure:
+        made = []
+        if secret_files.ensure(access_path, lambda: mint_access_code() + "\n"):
+            made.append(("family", access_path))
+        if secret_files.ensure(admin_path, lambda: mint_admin_code() + "\n"):
+            made.append(("admin", admin_path))
+        secret_files.tighten([access_path, admin_path])
+        for name, path in made:
+            print(f"{name} code created in {path}")
+        if not made:
+            print(f"codes kept ({access_path.name}, {admin_path.name})")
+        return 0
     path = admin_path if args.admin else access_path
+    name = "admin" if args.admin else "family"
     if args.rotate:
         new = mint_admin_code() if args.admin else mint_access_code()
         write_code(path, new)
-        print(new)
-        print(f"written to {path}. The server reads codes at start — run `media-lab restart` "
-              "so the new code (and only it) opens the door; every existing session "
-              "for that role is signed out.", file=sys.stderr)
+        if args.quiet:
+            print(f"new {name} code written to {path} (mode 0600; not shown — "
+                  f"`media-lab code{' --admin' if args.admin else ''}` prints it)")
+        else:
+            print(new)
+        print(f"The server picks it up within a second: every device signed in with the "
+              f"old {name} code is signed out and needs the new one once.", file=sys.stderr)
         if args.restart:
             return cmd_restart(args, cfg, root)
         return 0
     code = read_code(path)
     if code is None:
-        print(f"no code at {path} yet — run ./install.sh or `media-lab code --rotate`", file=sys.stderr)
+        print(f"no code at {path} yet — run ./install.sh or `media-lab code --ensure`", file=sys.stderr)
         return 1
-    print(code)
+    secret_files.tighten([path])
+    if args.quiet:
+        print(f"{name} code is in {path}")
+    else:
+        print(code)
+    if family_code.is_weak(code):
+        print(f"warning: this {name} code is short and guessable — replace it with "
+              f"`media-lab code --rotate{' --admin' if args.admin else ''}`", file=sys.stderr)
     return 0
 
 
@@ -717,15 +925,31 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_status)
 
-    s = sub.add_parser("pair", help="print the pairing QR, URLs and access code")
+    s = sub.add_parser("pair", help="print the pairing QR, URLs and family code")
     s.add_argument("--json", action="store_true")
     s.add_argument("--no-invert", action="store_true", help="QR for a light terminal theme")
     s.set_defaults(fn=cmd_pair)
 
-    s = sub.add_parser("code", help="show or rotate the access code")
-    s.add_argument("--rotate", action="store_true")
+    s = sub.add_parser("code", help="show or rotate the family code (--admin: the admin code)")
+    s.add_argument("--rotate", action="store_true",
+                   help="replace the code; every device that used the old one is signed out")
     s.add_argument("--admin", action="store_true", help="the admin code instead")
-    s.add_argument("--restart", action="store_true", help="restart the server after rotating")
+    s.add_argument("--set-family", action="store_true",
+                   help="set the family code to one you choose, read from --from FILE or "
+                        "stdin (never the command line); it is not printed")
+    s.add_argument("--from", dest="source", metavar="FILE",
+                   help="with --set-family: read the code from FILE ('-' = stdin)")
+    s.add_argument("--locks", action="store_true",
+                   help="list the clients the code prompt is locked for")
+    s.add_argument("--unlock", nargs="?", const="all", metavar="ADDRESS",
+                   help="lift code-prompt lockouts: all of them, or one address "
+                        "('anon' = this machine's own scripts)")
+    s.add_argument("--quiet", action="store_true",
+                   help="never print a code; name the file that holds it")
+    s.add_argument("--ensure", action="store_true",
+                   help="create missing code files (0600); change nothing that exists")
+    s.add_argument("--restart", action="store_true",
+                   help="also restart the server (not needed: it picks the code up live)")
     s.add_argument("--timeout", type=float, default=120)
     s.set_defaults(fn=cmd_code)
 

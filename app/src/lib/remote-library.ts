@@ -20,7 +20,7 @@ async function request<T>(origin: string, path: string, init: RequestInit, read:
         : 'Could not reach Media Lab. Check your connection and server address, then refresh the library.');
     }
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403) throw new Error('Enter your Media Lab access code to connect its library.');
+      if (response.status === 401 || response.status === 403) throw new Error('Enter your Media Lab family code to connect its library.');
       if (response.status === 404) throw new Error('Update your Media Lab server to use its library in Studio.');
       if (response.status === 413) throw new Error(path.includes('portable=1') ? 'This 3D model is too large to import. Export a GLB smaller than 64 MiB.' : 'The selected creations are too large for this operation. Select fewer or smaller files.');
       if (response.status === 422) throw new Error(path.includes('portable=1') ? 'This model cannot be copied as a portable project asset. Export a GLB with embedded resources and no extensions.' : 'Media Lab could not use this selection. Refresh the library and check the selected file types.');
@@ -37,7 +37,7 @@ export async function connectRemoteLibrary(origin: string, code: string): Promis
 }
 async function headers(origin: string): Promise<Record<string,string>> {
   const token = await getLibraryToken(libraryOrigin(origin));
-  if (!token) throw new Error('Connect your Media Lab library with its access code.');
+  if (!token) throw new Error('Connect your Media Lab library with its family code.');
   return {Authorization:`Bearer ${token}`};
 }
 export async function listRemoteLibrary(origin: string, timeout = 20_000): Promise<RemoteLibraryAsset[]> {

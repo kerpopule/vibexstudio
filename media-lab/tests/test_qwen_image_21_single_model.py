@@ -1,6 +1,6 @@
 """Invariants for the single image model: Qwen-Image-2.1 only, with real upstream pins.
 
-These tests are the guard rail for Steve's 2026-09-20 decision that Qwen-Image-2.1 is the
+These tests are the guard rail for the 2026-09-20 decision that Qwen-Image-2.1 is the
 studio's only image model. They fail if a second image model is quietly added back, if the
 engine id stops satisfying the request schema pattern, if the pinned weights stop matching the
 published sizes, or if the research-license terms are dropped from the catalog entry.

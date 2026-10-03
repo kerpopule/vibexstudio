@@ -1,4 +1,4 @@
-import {useEffect,useRef,useState} from 'react';
+import {useRef,useState,useSyncExternalStore} from 'react';
 import {router} from 'expo-router';
 import {Button} from './ui/button';
 import {Glass} from './ui/glass';
@@ -7,12 +7,16 @@ import {useApp} from '../lib/store';
 import {useChat} from '../lib/chat-engine';
 import {projectArchivesAvailable,saveProjectArchive,restoreProjectArchive,pickProjectArchive} from '../lib/share/project-archives';
 import type {ArchiveProgressHandler} from '../lib/share/project-directory-archive';
+// Archive support never changes while the app runs. Reading it as an external
+// store keeps the static web render (which reports no support) hydration-safe.
+const archiveSupportNeverChanges=()=>()=>{};
+const noArchivesWhilePrerendering=()=>false;
 export function LargeProjectBackups(){
- const [available,setAvailable]=useState(false),[expanded,setExpanded]=useState(false),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
+ const available=useSyncExternalStore(archiveSupportNeverChanges,projectArchivesAvailable,noArchivesWhilePrerendering);
+ const [expanded,setExpanded]=useState(false),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
  const [pending,setPending]=useState<Awaited<ReturnType<typeof pickProjectArchive>>>(null),[restored,setRestored]=useState<string|null>(null);
  const [workingOn,setWorkingOn]=useState<string|null>(null);
  const projects=useApp(s=>s.projects),lock=useRef(false);
- useEffect(()=>setAvailable(projectArchivesAvailable()),[]);
  if(!available)return null;
  function progress(action:string):ArchiveProgressHandler{
   let updated=0;

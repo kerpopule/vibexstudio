@@ -82,7 +82,7 @@ Do not batch-launch this matrix. Run one canary, inspect its artifact and memory
 - `tests/test_residency_runtime.py`
 - `runner/test_reliability_contract.py`
 
-Focused verification: `49 passed, 29 subtests passed`. The last repository-wide run returned `250 passed, 17 failed`; the two residency reliability failures from that run were reconciled and now pass in the focused suite. The other 15 failures were unrelated pre-existing coordinator, harness catalog, intake, static UI, known-character, H3 UI, and Heather-template work and were not rerun as a full suite after this narrow fix.
+Focused verification: `49 passed, 29 subtests passed`. The last repository-wide run returned `250 passed, 17 failed`; the two residency reliability failures from that run were reconciled and now pass in the focused suite. The other 15 failures were unrelated pre-existing coordinator, harness catalog, intake, static UI, known-character, H3 UI, and private-template work and were not rerun as a full suite after this narrow fix.
 
 ## Deployment and rollback gate
 

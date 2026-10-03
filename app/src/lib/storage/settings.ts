@@ -83,11 +83,15 @@ export async function setNotificationsDeclined(): Promise<void> {
 /** User-chosen color scheme; 'system' follows the OS setting. */
 export type AppearancePref = 'system' | 'light' | 'dark';
 
-export async function getAppearance(): Promise<AppearancePref> {
-  // Default to dark on a fresh install; once the user picks anything (incl.
-  // 'system') it's stored and remembered.
+/**
+ * The stored Appearance choice, or `fallback` on a fresh install. Once the
+ * user picks anything (incl. 'system') it's stored and remembered. The caller
+ * picks the fallback: native defaults to dark, the web build to 'system' so a
+ * browser follows prefers-color-scheme.
+ */
+export async function getAppearance(fallback: AppearancePref = 'dark'): Promise<AppearancePref> {
   const raw = await AsyncStorage.getItem(KEYS.appearance);
-  return raw === 'light' || raw === 'dark' || raw === 'system' ? raw : 'dark';
+  return raw === 'light' || raw === 'dark' || raw === 'system' ? raw : fallback;
 }
 
 export async function setAppearance(pref: AppearancePref): Promise<void> {

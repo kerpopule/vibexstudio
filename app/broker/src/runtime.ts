@@ -18,7 +18,7 @@ export async function loadBrokerFromEnvironment(): Promise<PrivateModelBroker> {
     tokenHashKey: required('VIBEX_TOKEN_HASH_KEY'),
     profileSigningKey: createPrivateKey(signingPem),
     signingKeyId: required('VIBEX_PROFILE_SIGNING_KEY_ID'),
-    issuer: process.env.VIBEX_ISSUER ?? 'Steve',
+    issuer: process.env.VIBEX_ISSUER ?? 'Studio operator',
     allowedModels: (process.env.VIBEX_ALLOWED_MODELS ?? 'deepseek-v4-flash')
       .split(',')
       .map((value) => value.trim())

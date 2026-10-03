@@ -16,7 +16,7 @@ def media_app(tmp_path_factory):
     home = tmp_path_factory.mktemp("cut-api-home")
     root = home / "media-lab-simple"
     root.mkdir()
-    for name in ("static", "config", "prompt-templates"):
+    for name in ("static", "config"):
         (root / name).symlink_to(repo / name)
     old = {k: os.environ.get(k) for k in ("HOME", "MEDIA_LAB_DISABLE_BACKGROUND_WORKERS")}
     os.environ["HOME"] = str(home)

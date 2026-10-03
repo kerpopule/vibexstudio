@@ -3,12 +3,13 @@
 Studio can reuse completed Media Lab creations across devices without embedding
 private server links or credentials in a shared project.
 
-In Studio, connect a Media Lab address and enter its access code. The optional
+In Studio, connect a Media Lab address and enter its family code. The optional
 code field requests a **library:read** ticket from `POST /api/gate` with
 `{"code":"...","studio_library":true}`. The response contains a scoped ticket
 and expiry duration; it does not create a normal Studio-manager session cookie.
-The ticket expires after 30 days and is invalidated by rotating the corresponding
-access/admin code or server signing secret.
+The ticket expires after a year on a family studio (30 days on the independent
+host) and is invalidated at once by rotating the corresponding family/admin code
+or the server signing secret.
 
 The client stores the ticket under a hashed server-origin key in its existing
 secret-storage abstraction: native/desktop OS vault, or the existing browser

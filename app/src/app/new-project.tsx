@@ -3,7 +3,7 @@ import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import Animated, { FadeIn } from 'react-native-reanimated';
+import { FadeIn } from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -13,7 +13,8 @@ import { TextField } from '@/components/ui/text-field';
 import { Radii, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useApp } from '@/lib/store';
-import { enter } from '@/lib/motion';
+import { enter, webEnter } from '@/lib/motion';
+import { EnterView } from '@/components/ui/enter-view';
 
 const EMOJI_CHOICES = ['🪄', '🎮', '📝', '🎵', '🧮', '🗺️', '📚', '💪', '🍳', '🎨', '⏱️', '🌙'];
 
@@ -25,6 +26,7 @@ export default function NewProjectScreen() {
   const [emoji, setEmoji] = useState('🪄');
   const [busy, setBusy] = useState(false);
   const [shareLink, setShareLink] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   const openSharedFile = async () => {
     const picked = await DocumentPicker.getDocumentAsync({
@@ -48,11 +50,18 @@ export default function NewProjectScreen() {
     const trimmed = name.trim();
     if (!trimmed || busy) return;
     setBusy(true);
+    setError(null);
     try {
       const meta = await createProject(trimmed, emoji);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.dismiss();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      if (router.canDismiss()) router.dismiss();
       router.push({ pathname: '/project/[id]', params: { id: meta.id } });
+    } catch (e) {
+      // Previously swallowed: the button just stopped spinning. Say what
+      // happened so the user can retry (storage full, private browsing, …).
+      const detail = e instanceof Error && e.message ? ` (${e.message})` : '';
+      setError(`Couldn't create the project${detail}. Check that this device has free storage, then try again.`);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
     } finally {
       setBusy(false);
     }
@@ -100,13 +109,18 @@ export default function NewProjectScreen() {
         </View>
 
         {providers.length === 0 ? (
-          <Animated.View entering={enter(FadeIn.delay(250))} style={[styles.tip, { backgroundColor: theme.tintSoft }]}>
+          <EnterView entering={enter(FadeIn.delay(250))} style={[styles.tip, { backgroundColor: theme.tintSoft }, webEnter('fade', 300, 250)]}>
             <ThemedText type="small" style={{ color: theme.tint }}>
               ✨ Tip: connect an AI provider in Settings to start vibing — you can still create the project now.
             </ThemedText>
-          </Animated.View>
+          </EnterView>
         ) : null}
         <Button title="Create project" onPress={create} loading={busy} disabled={!name.trim()} />
+        {error ? (
+          <ThemedText type="small" accessibilityRole="alert" accessibilityLiveRegion="polite" style={{ color: theme.danger }}>
+            {error}
+          </ThemedText>
+        ) : null}
 
         <View style={styles.openShared}>
           <ThemedText type="smallBold" themeColor="textSecondary">

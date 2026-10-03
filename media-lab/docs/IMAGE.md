@@ -6,7 +6,9 @@ operator configuration and re-verified before anything is advertised. There is n
 provider fallback.
 
 License: the weights are **Qwen Research License** weights. Internal evaluation is permitted; commercial output
-needs a separate Qwen license (`config/models.example.toml`, entry `qwen-image-21`).
+needs a separate Qwen license (`config/models.example.toml`, entry `qwen-image-21`). Because of that the host does
+not start the pack, even when configured, until the operator opts in with `MEDIA_LAB_PERSONAL_ENGINES=qwen-image-21`
+in `config/local.env` ([ENGINE-LICENCES.md](ENGINE-LICENCES.md)).
 
 ## Operations
 

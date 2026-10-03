@@ -190,7 +190,7 @@ def format_exact_song_lyrics(source: str,
 def melodic_delivery_qa(metrics: dict | None) -> dict:
     """Fail closed when the rendered vocal behaves like recitation, not a song.
 
-    Thresholds are calibrated against Steve's rejected recitative outputs and
+    Thresholds are calibrated against rejected recitative outputs and
     known melodic Music 3 renders. They intentionally favor rerendering over
     publishing a monotone take.
     """

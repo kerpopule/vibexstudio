@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lock Heather's mouth closed during a known instrumental opening.
+"""Lock a singer's mouth closed during a known instrumental opening.
 
 This is deliberately scoped to the approved 1120x640 close-up. It warps the
 closed-mouth first source frame with the live global face/camera affine, then

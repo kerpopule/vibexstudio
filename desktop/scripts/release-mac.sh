@@ -15,9 +15,19 @@ TAG="${1:-v$(node -p 'require("./src-tauri/tauri.conf.json").version')}"
 REPO="${REPO:-kerpopule/vibexstudio}"
 UPDATER_KEY="${TAURI_SIGNING_PRIVATE_KEY_PATH:-$HOME/.vibex-secrets/tauri-updater.key}"
 
-# Apple signing + notarization (as before).
-set -a; . ~/.mealreels-secrets/asc/config; set +a
-export APPLE_SIGNING_IDENTITY="Developer ID Application: Stephen Darlow (2D4KQ5RBVQ)"
+# Apple signing + notarization. Who signs is the maintainer's business, not the
+# repo's: a shell env file outside the tree (default
+# ~/.vibex-secrets/release-mac.env, override with VIBEX_RELEASE_ENV) sets
+#   APPLE_SIGNING_IDENTITY="Developer ID Application: <Name> (<TEAMID>)"
+#   KEY_ID=<App Store Connect API key id>   ISSUER_ID=<its issuer id>
+# (it may source another file that already holds the key ids).
+RELEASE_ENV="${VIBEX_RELEASE_ENV:-$HOME/.vibex-secrets/release-mac.env}"
+[ -r "$RELEASE_ENV" ] || { echo "missing $RELEASE_ENV (APPLE_SIGNING_IDENTITY, KEY_ID, ISSUER_ID)" >&2; exit 1; }
+set -a; . "$RELEASE_ENV"; set +a
+: "${APPLE_SIGNING_IDENTITY:?set APPLE_SIGNING_IDENTITY in $RELEASE_ENV}"
+: "${KEY_ID:?set KEY_ID in $RELEASE_ENV}"
+: "${ISSUER_ID:?set ISSUER_ID in $RELEASE_ENV}"
+export APPLE_SIGNING_IDENTITY
 export APPLE_API_KEY="$KEY_ID" APPLE_API_ISSUER="$ISSUER_ID"
 export APPLE_API_KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8"
 

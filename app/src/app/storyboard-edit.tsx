@@ -3,7 +3,7 @@ import {savedSceneDuration} from '@/lib/saved-collections';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {storyboardSelections} from '@/lib/storyboard-selection';
 import {router,Stack,useFocusEffect,useLocalSearchParams} from 'expo-router';
-import {ScrollView,View} from 'react-native';
+import {ScrollView} from 'react-native';
 import {ThemedView} from '@/components/themed-view';
 import {ThemedText} from '@/components/themed-text';
 import {Button} from '@/components/ui/button';
@@ -24,10 +24,11 @@ export default function StoryboardEdit(){
  const [choices,setChoices]=useState<{assetId:string;seconds:string}[]>([]),[title,setTitle]=useState(''),[open,setOpen]=useState(0);
  const [pending,setPending]=useState<StoryboardDraftRequest|null>(null),[connected,setConnected]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[created,setCreated]=useState<string|null>(null);
  const epoch=useRef(0),lock=useRef(false);
- const [refresh,setRefresh]=useState(0);
  const [musicAssetId,setMusicAssetId]=useState(''),[musicOpen,setMusicOpen]=useState(false);
  const [saveError,setSaveError]=useState('');
- useFocusEffect(useCallback(()=>{
+ // Reads the saved request, review choices, storyboard and Library. Focus and
+ // "Review again" both call it; each call supersedes the one before.
+ const load=useCallback(()=>{
   const current=++epoch.current;setError('');setCreated(null);setRecord(null);setPending(null);setChoices([]);setAssets([]);setConnected(false);setMusicAssetId('');
   if(!origin||origin!==sourceOrigin){setError('Return to Library and open this storyboard from its original server.');return;}
   setBusy(true);
@@ -47,8 +48,11 @@ export default function StoryboardEdit(){
    setRecord(board);setTitle(review?.title??board.title.slice(0,160));setAssets(available);setMusicAssetId(review?review.musicAssetId||'':available.find(asset=>asset.id===board.soundtrackAsset?.id&&asset.kind==='audio')?.id||'');
    setChoices(review?.scenes??board.beats.map(beat=>({assetId:beat.mediaLinks?.find(link=>link.field==='clip_url'&&available.some(row=>row.id===link.id&&row.kind==='video'))?.id||'',seconds:beat.duration?.toString()||''})));
   })().catch(e=>{if(current===epoch.current)setError(e instanceof Error?e.message:'Could not load this storyboard.');}).finally(()=>{if(current===epoch.current)setBusy(false);});
+ },[origin,sourceOrigin,id]);
+ useFocusEffect(useCallback(()=>{
+  load();
   return ()=>{epoch.current++;};
- },[origin,sourceOrigin,id,refresh]));
+ },[load]));
  useEffect(()=>{
   if(!origin||origin!==sourceOrigin||!record?.sourceSha256||created||pending)return;
   let active=true;
@@ -71,7 +75,7 @@ export default function StoryboardEdit(){
   <ThemedText>Review each scene, then create a new timeline. Your saved storyboard and original files stay unchanged. Existing scene clips are suggested; missing clips need your choice.</ThemedText>
   <ThemedText themeColor="textSecondary">Timing uses 24 frames per second. This copies scene visuals and their embedded sound. You can add a soundtrack below. Transitions, captions and other finishing edits are added in the editor.</ThemedText>
   {!connected?<Button title="Connect media and editor" onPress={()=>router.push('/editor')}/>:null}
-  {created?<><ThemedText accessibilityRole="alert">Your editing copy is saved.</ThemedText><Button title="Open timeline" onPress={()=>router.replace({pathname:'/editor-timeline',params:{id:created}})}/></>:pending?<Glass style={{padding:16,gap:12}}><ThemedText type="heading">Resume {pending.title}</ThemedText><ThemedText>{pending.scenes.length} scenes. Your request was saved before sending. Resume checks the same draft.</ThemedText><Button title="Resume storyboard import" loading={busy} onPress={()=>void create()}/><Button title="Review different choices" variant="secondary" disabled={busy} onPress={()=>Alert.alert('Stop tracking this request?', 'Your server may already have created the copy. Check editing drafts first. This clears only the request on this device; it does not delete a server draft.', [{text:'Keep request',style:'cancel'},{text:'Review again',onPress:()=>{if(origin)void forgetStoryboardDraft(origin).then(()=>setRefresh(v=>v+1)).catch(e=>setError(e instanceof Error?e.message:'Could not clear the request.'));}}])}/></Glass>:record?<>
+  {created?<><ThemedText accessibilityRole="alert">Your editing copy is saved.</ThemedText><Button title="Open timeline" onPress={()=>router.replace({pathname:'/editor-timeline',params:{id:created}})}/></>:pending?<Glass style={{padding:16,gap:12}}><ThemedText type="heading">Resume {pending.title}</ThemedText><ThemedText>{pending.scenes.length} scenes. Your request was saved before sending. Resume checks the same draft.</ThemedText><Button title="Resume storyboard import" loading={busy} onPress={()=>void create()}/><Button title="Review different choices" variant="secondary" disabled={busy} onPress={()=>Alert.alert('Stop tracking this request?', 'Your server may already have created the copy. Check editing drafts first. This clears only the request on this device; it does not delete a server draft.', [{text:'Keep request',style:'cancel'},{text:'Review again',onPress:()=>{if(origin)void forgetStoryboardDraft(origin).then(load).catch(e=>setError(e instanceof Error?e.message:'Could not clear the request.'));}}])}/></Glass>:record?<>
    <TextField label="Editing copy name" value={title} onChangeText={setTitle} editable={!busy} maxLength={160}/>
    {record.beats.map((beat,i)=><Glass key={i} style={{padding:16,gap:10}}>
     <Button title={`${i+1}. ${beat.title} · ${choices[i]?.assetId&&Number(choices[i]?.seconds)>0?'Ready to review':'Needs a choice'}`} variant="secondary" disabled={busy} onPress={()=>setOpen(i)}/>

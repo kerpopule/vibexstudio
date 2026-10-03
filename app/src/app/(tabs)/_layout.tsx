@@ -20,8 +20,9 @@ export default function TabsLayout() {
         sceneStyle: { backgroundColor: theme.background },
       }}>
       <Tabs.Screen name="index" options={{ title: 'Build' }} />
-      {/* Always present: the on-device studio works with no server paired,
-          and a paired server adds its full web UI behind a toggle. */}
+      {/* Always present: a paired Media Lab opens here first (its own page,
+          inside the app), and the on-device studio is one tap away — or the
+          whole tab when no server is paired. */}
       <Tabs.Screen name="media-lab" options={{ title: 'Create' }} />
       <Tabs.Screen name="creations" options={{ title: 'Library' }} />
       <Tabs.Screen name="settings" options={{ title: 'Setup' }} />
