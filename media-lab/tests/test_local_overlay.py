@@ -199,11 +199,24 @@ def test_public_studio_ships_no_private_templates_or_themes(studio):
     assert "h3-storyboard-sequential-beats" in ids and "papercraft-explain" in ids
     assert not (REPO / "prompt-templates").exists()
     gifs = sorted(p.name for p in (REPO / "static/templates").iterdir())
-    assert gifs == ["h3-storyboard-sequence.gif"]
+    assert gifs == ["duet-music-video-planning.gif", "h3-storyboard-sequence.gif"]
     assert set(studio.THEME_INK) == {"", "coagent", "ocean", "emerald", "violet", "paper"}
     html = (REPO / "static/index.html").read_text(encoding="utf-8")
     assert '<link rel="stylesheet" href="/local/themes.css">' in html
     assert "fetch('/api/local/themes')" in html
+
+
+def test_duet_planning_preset_is_served_with_its_schematic(studio):
+    client = _client(studio)
+    response = client.get("/api/styles")
+    assert response.status_code == 200
+    preset = next(t for group in response.json()["templates"] for t in group["templates"]
+                  if t["id"] == "mv-audio-driven-duet")
+    assert "planning" in preset["label"].lower()
+    assert "unqualified" in preset["description"].lower()
+    assert preset["gif"] == "/static/templates/duet-music-video-planning.gif"
+    preview = client.get(preset["gif"])
+    assert preview.status_code == 200 and preview.content.startswith(b"GIF89a")
 
 
 def test_vapid_contact_is_configurable_and_never_a_person_by_default(monkeypatch):

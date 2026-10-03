@@ -287,6 +287,18 @@ TEMPLATE_LIB = [
    "H3 Ref2VA workflow: one storyboard reference becomes ordered beats while a separate reference locks identity."),
  ]),
  ( "Music video", [
+   ( "mv-audio-driven-duet", "🎶", "Duet direction (planning)",
+    "Plan a tasteful audio-driven two-lead music video. Use a shared anchor location for hooks "
+    "and overlapping handoffs, motivated solo departures during sustained solo phrases, and "
+    "brief non-singing scenery or community inserts. Keep one single-view identity reference "
+    "per lead, consistent age and wardrobe, a relaxed resting face, and occasional brief smiles "
+    "rather than a permanent grin. Vary locked alternate angles, slow dolly in and out, and "
+    "occasional faster movement; avoid repeated lateral oscillation. Preserve the original "
+    "song and native frame rate. Do not infer vocal ownership from rough verse labels. "
+    "Planning preset only: local solo, handoff and overlap playback qualification is required; "
+    "do not enable an unavailable engine, clone voices, or fall back to cloud. ",
+    "duet-music-video-planning.gif",
+    "Reusable duet direction with a schematic preview. Local audio-driven performance and CQ enhancement remain unqualified; this preset does not install or enable engines."),
    ( "mv-subtitles", "🎤", "MV lyric typography",
     "music video, beat-reactive spatial lyric typography, glowing text over footage, "
     "stage lighting haze, warm bokeh, stylish. ",

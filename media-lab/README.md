@@ -21,6 +21,7 @@ and charge for generation. Engine support and licenses vary; see the
   text-to-video, image-to-video, reference-identity, v2v motion transfer),
   long-form via segment chaining, 500+ curated style templates.
 - **Music & music videos** — full songs and storyboarded MVs. Screenshot songs default to Exact Auto-fit: reviewed words remain immutable, text is reflowed into short melodic phrases, Auto chooses each part's runtime, and long inputs split into ordered queue-owned songs plus matching screenshot videos. Director checks both the words and measurable pitch movement, so read/recited takes are retried instead of published. See [docs/screenshot-songs.md](docs/screenshot-songs.md).
+- **Duet direction (planning)** — a reusable two-lead music-video recipe with an authored schematic GIF, natural expressions, varied camera coverage, original-audio preservation and isolated repairs. Local duet performance and CQ enhancement remain unqualified. See [docs/DUET-MUSIC-VIDEO.md](docs/DUET-MUSIC-VIDEO.md).
 - **Images** — generation, SAM-powered tap-to-select editing, Qwen-Image-2.1,
   and a big template library.
 - **Characters** — reusable identities with consistent look and voice
