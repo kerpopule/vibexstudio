@@ -59,7 +59,7 @@ def test_storyboard_completes_with_one_consistent_character_snapshot(tmp_path, c
         composed.append(copy.deepcopy(records))
         board["beats"][0]["composed_prompt"] = "fixture prompt"
     ns = controller_functions(
-        "run_storyboard", "resolve_cast_records", "selectable_characters",
+        "run_storyboard", "resolve_cast_records", "selectable_characters", "ming_render_refusal",
         _load=load, _save=lambda p, v: p.write_text(json.dumps(v)),
         CHARS_FILE=chars_file, BOARDS_FILE=boards_file, known_characters=lambda: known,
         MAX_PREMISE=5000, BOARD_SYS="fixture", BOARD_MAX_TOKENS=500, MAX_BEATS=10,
