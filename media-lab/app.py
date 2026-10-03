@@ -5064,17 +5064,17 @@ def ming_render_refusal(engine_pick):
     render path (t_e3595a34 Phase 2): selectable, never silently rendered on
     another engine. None means proceed normally."""
     if engine_pick == "ming":
-        return "The Ming-Image engine is configured but not enabled for rendering yet."
+        return "Ming-Image is a research option and is not enabled for rendering yet."
     return None
 
 
 def char_engine(requested, selfie=False):
-    """auto → Kontext for likeness work when installed, else Qwen.
+    """auto uses Kontext for likeness work when installed, else Qwen.
 
-    "ming" resolves to the Ming-Image engine only when explicitly configured
-    (ming_image_ready); otherwise it follows the auto rule like any fallback.
+    Preserve an explicit Ming request even when unconfigured so the refusal
+    guard rejects it instead of silently substituting another engine.
     """
-    if requested == "ming" and ming_image_ready():
+    if requested == "ming":
         return "ming"
     if requested == "kontext" and kontext_ready():
         return "kontext"
@@ -10846,7 +10846,7 @@ def styles_catalog():
         "char_engines": [{"id": "auto", "label": "Auto (best pick)"},
                          {"id": "qwen", "label": "Qwen — best with text"}]
                         + ([{"id": "kontext", "label": "FLUX Kontext — best likeness"}] if kontext_ready() else [])
-                        + ([{"id": "ming", "label": "Ming-Image — text-rich design (research)"}] if ming_image_ready() else []),
+                        + ([{"id": "ming", "label": "Ming-Image — experimental (rendering disabled)"}] if ming_image_ready() else []),
         # Cloud engines are ADDITIVE chips the frontend appends only where they
         # genuinely work (fal-image on the image maker, fal-video on the video
         # maker) — deliberately NOT merged into char_engines, because the

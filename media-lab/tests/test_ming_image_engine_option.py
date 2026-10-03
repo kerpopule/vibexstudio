@@ -30,11 +30,11 @@ def selectors(monkeypatch, tmp_path=None, enabled="", root=""):
     )
 
 
-def test_ming_is_off_by_default_and_request_follows_auto_rule(monkeypatch):
+def test_ming_is_off_by_default_and_explicit_request_never_substitutes(monkeypatch):
     ns = selectors(monkeypatch)
     assert ns["ming_image_ready"]() is False
-    assert ns["char_engine"]("ming") == "qwen"
-    assert ns["char_engine"]("ming", selfie=True) == "qwen"
+    assert ns["char_engine"]("ming") == "ming"
+    assert ns["char_engine"]("ming", selfie=True) == "ming"
     assert ns["char_engine"]("auto") == "qwen"
     assert ns["char_engine"]("qwen") == "qwen"
 
@@ -42,14 +42,14 @@ def test_ming_is_off_by_default_and_request_follows_auto_rule(monkeypatch):
 def test_ming_needs_enabled_flag(monkeypatch, tmp_path):
     ns = selectors(monkeypatch, tmp_path, enabled="", root=tmp_path)
     assert ns["ming_image_ready"]() is False
-    assert ns["char_engine"]("ming") == "qwen"
+    assert ns["char_engine"]("ming") == "ming"
 
 
 def test_ming_needs_staged_model_root(monkeypatch, tmp_path):
     missing = tmp_path / "not-staged"
     ns = selectors(monkeypatch, enabled="1", root=missing)
     assert ns["ming_image_ready"]() is False
-    assert ns["char_engine"]("ming") == "qwen"
+    assert ns["char_engine"]("ming") == "ming"
 
 
 def test_ming_resolves_only_when_explicitly_configured(monkeypatch, tmp_path):
