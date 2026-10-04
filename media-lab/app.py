@@ -896,6 +896,9 @@ def job_queue_lane(j: dict) -> str:
 
 @asynccontextmanager
 async def _studio_lifespan(application):
+    if os.getenv("MEDIA_LAB_WEB_ONLY") == "1":
+        yield
+        return
     # Queue-owned Maestro runners that outlived a previous API process would
     # keep the GPU: reap them before anything else is admitted.
     try:
@@ -910,6 +913,8 @@ async def _studio_lifespan(application):
 
 
 app = FastAPI(lifespan=_studio_lifespan)
+from web_only_policy import install as _install_web_only_policy
+_install_web_only_policy(app)
 # The VibeX Studio desktop shell and web build call this API from a browser
 # origin; native apps and the studio's own pages are same-origin/CORS-free.
 # Exact origins only (MEDIA_LAB_BROWSER_ORIGINS in config/local.env plus the
@@ -8878,15 +8883,16 @@ def worker():
                     cv.wait(timeout=3)
 
 mask_sweep()
-try:
-    _recovery = ({"status": "gpu-recovery-held"} if gpu_recovery_pending()
-                 else RESIDENCY.recover())
-    if _recovery.get("status") not in ("clean", "rolled-back"):
-        print(f"[residency] startup recovery is degraded: {_recovery}", flush=True)
-except Exception as _recovery_error:
-    # Fail visibly but keep the control API reachable so the exact receipt can be
-    # inspected.  The reconciler will not call a degraded studio healthy.
-    print(f"[residency] startup recovery failed: {_recovery_error}", flush=True)
+if os.getenv("MEDIA_LAB_WEB_ONLY") != "1":
+    try:
+        _recovery = ({"status": "gpu-recovery-held"} if gpu_recovery_pending()
+                     else RESIDENCY.recover())
+        if _recovery.get("status") not in ("clean", "rolled-back"):
+            print(f"[residency] startup recovery is degraded: {_recovery}", flush=True)
+    except Exception as _recovery_error:
+        # Fail visibly but keep the control API reachable so the exact receipt can be
+        # inspected.  The reconciler will not call a degraded studio healthy.
+        print(f"[residency] startup recovery failed: {_recovery_error}", flush=True)
 
 # MEDIA_LAB_DISABLE_BACKGROUND_WORKERS=1 is for isolated API tests and CLI drives
 # under a disposable HOME: the routes stay up, nothing renders or reconciles.

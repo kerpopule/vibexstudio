@@ -42,6 +42,12 @@ say()  { printf '\033[1m==> %s\033[0m\n' "$*"; }
 die()  { echo "deploy-spark: $*" >&2; exit 1; }
 rssh() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$SPARK" "$@"; }
 REMOTE_ABS_HOME="$(rssh 'printf %s "$HOME"')"
+# The public web origin stays CPU-only while the paired GPU reservation exists.
+if [[ "$SERVICE" == "media-lab-simple.service" ]] && rssh 'test -f "$HOME/.local/state/spark-pair-control/reservation.json"'; then
+  rssh 'test -f "$HOME/.config/systemd/user/media-lab-web.service"' || die "pair reserved but web-only service missing; refusing legacy restart"
+  SERVICE="media-lab-web.service"
+  say "pair reserved: restarting only the web-only origin"
+fi
 # Media Lab binds MEDIA_LAB_BIND_HOST (often the tailnet IP), not loopback: read it from the Spark's local.env.
 REMOTE_BIND="$(rssh "sed -n 's/^MEDIA_LAB_BIND_HOST=//p' ~/${REMOTE_HOME:-media-lab-simple}/config/local.env 2>/dev/null | tr -d '\"' | head -1" || true)"
 REMOTE_BIND="${REMOTE_BIND:-127.0.0.1}"
@@ -69,7 +75,7 @@ say "archived $(wc -l < "$WORK/files.txt" | tr -d ' ') files"
 
 # What code owns on the box (rsync --include rules, evaluated in order).
 ALLOW=(
-  '+ /app.py'
+  '+ /app.py' '+ /web_only_policy.py'
   '+ /chat-system-prompt.md'
   '+ /chat_operator.py' '+ /qwen_activity.py' '+ /residency.py' '+ /screenshot_song.py'
   '+ /image_template_context.py' '+ /local_studio.py' '+ /proxy7864.py'
