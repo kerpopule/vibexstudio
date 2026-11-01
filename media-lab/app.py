@@ -3691,11 +3691,37 @@ def cast_lines(cast_ids, chars=None):
 
 # ---------- workers per kind ----------
 def gallery_add(item_id, prompt, kind, url, poster, style="", engine="", license=""):
+    variants = None
+    # Produced MP4s all pass the same gate, including older stitch/enhance paths.
+    # The separate raw-import endpoint is not retroactively regraded.
+    if str(url).startswith("/media/") and str(url).lower().endswith(".mp4"):
+        from media_lab_core.dual_delivery import enforce as enforce_library_pair
+        video = media_path(str(url))
+        if not video:
+            raise ValueError("Produced video is missing before HDR Library publication")
+        job = jobs.get(item_id) or {}
+        request_source = media_path(str((job.get("request") or {}).get("source") or ""))
+        sibling = Path(video).with_name(Path(video).stem + '.sdr.mp4')
+        hdr_receipt = enforce_library_pair(
+            video, sibling, JOBS_DIR / Path(str(video)).stem / 'library-hdr',
+            expected_sdr=(job.get("hdr_delivery") or {}).get("sdr_delivery"),
+            input_source=request_source, cancelled=lambda: bool(job.get("cancel")))
+        variants = {"hdr": url, "sdr": "/media/" + sibling.name}
+        if job:
+            job["hdr_library"] = hdr_receipt
+            job["variants"] = variants
+        if str(poster).startswith("/media/") and str(poster).lower().endswith(".jpg"):
+            from media_lab_core.hdr_delivery import sdr_poster
+            sdr_poster(video, MEDIA / Path(str(poster)).name,
+                       JOBS_DIR / Path(str(video)).stem / 'library-hdr')
     g = _load(ROOT / "gallery.json", [])
     if any(x.get("id") == item_id for x in g):
         return
     row = {"id": item_id, "prompt": prompt, "style": style, "kind": kind,
            "url": url, "poster": poster, "ts": int(time.time())}
+    if variants:
+        row["variants"] = variants
+        row["delivery_policy"] = "hdr-and-vibrant-sdr-v1"
     # Provenance. Two versions of the same picture, made from the same prompt by
     # different painters, were previously indistinguishable in the library.
     if engine:
@@ -3819,19 +3845,27 @@ def _finish_video(j, out: Path, kind="video", *, validate_audio=False,
         return fail(j, "Stopped by you — the take was discarded.")
     final = MEDIA / f"{j['id']}.mp4"
     temp = final.with_suffix(".publishing.mp4")
-    temp.unlink(missing_ok=True)
+    sdr_final = final.with_name(final.stem + ".sdr.mp4")
+    sdr_temp = final.with_suffix(".publishing-sdr.mp4")
+    if any(path.exists() for path in (final, temp, sdr_final, sdr_temp)):
+        return fail(j, "Delivery paths already exist; refusing to overwrite a prior take.")
     if validate_media:
         try:
             _validate_media_artifact(out, require_audio=validate_audio,
                                      expected_dimensions=expected_dimensions)
         except Exception as exc:
             return fail(j, "The generated video failed decoded media QA and was not published.", str(exc))
-    encoded = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(out), "-c:v", "libx264",
-                              "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p", "-c:a", "aac",
-                              "-b:a", "128k", "-movflags", "+faststart", str(temp)], check=False)
-    if encoded.returncode != 0 or not temp.exists() or temp.stat().st_size == 0:
+    from media_lab_core.hdr_delivery import prepare as prepare_hdr
+    j["stage"] = "finishing HDR and vibrant SDR"
+    save_state()
+    try:
+        j["hdr_delivery"] = prepare_hdr(
+            out, temp, JOBS_DIR / j['id'], cancelled=lambda: bool(j.get("cancel")),
+            face_fix=lambda working: _maybe_face_fix(j, working), sdr_target=sdr_temp)
+    except Exception as exc:
         temp.unlink(missing_ok=True)
-        shutil.copy2(out, temp)
+        sdr_temp.unlink(missing_ok=True)
+        return fail(j, "Dual-format finishing failed; the engine original was retained and neither version entered the Library.", str(exc))
     published_validation = None
     if validate_media:
         try:
@@ -3839,14 +3873,31 @@ def _finish_video(j, out: Path, kind="video", *, validate_audio=False,
                 temp, require_audio=validate_audio, expected_dimensions=expected_dimensions)
         except Exception as exc:
             temp.unlink(missing_ok=True)
+            sdr_temp.unlink(missing_ok=True)
             return fail(j, "The published video failed decoded media QA and was discarded.", str(exc))
-    os.replace(temp, final)
-    _maybe_face_fix(j, final)
-    subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", "1", "-i", str(final),
-                    "-frames:v", "1", str(MEDIA / f"{j['id']}.jpg")], check=False)
-    j["status"] = "done"; j["stage"] = "done"
+    if j.get("cancel"):
+        temp.unlink(missing_ok=True)
+        sdr_temp.unlink(missing_ok=True)
+        return fail(j, "Stopped by you before HDR publication.")
+    try:
+        os.replace(sdr_temp, sdr_final)
+        os.replace(temp, final)
+    except Exception as exc:
+        sdr_final.unlink(missing_ok=True)
+        temp.unlink(missing_ok=True)
+        sdr_temp.unlink(missing_ok=True)
+        return fail(j, "Dual-format file publication failed; original retained.", str(exc))
     j["url"] = f"/media/{j['id']}.mp4"; j["poster"] = f"/media/{j['id']}.jpg"
-    gallery_add(j["id"], j["prompt"], kind, j["url"], j["poster"], style=j.get("style", ""))
+    j["variants"] = {"hdr": j["url"], "sdr": f"/media/{j['id']}.sdr.mp4"}
+    try:
+        gallery_add(j["id"], j["prompt"], kind, j["url"], j["poster"], style=j.get("style", ""))
+    except Exception as exc:
+        final.unlink(missing_ok=True)
+        sdr_final.unlink(missing_ok=True)
+        j.pop("url", None)
+        j.pop("variants", None)
+        return fail(j, "Dual-format Library publication failed; original retained.", str(exc))
+    j["status"] = "done"; j["stage"] = "done"
     return published_validation
 
 def _run_video_cold(j):
@@ -11137,6 +11188,7 @@ def brief(j):
     return {"id": j["id"], "kind": j["kind"], "status": j["status"], "stage": j.get("stage"),
             "progress": j.get("progress"),
             "prompt": excerpt, "url": j.get("url"), "poster": j.get("poster"),
+            "variants": j.get("variants"),
             "message": j.get("message"), "ts": j.get("ts"),
             "board_id": j.get("board_id") or r.get("board_id"),
             "board_title": j.get("board_title"), "beat_title": j.get("beat_title"),
@@ -11197,7 +11249,7 @@ def job(job_id: str, full: int = 0):
     j = jobs.get(job_id)
     if not j:
         return JSONResponse({"error": "unknown job"}, status_code=404)
-    keys = ("id", "kind", "status", "stage", "url", "poster", "message",
+    keys = ("id", "kind", "status", "stage", "url", "poster", "message", "variants",
             "caption", "lyrics", "board_id", "character", "sha256", "storyboard_registered",
             "song_url", "video_url", "video_poster", "timing", "screenshot_cues",
             # the painter that actually ran, so the UI can label the version

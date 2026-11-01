@@ -6,6 +6,8 @@ from pathlib import Path
 from .notice_bundle import build_bundle
 
 MODULES = (
+    # Shared verified HDR/SDR finishing (lazy imports; no model runtime).
+    'hdr_color', 'hdr_finish', 'hdr_delivery', 'sdr_delivery', 'dual_delivery',
     '__init__', 'background_host', 'background_jobs', 'background_lifecycle',
     'birefnet_cpu', 'cpu_jobs', 'cpu_worker', 'director_adapter', 'director_context',
     'director_host', 'director_library', 'director_probe', 'director_transport',

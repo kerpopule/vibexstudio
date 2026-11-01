@@ -2161,6 +2161,7 @@ function playGal(i){
   playItem(x.url,x.poster||'');
 }
 function playItem(u,p){$('#vid').src=u;$('#vid').poster=p||'';$('#dl').href=u;
+  configureDeliveryDownloads($('#dl'),u);
   $('#result').style.display='block';
   $('#enhrow').style.display=CATALOG.enhance_ready?'flex':'none';
   $('#vid').scrollIntoView({behavior:'smooth'});$('#vid').play().catch(()=>{});}
@@ -2201,6 +2202,7 @@ function vlightOpen(u,p,id){
   mediaEls(document).forEach(m=>{if(m!==v&&!m.paused){try{m.pause();}catch(e){}}});
   v.pause();v.src=u;v.poster=p||'';   // assigning src restarts it from zero
   $('#vlight_dl').href=u;
+  configureDeliveryDownloads($('#vlight_dl'),u);
   $('#vlight').classList.add('on');v.play().catch(()=>{});
 }
 /* pause AND unload — removeAttribute('src') on its own left the buffer (and the
@@ -5002,6 +5004,38 @@ function importedLine(j){
 }
 const IMG_KINDS={image:1,character:1,selfchar:1};
 const AUDIO_KINDS={music:1,speak:1,screenshotsong:1};
+/* Both variants are explicit: SDR is never a relabeled HDR download. */
+function deliveryDownloads(item){
+  const safe=u=>typeof u==='string'&&/^\/media\/[^\s"'<>\\]+$/.test(u);
+  const pair=item.variants||{};
+  const link=(u,label)=>`<a class="qbtn" style="text-decoration:none" href="${u.replace(/&/g,'&amp;')}" download onclick="return saveHref(event,this)">${label}</a>`;
+  if(pair.hdr===item.url&&safe(pair.hdr)&&safe(pair.sdr)&&pair.hdr!==pair.sdr)return link(pair.hdr,'Save HDR')+link(pair.sdr,'Save vibrant SDR');
+  return safe(item.url)?link(item.url,'Save'):'';
+}
+async function configureDeliveryDownloads(anchor,u){
+  // Each selection owns its lookup. A late reply for another clip is ignored.
+  anchor.dataset.deliveryUrl=u;
+  anchor.textContent='Save';
+  let sdr=anchor.parentElement.querySelector('[data-sdr-download]');
+  if(!sdr){
+    sdr=document.createElement('a');sdr.className=anchor.className;sdr.setAttribute('download','');
+    sdr.dataset.sdrDownload='';sdr.textContent='Save vibrant SDR';
+    sdr.onclick=e=>saveHref(e,sdr);anchor.after(sdr);
+  }
+  sdr.hidden=true;sdr.style.display='none';sdr.removeAttribute('href');
+  try{
+    const response=await fetch('/api/gallery');
+    if(!response.ok)return;
+    const items=await response.json();
+    if(anchor.dataset.deliveryUrl!==u)return;
+    const item=Array.isArray(items)?items.find(x=>x.url===u):null;
+    if(!item||!item.variants)return;
+    const test=document.createElement('div');test.innerHTML=deliveryDownloads(item);
+    const links=test.querySelectorAll('a');
+    if(links.length!==2)return;
+    anchor.textContent='Save HDR';sdr.href=links[1].getAttribute('href');sdr.hidden=false;sdr.style.display='';
+  }catch(_){/* Legacy/unavailable metadata keeps the honest single-file action. */}
+}
 function rowDetail(id){
   const j=(QD.history||[]).find(x=>x.id===id);
   if(!j)return '';
@@ -5033,7 +5067,7 @@ function rowDetail(id){
       ${j.board_id&&j.kind!=='storyboard'?`<button class="qbtn" onclick="$('#qwrap').classList.remove('on');openBoard('${j.board_id}')">🎞 Open storyboard</button>`:''}
       ${isVideoOut&&CATALOG.enhance_ready?`<button class="qbtn" onclick="startEnhance('${j.id}','faces')">🙂 Fix faces</button>
       <button class="qbtn" onclick="startEnhance('${j.id}','upscale')">⬆️ Upscale</button>`:''}
-      ${j.status==='done'&&j.url?`<a class="qbtn" style="text-decoration:none" href="${j.url}" download onclick="return saveHref(event,this)">Save</a>`:''}
+      ${j.status==='done'&&j.url?deliveryDownloads(j):''}
       ${isAdmin?`${j.imported?'':`<button class="qbtn" onclick="adm('retry',{id:'${j.id}'})">⟳ Run again</button>`}
         <button class="qbtn" onclick="adm('archive',{id:'${j.id}'})">🗄 Archive</button>
         <button class="qbtn" onclick="if(confirm('Delete this forever?'))adm('delete',{id:'${j.id}'})">✕ Delete</button>`:''}
@@ -5043,7 +5077,8 @@ function rowDetail(id){
    reason to rebuild the panel, and rebuilding is what used to kill playback */
 function detailSig(j){
   return [j.id,j.status,j.url||'',j.poster||'',j.kind,j.board_id||'',j.message||'',
-    j.imported?1:0,isAdmin?1:0,CATALOG.enhance_ready?1:0].join('|');
+    j.imported?1:0,isAdmin?1:0,CATALOG.enhance_ready?1:0,
+    j.variants?.hdr||'',j.variants?.sdr||''].join('|');
 }
 function mountDetail(x,j){
   releaseMedia(x);                  // let go of whatever was in there first
