@@ -58,10 +58,10 @@ describe('buildSystemPrompt', () => {
 
   it('advertises video + real characters when a Media Lab is paired', () => {
     const prompt = buildSystemPrompt('Timer', [], {
-      characters: [{ id: 'steve1', name: 'Steve' }],
+      characters: [{ id: 'ava1', name: 'Ava' }],
     });
     expect(prompt).toContain('kind=video is available');
-    expect(prompt).toContain('Steve (character=steve1)');
+    expect(prompt).toContain('Ava (character=ava1)');
     expect(prompt).toContain('poster');
     expect(prompt).not.toContain('kind=image ONLY');
   });

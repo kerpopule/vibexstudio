@@ -204,3 +204,27 @@ def test_direct_project_urls_use_the_exported_template_without_masking_missing_r
             assert cached.status_code==304 and cached.headers['cache-control']=='no-cache'
         for route in ('/project/game/missing','/project/game.js','/project/'+('a'*129),'/api/project/game','/unknown/game'):
             assert client.get(route).status_code==404
+
+
+def test_unknown_pages_get_the_branded_not_found_screen_with_a_404(tmp_path):
+    web=tmp_path/'web'
+    (web/'_expo').mkdir(parents=True)
+    (web/'index.html').write_text('<html>home</html>')
+    (web/'settings.html').write_text('<html>settings</html>')
+    (web/'+not-found.html').write_text('<html>branded not found</html>')
+    with TestClient(create_paired_app(state_root=tmp_path/'state', artifact_root=tmp_path/'artifacts',
+                    media_root=tmp_path/'media', load_rows=lambda: [], credentials=CREDS,
+                    web_root=web)) as client:
+        for route in ('/no-such-page', '/deep/unknown/route/', '/project/game/missing'):
+            response=client.get(route)
+            assert response.status_code==404
+            assert response.text=='<html>branded not found</html>'
+            assert response.headers['cache-control']=='no-cache'
+        assert client.head('/no-such-page').status_code==404
+        # Real pages, APIs and missing assets keep their behaviour.
+        assert client.get('/settings').text=='<html>settings</html>'
+        assert client.get('/').text=='<html>home</html>'
+        for route in ('/api/missing', '/api', '/_expo/missing.js', '/missing.png'):
+            response=client.get(route)
+            assert response.status_code==404 and 'branded' not in response.text
+        assert client.get('/manifest.json').status_code==200

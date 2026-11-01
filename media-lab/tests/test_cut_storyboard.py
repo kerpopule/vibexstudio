@@ -1,5 +1,6 @@
 import copy
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -26,7 +27,7 @@ def _fixture_storyboard(tmp_path: Path) -> Path:
                 "project": "prototype",
                 "title": "Prototype film",
                 "private_internal_only": True,
-                "candidate_not_final_until_steve_approves": True,
+                "candidate_not_final_until_owner_approves": True,
                 "format": {
                     "aspect_ratio": "16:9",
                     "resolution": "1280x704",
@@ -223,8 +224,11 @@ def test_cut_ui_contract_and_entrypoints_exist():
     assert '@app.post("/api/cut/projects/{project_id}/commands")' in app_source
     assert '@app.post("/api/cut/projects/{project_id}/sparky/commands")' in app_source
     assert '@app.post("/api/cut/projects/{project_id}/render")' in app_source
-    # no private hosts in anything Cut ships
+    # no private hosts in anything Cut ships: no tailnet (CGNAT) address, no
+    # MagicDNS name, no service account or laptop hostname
+    tailnet_ip = re.compile(r"\b100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}\b")
     for text in (html, css, js, (ROOT / "media_lab_core/cut.py").read_text(),
                  (ROOT / "media_lab_core/cut_cli.py").read_text(), (ROOT / "docs/CUT.md").read_text()):
-        for bad in ("100.66.", "medialab", "macbook-pro", "tail33"):
+        assert not tailnet_ip.search(text)
+        for bad in (".ts.net", "medialab", "macbook-pro"):
             assert bad not in text

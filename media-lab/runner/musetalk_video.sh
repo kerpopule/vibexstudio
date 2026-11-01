@@ -19,7 +19,9 @@ MODELS="$MEDIA_LAB_MODELS_ROOT/musetalk-v15"
 PILOT="$MEDIA_LAB_HOME/pilot-status.json"
 LOG="$RESULT/$LABEL.log"
 mkdir -p "$RESULT"
-for p in "$CONFIG" "$WORK/steve-pip-source.mp4" "$MODELS/model-manifest.json"; do
+# The talking-head source clip: MUSETALK_SOURCE, else WORK/pip-source.mp4.
+SOURCE=${MUSETALK_SOURCE:-$WORK/pip-source.mp4}
+for p in "$CONFIG" "$SOURCE" "$MODELS/model-manifest.json"; do
   [[ -s "$p" ]] || { echo "missing required MuseTalk input: $p" >&2; exit 2; }
 done
 docker image inspect "$IMAGE" >/dev/null

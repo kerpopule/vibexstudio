@@ -23,7 +23,7 @@ or select NVIDIA factory recovery (which erases the SSD).
 This temporarily prevents ALL Docker/containerd workloads on the host, including
 unrelated application/database/network/monitoring containers and Kubernetes
 consumers, not merely media. Their identities and downtime impact are unknown.
-Steve must approve that broad temporary boot containment explicitly. No permission
+The owner must approve that broad temporary boot containment explicitly. No permission
 to kill an already-running workload, edit container metadata, or erase anything is
 included. If unexpected daemon/workload processes already exist, STOP for exact
 disposition rather than assuming the masks stopped them.
@@ -66,7 +66,7 @@ disposition rather than assuming the masks stopped them.
 
 ## Exact persistent containment gate before leaving emergency mode
 
-Present Steve the confirmed unit/socket/container IDs, restart policies, unrelated
+Present the owner the confirmed unit/socket/container IDs, restart policies, unrelated
 impact, existing masks/drop-ins and rollback state. Obtain exact authorization for
 each confirmed path. If narrow safe containment cannot be verified offline,
 request explicit persistent masks of the confirmed Docker service/socket and

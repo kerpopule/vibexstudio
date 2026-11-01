@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Reconcile one exact Media Lab durable GPU recovery hold.
 
-Run only after operator approval. The tool stops admission, adopts the existing
+Run only after operator approval. The one standing approval is
+runner/hold_autorecover.py, and only for the harmless same-boot restart hold
+(owner-exited / controller-restarted) under the limits it documents. The tool stops admission, adopts the existing
 recovery fence (or proves that only one exact orphaned job flag remains), reclaims
 every managed GPU companion, requires exact process and memory proof, reconciles
 the protocol, removes only the matching hold, restores the legacy idle pool, and

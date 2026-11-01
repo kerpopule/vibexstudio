@@ -132,6 +132,10 @@ cd desktop/src-tauri
 cargo test
 ```
 
+CI (`.github/workflows/app-desktop-checks.yml`) runs `node --test desktop/tests/*.mjs`
+and the Workbench contract suite on every app/ or desktop/ change. The pytest
+cases and `cargo test` above are not in CI yet.
+
 The ignored live keychain test requires actual OS credential access. Do not use
 it as an unattended check. Workbench's contract suite is
 `bash desktop/workbench/test.sh` from the repository root.

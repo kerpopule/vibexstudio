@@ -7,3 +7,23 @@
   --font-rounded: 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif;
   --font-serif: Georgia, 'Times New Roman', serif;
 }
+
+/*
+ * Web entrance animations (see src/lib/motion.ts `webEnter`). Declared only
+ * when the user has not asked for reduced motion: otherwise the animation
+ * name resolves to nothing and content appears immediately.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes vx-enter-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes vx-enter-fade-down {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes vx-enter-fade-up {
+    from { opacity: 0; transform: translateY(-12px); }
+    to { opacity: 1; transform: none; }
+  }
+}

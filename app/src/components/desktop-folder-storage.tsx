@@ -8,14 +8,21 @@ import {ThemedText} from '@/components/themed-text';
 import {showFolderPairing,configureFolderServer,desktopFolderAvailable,folderCommand,syncDesktopFolder,keepDesktopFolderCopies} from '@/lib/sync/desktop-folder';
 export function DesktopFolderStorage(){
  const [folder,setFolder]=useState<string|null>(null),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
- const [automatic,setAutomatic]=useState(false);
+ // Automatic sync is a per-folder setting: until this folder's answer arrives it reads as off.
+ const [autoSetting,setAutoSetting]=useState<{folder:string;enabled:boolean}|null>(null);
+ const automatic=folder!==null&&autoSetting?.folder===folder&&autoSetting.enabled;
  const autoStatus=useSyncExternalStore(subscribeAutoFolder,getAutoFolderStatus,getAutoFolderStatus);
  const [conflicts,setConflicts]=useState<string[]>([]);
+ // Each new automatic-sync result replaces the conflict list, as a manual sync does.
+ const [seenAuto,setSeenAuto]=useState({automatic,autoStatus});
+ if(seenAuto.automatic!==automatic||seenAuto.autoStatus!==autoStatus){
+  setSeenAuto({automatic,autoStatus});
+  if(automatic&&autoStatus.result)setConflicts(autoStatus.result.conflicts);
+ }
  const projects=useApp(state=>state.projects);
  const available=desktopFolderAvailable();
  useEffect(()=>{if(available)void folderCommand('status').then(result=>setFolder(result.path??null)).catch(error=>setMessage(String(error)));},[available]);
- useEffect(()=>{let active=true;setAutomatic(false);if(folder)void autoFolderEnabled(folder).then(value=>{if(active)setAutomatic(value);}).catch(()=>{});return ()=>{active=false;};},[folder]);
- useEffect(()=>{if(automatic&&autoStatus.result)setConflicts(autoStatus.result.conflicts);},[automatic,autoStatus]);
+ useEffect(()=>{if(!folder)return;let active=true;void autoFolderEnabled(folder).then(enabled=>{if(active)setAutoSetting({folder,enabled});}).catch(()=>{});return ()=>{active=false;};},[folder]);
  if(!available)return null;
  const run=async(action:()=>Promise<void>)=>{setBusy(true);setMessage('');try{await action();}catch(error){setMessage(error instanceof Error?error.message:String(error));}finally{setBusy(false);}};
  return <Glass style={{padding:20,gap:12}}>
@@ -27,7 +34,7 @@ export function DesktopFolderStorage(){
   <View style={{gap:10}}>
    <Button title={folder?'Choose a different folder':'Choose my folder'} variant="secondary" disabled={busy} onPress={()=>void run(async()=>{const result=await folderCommand('pick');if(!result.cancelled){setFolder(result.path??null);setConflicts([]);}})}/>
    {folder?<>
-    <Button title={automatic?'Turn off automatic sync':'Turn on automatic sync'} variant="secondary" disabled={busy} onPress={()=>void run(async()=>{await setAutoFolder(folder,!automatic);setAutomatic(!automatic);})}/>
+    <Button title={automatic?'Turn off automatic sync':'Turn on automatic sync'} variant="secondary" disabled={busy} onPress={()=>void run(async()=>{await setAutoFolder(folder,!automatic);setAutoSetting({folder,enabled:!automatic});})}/>
     <ThemedText themeColor="textSecondary">Automatic sync checks every 30 seconds while Studio is open. It waits for busy AI projects and keeps conflicting versions for you to review. It does not run when Studio is closed.</ThemedText>
     <Button title="Sync now" loading={busy} onPress={()=>void run(async()=>{
      const result=await syncDesktopFolder();setConflicts(result.conflicts);

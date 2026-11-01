@@ -367,7 +367,7 @@ const styles = StyleSheet.create({
     borderRadius: Radii.lg,
     padding: Spacing.three,
   },
-  glyphWell: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  glyphWell: { width: 44, height: 44, borderRadius: Radii.md, alignItems: 'center', justifyContent: 'center' },
   glyph: { fontSize: 22, lineHeight: 28 },
   choiceBody: { flex: 1, gap: 2 },
   codeCard: {

@@ -66,8 +66,8 @@ class Lifespan(unittest.TestCase):
     def test_original_lifecycle_kept(self):
         namespace,stopped=self.context(False)
         for name in ['reap_orphan_maestro_runners','_start_studio_background_host']:namespace[name].assert_called_once()
-        # This canonical baseline has no live-host-only GPU-handoff shutdown hook.
-        namespace['_gpu_write_handoff_on_shutdown'].assert_not_called()
+        # Current main hands warm residency on during a graceful normal-mode stop.
+        namespace['_gpu_write_handoff_on_shutdown'].assert_called_once()
         stopped.assert_called_once()
     def test_recovery_is_conditional(self):
         tree=ast.parse((ROOT/'app.py').read_text())

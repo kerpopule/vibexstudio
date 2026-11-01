@@ -88,7 +88,7 @@ describe('telling an origin refusal apart from a dead server', () => {
 
   it('leaves refusals the server actually sent alone', () => {
     for (const message of ['No Media Lab answered there. Check the address and server connection.',
-      'Enter your Media Lab access code to connect its library.',
+      'Enter your Media Lab family code to connect its library.',
       'Media Lab took too long to respond. Refresh the library to try again.',
       'Media Lab could not complete the request (500).']) {
       expect(isUnreachableFailure(message), message).toBe(false);

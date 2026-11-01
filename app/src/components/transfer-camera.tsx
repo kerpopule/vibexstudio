@@ -3,6 +3,7 @@ import {CameraView,useCameraPermissions} from 'expo-camera';
 import {AppState,Linking,StyleSheet,View} from 'react-native';
 import {Button} from './ui/button';
 import {ThemedText} from './themed-text';
+import {Radii} from '@/constants/theme';
 export function TransferCamera({onRead,onCancel}:{onRead:(value:string)=>void;onCancel:()=>void}){
  const [permission,request,checkPermission]=useCameraPermissions();
  const [cameraError,setCameraError]=useState(false),[message,setMessage]=useState(''),[requesting,setRequesting]=useState(false);
@@ -23,7 +24,7 @@ export function TransferCamera({onRead,onCancel}:{onRead:(value:string)=>void;on
   {permission?.granted?cameraError?<>
    <ThemedText accessibilityRole="alert">The camera could not start. Close other camera apps and try again, or cancel scanning and use the encrypted file/text option.</ThemedText>
    <Button title="Try camera again" variant="secondary" onPress={()=>setCameraError(false)}/>
-  </>:<View style={{height:300,overflow:'hidden',borderRadius:16}}>
+  </>:<View style={{height:300,overflow:'hidden',borderRadius:Radii.lg}}>
    <CameraView style={StyleSheet.absoluteFill} facing="back" barcodeScannerSettings={{barcodeTypes:['qr']}} onMountError={()=>setCameraError(true)} onBarcodeScanned={({data})=>onRead(data)}/>
   </View>:<>
    <ThemedText>Camera access is only used to read the code. Nothing is recorded.</ThemedText>

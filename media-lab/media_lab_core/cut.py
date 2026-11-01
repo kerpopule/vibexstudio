@@ -105,6 +105,19 @@ STATEFUL_STORE_COMMANDS = {"undo", "redo", "restore"}
 HUMAN_ONLY_COMMANDS = {"project.approve"}
 
 
+# A storyboard stays a candidate until its owner approves it. Boards written
+# before 2026-09-25 carry the same flag under an older owner-named key, so any
+# "candidate_not_final_until_<who>_approves" flag set to true counts.
+CANDIDATE_KEY = "candidate_not_final_until_owner_approves"
+
+
+def candidate_until_approved(value: dict) -> bool:
+    if value.get(CANDIDATE_KEY) is True:
+        return True
+    return any(isinstance(k, str) and k.startswith("candidate_not_final_until_")
+               and k.endswith("_approves") and v is True for k, v in value.items())
+
+
 class CutError(ValueError):
     """A fail-closed validation error safe to show in the UI, CLI and agent receipts."""
 
@@ -185,8 +198,8 @@ def _read_storyboard(path: str | Path) -> tuple[Path, dict[str, Any]]:
         raise CutError("storyboard root must be an object")
     if value.get("private_internal_only") is not True:
         raise CutError("finishing studio only accepts private/internal storyboards")
-    if value.get("candidate_not_final_until_steve_approves") is not True:
-        raise CutError("storyboard must remain a candidate until Steve approves it")
+    if not candidate_until_approved(value):
+        raise CutError("storyboard must remain a candidate until its owner approves it")
     if value.get("publication_authorized") is not False:
         raise CutError("publication authorization must be explicitly false")
     return source, value
@@ -252,7 +265,7 @@ def import_storyboard_manifest(path: str | Path) -> dict[str, Any]:
             "approval_metadata": {
                 "state": "candidate",
                 "approved_candidate_id": None,
-                "steve_creative_approval": False,
+                "owner_creative_approval": False,
             },
         }
         scenes.append(scene)

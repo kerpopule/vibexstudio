@@ -5,7 +5,7 @@ import {editingLibraryHandoff} from '@/lib/editing-library-handoff';
 import {Alert} from '@/lib/app-alert';
 import {useCallback,useRef,useState} from 'react';
 import {router,Stack,useFocusEffect,useLocalSearchParams} from 'expo-router';
-import {ScrollView,View} from 'react-native';
+import {ScrollView} from 'react-native';
 import {ThemedView} from '@/components/themed-view';
 import {ThemedText} from '@/components/themed-text';
 import {TextField} from '@/components/ui/text-field';
@@ -26,14 +26,16 @@ export default function NewEditingDraft(){
  const [title,setTitle]=useState('My video'),[selected,setSelected]=useState<string[]>([]),[assets,setAssets]=useState<RemoteLibraryAsset[]>([]);
  const [pending,setPending]=useState<PendingEditingDraft|null>(null),[ready,setReady]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[created,setCreated]=useState<string|null>(null);
  const epoch=useRef(0),locked=useRef(false),choiceVersion=useRef(0);
- const [refresh,setRefresh]=useState(0),[selectionSaveFailed,setSelectionSaveFailed]=useState(false);
+ const [selectionSaveFailed,setSelectionSaveFailed]=useState(false);
  const [handoffChoice,setHandoffChoice]=useState<EditingSelection|null>(null);
- function remember(next:EditingSelection){
+ const remember=useCallback((next:EditingSelection)=>{
   choiceVersion.current++;
   setTitle(next.title);setSelected(next.assetIds);
   if(origin){const current=epoch.current;void editingSelections.save(origin,musicVideo,next).then(()=>{if(current===epoch.current){setSelectionSaveFailed(false);setError(previous=>previous===SAVE_SELECTION_ERROR?'':previous);}}).catch(()=>{if(current===epoch.current){setSelectionSaveFailed(true);setError(SAVE_SELECTION_ERROR);}});}
- }
- useFocusEffect(useCallback(()=>{
+ },[origin,musicVideo]);
+ // Reads the saved request, saved choices and Library. Focus and "Reload" both
+ // call it; each call supersedes the one before through the epoch.
+ const load=useCallback(()=>{
   const selectionVersion=choiceVersion.current;
   const current=++epoch.current;setReady(false);setPending(null);setHandoffChoice(null);setSelected([]);setAssets([]);setError('');setCreated(null);setTitle(musicVideo?'My music video':'My video');setBusy(false);setMusicReady(false);
   if(origin)void (async()=>{
@@ -49,8 +51,11 @@ export default function NewEditingDraft(){
     if(!saved){const handoff=editingLibraryHandoff(origin,sourceOrigin,assetId,rows);if(handoff){if(choiceVersion.current!==selectionVersion||(choices&&(choices.assetIds.length||choices.title.trim())))setHandoffChoice(handoff);else remember(handoff);}}
    }
   })().catch(e=>{if(current===epoch.current)setError(e instanceof Error?e.message:'Could not read your Library.');});
+ },[origin,assetId,sourceOrigin,musicVideo,remember]);
+ useFocusEffect(useCallback(()=>{
+  load();
   return ()=>{epoch.current++;};
- },[origin,assetId,sourceOrigin,musicVideo,refresh]));
+ },[load]));
  async function startOver(){
   if(!origin||locked.current)return;
   locked.current=true;setBusy(true);const current=++epoch.current;
@@ -87,7 +92,7 @@ export default function NewEditingDraft(){
    {pending?<Button title="Start over with another selection" variant="secondary" disabled={busy} onPress={()=>Alert.alert('Stop tracking this draft request?', 'Your server may already have saved a draft. Starting over does not cancel server work or delete that draft. Check your draft list before creating another copy.', [{text:'Keep request',style:'cancel'},{text:'Start over',onPress:()=>void startOver()}])}/>:null}
    <Button title="Open Library" variant="secondary" disabled={busy} onPress={()=>router.push('/library')}/>
   </>}
-  {error?<><ThemedText accessibilityRole="alert">{error}</ThemedText>{!created?<Button title={selectionSaveFailed?"Retry saving my choices":"Reload saved choices and Library"} variant="secondary" disabled={busy} onPress={()=>{if(selectionSaveFailed)remember({title,assetIds:selected});else setRefresh(value=>value+1);}}/>:null}</>:null}
+  {error?<><ThemedText accessibilityRole="alert">{error}</ThemedText>{!created?<Button title={selectionSaveFailed?"Retry saving my choices":"Reload saved choices and Library"} variant="secondary" disabled={busy} onPress={()=>{if(selectionSaveFailed)remember({title,assetIds:selected});else load();}}/>:null}</>:null}
   <ThemedText type="small" themeColor="textSecondary">This prepares an editing draft on your own server. FFprobe must be installed there. Files up to 256 MB are supported in this preview. Rendering is not started.</ThemedText>
   <Button title="Back to drafts" variant="secondary" disabled={busy} onPress={()=>router.replace('/editor')}/>
  </ScrollView></ThemedView>;

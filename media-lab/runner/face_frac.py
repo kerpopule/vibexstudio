@@ -2,7 +2,7 @@
 """Print the largest face's height as a fraction of the image height (0 if none).
 
 The lip-sync gate: LTX animates the mouth from pixels, so a start frame whose
-face is small produces mush. Takes Steve approved measured 0.40; the take he
+face is small produces mush. Approved takes measured 0.40; the take judged
 called "horrible" measured 0.12.
 
 Usage: face_frac.py <image>

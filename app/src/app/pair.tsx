@@ -11,10 +11,11 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'reac
 
 import { PairedServerStorage } from '@/components/paired-server-storage';
 import { ThemedText } from '@/components/themed-text';
+import { pressFeedback } from '@/components/ui/press-feedback';
 import { ThemedView } from '@/components/themed-view';
-import { Radii, Spacing } from '@/constants/theme';
+import { Radii, Spacing, TypeScale } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { parsePairDeepLinkV2 } from '@/lib/media-pairing';
+import { parsePairDeepLinkV2, type PairPayload } from '@/lib/media-pairing';
 import { useApp } from '@/lib/store';
 import { performPair, type PairOutcome } from '@/lib/pair-actions';
 
@@ -50,21 +51,23 @@ export default function PairScreen() {
   const hydrated = useApp(state=>state.hydrated);
   const onboardingComplete = useApp(state=>state.onboardingComplete);
   const params = useLocalSearchParams<{ medialab?: string; url?: string; workbench?: string; wbt?: string; wbi?: string }>();
-  const [showSync, setShowSync] = useState(false);
-  const [outcome, setOutcome] = useState<PairOutcome | null>(null);
   // Static web routes hydrate their search parameters after the first render.
-  const payload = useMemo(() => parsePairDeepLinkV2(linkFromParams(params)),
-    [params.medialab, params.url, params.workbench, params.wbt, params.wbi]);
+  const link = linkFromParams(params);
+  const payload = useMemo(() => parsePairDeepLinkV2(link), [link]);
   const unusable = hydrated && !payload;
+  // Each result belongs to the link it paired, so a new link shows "Pairing…"
+  // again (with the sync panel closed) instead of the previous outcome.
+  const [paired, setPaired] = useState<{ payload: PairPayload; outcome: PairOutcome; showSync: boolean } | null>(null);
+  const current = paired !== null && paired.payload === payload ? paired : null;
+  const outcome = current?.outcome ?? null;
+  const showSync = current?.showSync ?? false;
 
   useEffect(() => {
     if (!hydrated || !payload) return;
     let active = true;
-    setOutcome(null);
-    setShowSync(false);
     performPair(payload).then((result) => {
       if (!active) return;
-      setOutcome(result);
+      setPaired({ payload, outcome: result, showSync: false });
       const anyOk = result.workbench?.ok || result.mediaLab?.ok;
       Haptics.notificationAsync(
         anyOk ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error
@@ -140,13 +143,13 @@ export default function PairScreen() {
                 Pairing connects this device to your computer. To exchange projects, choose project sync next.
                 Move your AI connections next to bring API keys and model choices. Subscription accounts still need a fresh sign-in.
               </ThemedText>
-              <Pressable accessibilityRole="button" accessibilityState={{expanded:showSync}}
-                onPress={() => setShowSync(value => !value)}
-                style={[styles.secondary, {borderColor:theme.border}]}>
+              <Pressable accessibilityRole="button" aria-expanded={showSync}
+                onPress={() => setPaired(value => value && { ...value, showSync: !value.showSync })}
+                style={(state) => [styles.secondary, {borderColor:theme.border}, pressFeedback(state)]}>
                 <ThemedText type="smallBold">{showSync ? 'Hide project sync' : 'Set up project sync'}</ThemedText>
               </Pressable>
               {showSync ? <PairedServerStorage pairedHere /> : null}
-              <Pressable accessibilityRole="button" onPress={()=>router.push('/transfer-ai')} style={[styles.secondary,{borderColor:theme.border}]}>
+              <Pressable accessibilityRole="button" onPress={()=>router.push('/transfer-ai')} style={(state) => [styles.secondary,{borderColor:theme.border}, pressFeedback(state)]}>
                 <ThemedText type="smallBold">Move AI connections</ThemedText>
               </Pressable>
             </View>
@@ -154,25 +157,26 @@ export default function PairScreen() {
           {outcome?.mediaLab?.ok ? (
             <View style={{gap:Spacing.two}}>
               <ThemedText themeColor="textSecondary">
-                To use saved creations in your projects, enter this server’s access code next.
+                To use saved creations in your projects, enter your family code next.
               </ThemedText>
               <Pressable accessibilityRole="button"
                 onPress={() => router.replace({pathname:'/connect-media-lab', params:{url:outcome.mediaLab!.url}})}
-                style={[styles.secondary, {borderColor:theme.border}]}>
+                style={(state) => [styles.secondary, {borderColor:theme.border}, pressFeedback(state)]}>
                 <ThemedText type="smallBold">Connect saved creations</ThemedText>
               </Pressable>
             </View>
           ) : null}
           {mediaLabFailed ? (
             <Pressable
+              accessibilityRole="button"
               onPress={() =>
                 router.replace({ pathname: '/connect-media-lab', params: { url: outcome?.mediaLab?.url } })
               }
-              style={[styles.secondary, { borderColor: theme.border }]}>
+              style={(state) => [styles.secondary, { borderColor: theme.border }, pressFeedback(state)]}>
               <ThemedText type="smallBold">Pair Media Lab manually</ThemedText>
             </Pressable>
           ) : null}
-          <Pressable onPress={done} style={[styles.doneButton, { backgroundColor: theme.tint }]}>
+          <Pressable accessibilityRole="button" onPress={done} style={(state) => [styles.doneButton, { backgroundColor: theme.tint }, pressFeedback(state)]}>
             <ThemedText type="smallBold" style={{ color: theme.onTint }}>
               Done
             </ThemedText>
@@ -199,7 +203,7 @@ const styles = StyleSheet.create({
   },
   rowEmoji: { fontSize: 28 },
   rowText: { flex: 1, gap: 2 },
-  rowDetail: { fontSize: 13, lineHeight: 18 },
+  rowDetail: { fontSize: TypeScale.small, lineHeight: 20 },
   secondary: {
     alignItems: 'center',
     borderRadius: Radii.lg,

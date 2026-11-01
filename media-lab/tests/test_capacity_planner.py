@@ -51,7 +51,7 @@ class DeterministicPlans(unittest.TestCase):
     def test_full_memory_llm_exclusive_deterministic(self):
         plan = make_planner().plan({"language": "deepseek-full"})
         # deepseek active 70 GiB > 69.7 pool => deterministic refusal on this
-        # Spark; matches Steve's rule that full-memory LLMs are unavailable if
+        # Spark; matches the studio rule that full-memory LLMs are unavailable if
         # measured floors fail.
         self.assertFalse(plan["admitted"])
         kinds = [b["kind"] for b in plan["blockers"]]

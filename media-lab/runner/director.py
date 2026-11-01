@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The Media Lab Director — the studio's own brain, deciding how to drive the engines.
 
-Steve's brief: "the user just chooses h3 or ltx, but the under the hood stuff needs
+The owner's brief: "the user just chooses h3 or ltx, but the under the hood stuff needs
 to be qwen media lab bot's expertise... the same one that talks in the chat widget."
 
 So this is the SAME model, the SAME identity, and the same system-prompt preamble as
@@ -111,7 +111,7 @@ def h3_canvas(orientation="landscape", max_pixels=None):
 # A transformer token covers 32x32 output pixels (VAE 16x spatial, patch (1,2,2)).
 # At 864x480 a face at 12% of frame height was 1.8 tokens for the WHOLE face and the
 # mouth was a fraction of one — that is the mushy mouth, and no prompt can fix it.
-# Steve's take he called great measured 0.40; the one he called horrible, 0.12.
+# A take judged great measured 0.40; one judged horrible, 0.12.
 #
 # These numbers are OURS, derived from that geometry — MiniMax publishes nothing at
 # all about faces. Treat them as a hypothesis to measure, not a specification.
@@ -129,7 +129,7 @@ REF2VA_READY = os.environ.get("MEDIA_LAB_REF2VA", "").lower() in ("1", "true", "
 
 # ---------------------------------------------------------------- the shared brain
 def _identity_preamble():
-    """The Director and the chat widget are the same assistant, by Steve's design.
+    """The Director and the chat widget are the same assistant, by design.
 
     We load the widget's own system prompt so the studio has one personality and one
     body of knowledge; the role block below is the second hat, not a second brain.
@@ -262,14 +262,14 @@ Reply with ONLY a JSON object:
 
 {"mode": "ref2va" | "fl2va" | "t2va" | "ltx",
  "why": "<one short sentence a non-technical person would find reassuring, shown on
-   the queue card — e.g. 'Using the actor-cloning weights so Steve stays himself.'>",
+   the queue card — e.g. 'Using the actor-cloning weights so Ava stays herself.'>",
  "orientation": "landscape" | "portrait" | "square",
  "seconds": <how long the shot should be; honour what the user asked, else judge it>,
  "reference_detail": "max" | "match",
  "references": [{"path": "<one of the attached asset paths>",
                  "image_intent": "identity" | "scene" | "style" | "composition",
                  "role": "<what THIS picture is for, and what to ignore about it —
-                    e.g. 'Steve Darlow's face and hair; ignore its grey backdrop'>"}],
+                    e.g. 'Ava's face and hair; ignore its grey backdrop'>"}],
  "start_frame": "<path of the image that must literally be frame zero, or null>",
  "subjects": [{"id": "S1", "name": "<who>",
                "appearance": "<the concrete unchanging features to preserve>"}],

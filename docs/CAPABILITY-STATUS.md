@@ -6,7 +6,7 @@ deployment or installing a model. "Qualified" means the maintainers run it in
 production from `main`; "experimental" means the code ships but has not
 completed runtime qualification on a clean install.
 
-Last reviewed: 2026-09-15 against `main`.
+Last reviewed: 2026-09-25 against `main`.
 
 ## Platforms
 
@@ -30,17 +30,34 @@ Last reviewed: 2026-09-15 against `main`.
 
 ## Media Lab engines (`media-lab/`)
 
-| Engine | Status | Notes |
-|---|---|---|
-| fal.ai cloud (FLUX, Recraft, MiniMax H3 Max, Veo 3, Kling) | Qualified | The only cloud provider. Any machine, no GPU. |
-| Image (ComfyUI sidecar) | Qualified on DGX Spark | Needs the operator's engine recipes in `config/engine-installs.json`. |
-| LTX-2 video (drafts) | Qualified on DGX Spark | Private Maestro runtime; the shipped `engine-installs.json` marks it blocked until an independent installer exists. |
-| Sol-H3 (MiniMax H3) video | Qualified on DGX Spark (single box, ~117 GiB resident) | 5-second clips at 1344x768, chained for storyboards. Cannot share the GPU with a local text model. |
-| YuE2 music (default) | Qualified on DGX Spark | Weights are CC BY-NC 4.0: non-commercial use only. Score-level edit tools; stems via Mel-Band RoFormer. |
-| MiniMax Music 3 (ComfyUI) | Qualified on DGX Spark | Alternative music engine. |
-| Voicebox / Chatterbox speech | Experimental | |
-| TripoSR image-to-3D | Experimental | |
-| Cut (the editor) | Qualified | Frame-addressed multi-track timeline, ffmpeg export with render receipts. Reachable at `/cut` on any Media Lab host. |
+"Default" is what a fresh install offers. Engines marked **off** have a
+personal, non-commercial, research-only or territory-restricted model licence:
+the studio shows them greyed out with a "personal / non-commercial" badge and
+refuses their jobs until the host opts in with `MEDIA_LAB_PERSONAL_ENGINES` in
+`config/local.env`. Licence details and links:
+[media-lab/docs/ENGINE-LICENCES.md](../media-lab/docs/ENGINE-LICENCES.md).
+
+| Engine | Status | Default | Licence | Notes |
+|---|---|---|---|---|
+| fal.ai cloud (FLUX, Recraft, MiniMax H3 Max, Veo 3, Kling) | Qualified | on | your fal.ai account terms | The only cloud provider. Any machine, no GPU. |
+| Image: Qwen-Image / Qwen-Image-Edit (ComfyUI sidecar) | Qualified on DGX Spark | on | Apache-2.0 | Needs the operator's engine recipes in `config/engine-installs.json`. |
+| Image: FLUX.1 Kontext [dev] ("Reimagine" painter) | Qualified on DGX Spark | **off** | FLUX.1 [dev] Non-Commercial | Only offered where installed and enabled. |
+| Image: Qwen-Image-2.1 (studio host) | Qualified on DGX Spark | **off** | Qwen Research License | Research / evaluation only. |
+| LTX-2 video (drafts) | Qualified on DGX Spark | on | LTX-2 Community License (free under US$10M revenue) | Private Maestro runtime; the shipped `engine-installs.json` marks it blocked until an independent installer exists. |
+| Sol-H3 (MiniMax H3) video | Qualified on DGX Spark (single box, ~117 GiB resident) | **off** | MiniMax H3 Community License (restricted) | 5-second clips at 1344x768, chained for storyboards. Cannot share the GPU with a local text model. |
+| YuE2 music | Qualified on DGX Spark | **off** | CC BY-NC 4.0 weights | Non-commercial only. Score-level edit tools; stems via Mel-Band RoFormer. Where enabled it is the default music engine. |
+| MiniMax Music 3 (ComfyUI) | Qualified on DGX Spark | on | MiniMax Music 3 Community License | The default music engine wherever YuE2 is off. |
+| HunyuanVideo-Avatar (finishing) | Experimental | **off** | Tencent Hunyuan Community License (not EU/UK/South Korea) | |
+| Voicebox / Chatterbox speech | Experimental | on | Chatterbox MIT; Voicebox models vary | |
+| TripoSR image-to-3D | Experimental | on | MIT | |
+| Cut (the editor) | Qualified | on | — | Frame-addressed multi-track timeline, ffmpeg export with render receipts. Reachable at `/cut` on any Media Lab host. |
+
+Personal material stays out of the repository: a studio's own looks,
+templates, character catalog and assistant notes live in the gitignored
+`media-lab/config/local/` overlay
+([media-lab/docs/LOCAL-OVERLAY.md](../media-lab/docs/LOCAL-OVERLAY.md)), and
+`media-lab/tools/identity_guard.py` fails CI on the maintainers' names, private
+brands, machine identities and personal e-mail addresses.
 
 A fresh `install.sh` on a plain Linux GPU box gives a running server with the
 cloud path and Cut; the local video engines need a Maestro runtime the

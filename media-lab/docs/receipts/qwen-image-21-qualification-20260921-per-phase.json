@@ -61,7 +61,7 @@
   "kept_fail_closed": "warm_idle carries the pack's worst observed consumption (48.0 GiB) rather than the 40.7 GiB warm-steady figure, because the pair with the protected language primary would then land within about 1 GiB of the pool; co-residency stays refused until a visible-queue canary satisfies the companion qualification rule.",
   "open_items": [
     "co-residency with the protected primary is still unqualified (needs the visible-queue canary)",
-    "config/gpu-capacity-receipts.json still carries the retired ComfyUI 'image' budget (peak_gib 15.0); which engine that entry should now describe is a call for Steve",
+    "config/gpu-capacity-receipts.json still carries the retired ComfyUI 'image' budget (peak_gib 15.0); which engine that entry should now describe is a call for the owner",
     "the image host pins the interpreter file's sha256, not the installed package set, so the hash-locked requirements file is the only thing keeping the environment reproducible"
   ]
 }

@@ -2,7 +2,7 @@
  * App-level state (zustand). Thin layer over local storage: hydrates once at
  * launch, then keeps storage and UI in sync.
  */
-import { Appearance } from 'react-native';
+import { Appearance, Platform } from 'react-native';
 import { create } from 'zustand';
 import {forgetDirectorProject} from '@/lib/director-session';
 import { forgetProjectComposer } from '@/lib/project-composer';
@@ -98,7 +98,9 @@ export const useApp = create<AppState>((set, get) => ({
       projectStore.listProjects(),
       settings.getGitHubAccount(),
       settings.getProviders(),
-      settings.getAppearance(),
+      // Fresh installs: native opens dark (the canonical look); a browser
+      // follows the visitor's OS light/dark preference.
+      settings.getAppearance(Platform.OS === 'web' ? 'system' : 'dark'),
       settings.getOnboardingComplete(),
       settings.getMediaLab(),
       settings.getWorkbench(),

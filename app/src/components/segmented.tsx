@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, { useAnimatedStyle, withSpring } from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
+import { pressFeedback } from '@/components/ui/press-feedback';
 import { Radii, Shadows } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -34,6 +35,7 @@ export function Segmented<T extends string>({
 
   return (
     <View
+      accessibilityRole="tablist"
       style={[styles.track, { backgroundColor: theme.backgroundSelected }]}
       onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}>
       {segmentWidth > 0 ? (
@@ -47,12 +49,12 @@ export function Segmented<T extends string>({
           <Pressable
             key={option.value}
             accessibilityRole="tab"
-            accessibilityState={{ selected }}
+            aria-selected={selected}
             onPress={() => {
               if (!selected) Haptics.selectionAsync();
               onChange(option.value);
             }}
-            style={styles.segment}>
+            style={(state) => [styles.segment, pressFeedback(state)]}>
             <ThemedText type="smallBold" themeColor={selected ? 'tint' : 'textSecondary'}>
               {option.label}
             </ThemedText>
@@ -84,5 +86,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: Radii.md - 3,
     paddingVertical: 9,
+    // 44pt minimum hit area per segment.
+    minHeight: 44,
   },
 });

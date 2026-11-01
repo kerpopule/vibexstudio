@@ -10,8 +10,9 @@ import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
+import { pressFeedback } from '@/components/ui/press-feedback';
 import { Glass } from '@/components/ui/glass';
-import { Fonts, Radii, Shadows } from '@/constants/theme';
+import { Fonts, Radii, Shadows, TypeScale } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useUiChrome } from '@/lib/ui-chrome';
 
@@ -46,7 +47,7 @@ export function TabPill({ state, descriptors, navigation }: TabPillProps) {
   if (hidden) return null;
 
   return (
-    <View pointerEvents="box-none" style={[styles.host, { bottom }]}>
+    <View pointerEvents="box-none" accessibilityRole="tablist" style={[styles.host, { bottom }]}>
       <Glass radius={Radii.pill} style={[styles.pill, Shadows.card, { borderColor: theme.glassBorder }]}>
         {state.routes.map((route, index) => {
           const { options } = descriptors[route.key];
@@ -65,11 +66,11 @@ export function TabPill({ state, descriptors, navigation }: TabPillProps) {
             <Pressable
               key={route.key}
               accessibilityRole="tab"
-              accessibilityState={{ selected: focused }}
+              aria-selected={focused}
               accessibilityLabel={options.tabBarAccessibilityLabel ?? label}
               onPress={onPress}
               onLongPress={() => navigation.emit({ type: 'tabLongPress', target: route.key })}
-              style={[styles.tab, focused && { backgroundColor: theme.tintSoft }]}>
+              style={(pressState) => [styles.tab, focused && { backgroundColor: theme.tintSoft }, pressFeedback(pressState)]}>
               <Ionicons
                 name={focused ? icon.on : icon.off}
                 size={20}
@@ -113,7 +114,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontFamily: Fonts.display,
-    fontSize: 9.5,
+    fontSize: TypeScale.micro,
     letterSpacing: 1.1,
     lineHeight: 12,
   },

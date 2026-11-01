@@ -22,7 +22,7 @@ import { Glass } from '@/components/ui/glass';
 import { ScalePress } from '@/components/ui/scale-press';
 import { Row, RowDivider, Section } from '@/components/ui/section';
 import { TAB_PILL_CLEARANCE } from '@/components/ui/tab-pill';
-import { Fonts, Radii, Spacing } from '@/constants/theme';
+import { Fonts, Radii, Spacing, TypeScale } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { falModelName, recommendedFalModel } from '@/lib/ai/fal-catalog';
 import { providerGlyph, shortModelLabel } from '@/lib/ai/models';
@@ -482,13 +482,13 @@ const styles = StyleSheet.create({
   checklist: { paddingVertical: 4 },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
   checkDivider: { height: StyleSheet.hairlineWidth, marginLeft: 70 },
-  checkGlyph: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  checkGlyphText: { fontSize: 21, lineHeight: 26 },
+  checkGlyph: { width: 44, height: 44, borderRadius: Radii.md, alignItems: 'center', justifyContent: 'center' },
+  checkGlyphText: { fontSize: TypeScale.glyph, lineHeight: 28 },
   checkBody: { flex: 1, gap: 2 },
   checkTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   badge: { borderRadius: Radii.pill, paddingHorizontal: 7, paddingVertical: 2 },
-  badgeText: { fontFamily: Fonts.display, fontSize: 9, letterSpacing: 1 },
-  avatar: { width: 36, height: 36, borderRadius: 12 },
+  badgeText: { fontFamily: Fonts.display, fontSize: TypeScale.micro, letterSpacing: 1 },
+  avatar: { width: 36, height: 36, borderRadius: Radii.md },
   appearance: { padding: Spacing.two + 2, gap: Spacing.two + 2 },
   trash: { padding: 4 },
 });

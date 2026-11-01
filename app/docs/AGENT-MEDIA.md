@@ -1,7 +1,7 @@
 # Agent-driven media — the `medialab` fence protocol
 
 Owner-approved design for letting the coding model CONTROL Media Lab, so
-"make Steve give an intro and put him on the homepage" works end-to-end.
+"make Ava give an intro and put her on the homepage" works end-to-end.
 
 ## The protocol
 

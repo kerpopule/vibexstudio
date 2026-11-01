@@ -34,14 +34,17 @@ def ticket(secret, role, code, device_id, now=None):
     return f'{prefix}.{signature}'
 
 
-def identity(raw, secret, role_code, now=None):
+def identity(raw, secret, role_code, now=None, max_age=None):
+    """``max_age`` lets a host keep passes longer than TOKEN_AGE (the family
+    studio uses a year); rotating the role's code still revokes them at once."""
     match = re.fullmatch(r'(mlab-render-v1\.(user|admin)\.(\d{10,12})\.([a-f0-9]{32}))\.([a-f0-9]{64})', raw or '')
     if not match:
         return None
     prefix, role, issued, device_id, signature = match.groups()
     age = (time.time() if now is None else now) - int(issued)
     expected = hmac.new(secret.encode(), f'{prefix}:{role_code(role)}'.encode(), hashlib.sha256).hexdigest()
-    return device_id if -300 <= age <= TOKEN_AGE and hmac.compare_digest(signature, expected) else None
+    limit = TOKEN_AGE if max_age is None else max_age
+    return device_id if -300 <= age <= limit and hmac.compare_digest(signature, expected) else None
 
 
 def is_jobs_path(path):

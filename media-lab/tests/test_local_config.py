@@ -20,7 +20,7 @@ def test_defaults_describe_a_private_single_machine_install(monkeypatch, tmp_pat
     assert local_config.home() == tmp_path
     assert local_config.bind_host() == "127.0.0.1"
     assert local_config.public_hosts() == set()
-    assert local_config.trusted_hosts() == {"127.0.0.1", "localhost"}
+    assert local_config.own_addresses() == {"127.0.0.1", "localhost"}
     assert local_config.text_upstream() == "http://127.0.0.1:8004"
     assert local_config.studio_url() == "http://127.0.0.1:7863"
     assert local_config.models_root() == Path("~/.local/share/media-lab-p2-models").expanduser()
@@ -43,7 +43,7 @@ def test_file_then_environment_override(monkeypatch, tmp_path):
     monkeypatch.delenv("MEDIA_LAB_TEXT_UPSTREAM", raising=False)
     assert local_config.bind_host() == "10.1.2.3"
     assert local_config.public_hosts() == {"studio.example.com", "second.example.org"}
-    assert local_config.trusted_hosts() == {"127.0.0.1", "localhost", "10.1.2.3"}
+    assert local_config.own_addresses() == {"127.0.0.1", "localhost", "10.1.2.3"}
     assert local_config.studio_url() == "http://10.1.2.3:7863"
     assert local_config.runtime_root() == Path("~/rt").expanduser()
     assert local_config.sol_configured() and local_config.sol()["SOL_PKG"] == "/opt/sol"
@@ -51,7 +51,7 @@ def test_file_then_environment_override(monkeypatch, tmp_path):
     monkeypatch.setenv("MEDIA_LAB_BIND_HOST", "0.0.0.0")
     assert local_config.bind_host() == "0.0.0.0"
     assert local_config.studio_url() == "http://127.0.0.1:7863"
-    assert "0.0.0.0" not in local_config.trusted_hosts()
+    assert "0.0.0.0" not in local_config.own_addresses()
     env = local_config.subprocess_env({"PATH": "/usr/bin"})
     assert env["MEDIA_LAB_BIND_HOST"] == "0.0.0.0" and env["SOL_PKG"] == "/opt/sol"
 

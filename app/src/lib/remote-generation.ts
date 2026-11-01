@@ -1,6 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import { libraryOrigin, type RemoteLibraryAsset } from '@/lib/library-core';
 import { getGenerationConnection, setGenerationConnection, getLibraryToken, setLibraryToken } from '@/lib/storage/secrets';
+import { isEmbedTicket } from '@/lib/media-lab-embed';
 
 type Connection = {deviceId: string; token: string | null};
 export type StudioJob = {id: string; kind: 'image'; status: 'queued'|'running'|'cancel_requested'|'cancelled'|'succeeded'|'failed'; createdAt: number; updatedAt: number};
@@ -91,6 +92,36 @@ export async function connectRemoteGeneration(server: string, code: string): Pro
   const work = locks ? locks.request('vibex-generation:' + origin, pair) : pair();
   pairings.set(origin, work);
   try { await work; } finally { if (pairings.get(origin) === work) pairings.delete(origin); }
+}
+
+export type EmbedTicketResult =
+  | {ok: true; ticket: string}
+  | {ok: false; reason: 'no-pass' | 'pass-refused' | 'origin-not-allowed' | 'unsupported' | 'unreachable'};
+
+/**
+ * A one-time ticket that signs the studio page shown inside the app in
+ * (media-lab/media_lab_core/embed_gate.py). Minted with this device's
+ * generation pass, which never leaves this call: the ticket lives 60 seconds,
+ * works once and is bound to this app's origin.
+ */
+export async function requestEmbedTicket(server: string): Promise<EmbedTicketResult> {
+  const origin = libraryOrigin(server);
+  const value = await connection(origin).catch(() => null);
+  if (!value?.token) return {ok: false, reason: 'no-pass'};
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(origin + '/api/embed/ticket', {method: 'POST', credentials: 'omit', redirect: 'error',
+      signal: controller.signal, headers: {Authorization: `Bearer ${value.token}`}});
+    const body = await response.json().catch(() => null);
+    if (response.status === 401) return {ok: false, reason: 'pass-refused'};
+    if (response.status === 403 && body?.error === 'origin-not-allowed') return {ok: false, reason: 'origin-not-allowed'};
+    if (response.status === 404 || response.status === 405) return {ok: false, reason: 'unsupported'};
+    if (!response.ok) return {ok: false, reason: 'unreachable'};
+    return isEmbedTicket(body?.ticket) ? {ok: true, ticket: body.ticket} : {ok: false, reason: 'unsupported'};
+  } catch {
+    return {ok: false, reason: 'unreachable'};
+  } finally { clearTimeout(timer); }
 }
 
 export async function listBackgroundEngines(origin: string): Promise<BackgroundEngine[]> {

@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useRef,useState} from 'react';
+import {useMemo,useRef,useState} from 'react';
 import {View} from 'react-native';
 import {WebView} from 'react-native-webview';
 import {ThemedText} from '@/components/themed-text';
@@ -11,7 +11,9 @@ export function ModelInspector({base64,initialRotation,onSave}:{base64:string;in
  const web=useRef<WebView>(null),rotation=useRef<ModelRotation>([0,0,0,1]);
  const [ready,setReady]=useState(false),[failed,setFailed]=useState(false),[saving,setSaving]=useState(false),[message,setMessage]=useState('');
  const document=useMemo(()=>{try{return modelInspectorDocument(base64,initialRotation);}catch{return null;}},[base64,initialRotation]);
- useEffect(()=>{setReady(false);setFailed(false);setMessage('');},[document]);
+ // A different model starts a fresh preview: not ready, no error, no old message.
+ const [shownDocument,setShownDocument]=useState(document);
+ if(shownDocument!==document){setShownDocument(document);setReady(false);setFailed(false);setMessage('');}
  const action=(name:'turn'|'tip'|'reset')=>{setMessage('');setReady(false);web.current?.injectJavaScript(`window.vibexModelAction?.(${JSON.stringify(name)});true;`);};
  return <View style={{gap:12}}>
   {document&&!failed?<View pointerEvents="none" style={{height:320,overflow:'hidden',borderRadius:12}}><WebView ref={web} source={{html:document}} style={{flex:1,backgroundColor:'#10121a'}} scrollEnabled={false}

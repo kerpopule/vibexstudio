@@ -21,23 +21,28 @@ SPARK=user@spark media-lab/tools/deploy-spark.sh v1.4.0             # ship it
 2. **Stage** the archive in `~/media-lab-simple.deploy-<tag>-<stamp>` on the
    Spark.
 3. **Wait for idle**: poll `/api/queue` until no job is active (default up to
-   an hour). A render is never interrupted by a deploy.
+   an hour). A render is never interrupted by a deploy. The probe runs on the
+   Spark and proves it is local with `local-token.txt` (piped to curl, never in
+   `ps`); the studio trusts no `Host: localhost` header. If the studio answers
+   but refuses the probe, the deploy stops — an unknown queue is never "idle".
 4. **Back up** the code files the deploy is about to touch to
    `~/media-lab-simple/.backups/deploy-<stamp>-<commit>`, then **rsync**
    staging → live with two lists:
    * **ALLOWLIST** (code owns): `app.py`, the top-level modules,
      `media_lab_core/`, `runner/`, `static/`, `tools/`, `tests/`, `docs/`,
-     `prompt-templates/`, `systemd/`, `launchd/`, `chat-system-prompt.md`,
+     `systemd/`, `launchd/`, `chat-system-prompt.md`,
      `pyproject.toml`/`uv.lock`/`requirements.txt`/`install.sh`, and under
      `config/` only the `*.example` files, unit templates and the static
      catalogs.
    * **PROTECT** (the box owns, never written or deleted): `config/local.env`,
+     the studio's own overlay `config/local/` (docs/LOCAL-OVERLAY.md), the
+     retired `prompt-templates/` folder,
      `config/{engine-installs,fal-catalog,model-residency-policy}.json`,
      `tunnel-config.yml`, `.venv/`, every state file (`jobs.json`, `jobs.db`,
      `gallery.json`, `characters.json*`, `storyboards.json*`, `providers.json`,
      `*-status.json`, `*-state.json`, `eta-stats.json`, `auth-attempts.json`,
      `lu-*.json`, `geo-*.json`), credentials (`admin-pin.txt`,
-     `access-code.txt`, `access-secret.txt`, `vapid_private.pem`,
+     `access-code.txt`, `access-secret.txt`, `vapid_private.pem`, `local-token.txt`,
      `push-subs.json`, `proxy7864.env`), and every private tree
      (`productions/`, `qa/`, `research/`, `reference/`, `medialab-import/`,
      `image-svc/`, `.artifacts/`, `media/`, `jobs/`, `pool/`, `inbox/`,

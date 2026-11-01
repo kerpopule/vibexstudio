@@ -8,6 +8,7 @@ import { desktopFolderAvailable } from '@/lib/sync/desktop-folder';
 import { useApp } from '@/lib/store';
 import { Platform, Pressable, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
+import { pressFeedback } from '@/components/ui/press-feedback';
 import { Glass } from '@/components/ui/glass';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -35,7 +36,7 @@ export function StorageChoices({localBackups = false}: {localBackups?: boolean})
   return <View style={{ gap: Spacing.two }}>
     <ThemedText themeColor="textSecondary">Start on this device. Add your own storage whenever you need a copy elsewhere.</ThemedText>
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two }}>
-      {choices.map((item) => <Pressable key={item.id} accessibilityRole="button" accessibilityState={{ selected: item.id === selected }} accessibilityLabel={item.title} onPress={() => select(item.id)} style={{ flexGrow: 1, flexBasis: 240 }}>
+      {choices.map((item) => <Pressable key={item.id} accessibilityRole="button" aria-selected={item.id === selected} accessibilityLabel={item.title} onPress={() => select(item.id)} style={(state) => [{ flexGrow: 1, flexBasis: 240 }, pressFeedback(state)]}>
         <Glass style={{ padding: Spacing.three, gap: Spacing.one, ...(Platform.OS === 'web' ? { height: '100%' as const } : {}), ...(item.id === selected ? { borderColor: theme.tint, backgroundColor: theme.tintSoft } : {}) }}>
           <ThemedText type="smallBold">{item.title}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">{item.subtitle}</ThemedText>

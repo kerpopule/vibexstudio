@@ -103,17 +103,17 @@ describe('medialab fences', () => {
   it('parses a video request with a character', () => {
     const raw = [
       'Lights, camera!',
-      '```medialab kind=video character=steve1 file=assets/intro.mp4',
-      'Steve welcomes visitors to the site, warm and upbeat.',
+      '```medialab kind=video character=ava1 file=assets/intro.mp4',
+      'Ava welcomes visitors to the site, warm and upbeat.',
       '```',
     ].join('\n');
     const out = parseAssistantReply(raw);
     expect(out.media).toEqual([
       {
         kind: 'video',
-        character: 'steve1',
+        character: 'ava1',
         file: 'assets/intro.mp4',
-        prompt: 'Steve welcomes visitors to the site, warm and upbeat.',
+        prompt: 'Ava welcomes visitors to the site, warm and upbeat.',
       },
     ]);
     expect(out.files).toEqual([]);

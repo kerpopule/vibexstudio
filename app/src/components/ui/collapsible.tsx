@@ -1,13 +1,14 @@
 import { SymbolView } from 'expo-symbols';
 import { PropsWithChildren, useState } from 'react';
 import { Pressable, StyleSheet } from 'react-native';
-import Animated, { FadeIn } from 'react-native-reanimated';
+import { FadeIn } from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { enter } from '@/lib/motion';
+import { enter, webEnter } from '@/lib/motion';
+import { EnterView } from '@/components/ui/enter-view';
 
 export function Collapsible({ children, title }: PropsWithChildren & { title: string }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -31,11 +32,11 @@ export function Collapsible({ children, title }: PropsWithChildren & { title: st
         <ThemedText type="small">{title}</ThemedText>
       </Pressable>
       {isOpen && (
-        <Animated.View entering={enter(FadeIn.duration(200))}>
+        <EnterView entering={enter(FadeIn.duration(200))} style={webEnter('fade', 200)}>
           <ThemedView type="backgroundElement" style={styles.content}>
             {children}
           </ThemedView>
-        </Animated.View>
+        </EnterView>
       )}
     </ThemedView>
   );

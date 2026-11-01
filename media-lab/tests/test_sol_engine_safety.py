@@ -195,6 +195,37 @@ class SolSafety(unittest.TestCase):
         self.assertTrue(s.safety_latched())
         self.assertFalse(s.STATE['busy'])
 
+    def _generate_ok(self, stage2):
+        import io,json
+        s=self.s;reply=[];out=Path(self.tmp.name)/'take.mp4';out.write_bytes(b'mp4')
+        class Done:
+            def __init__(self): self.stage2=stage2
+            def generate(self,case): return {'output': str(out)}
+        s.STATE.update(pipe=Done(),task='t2va',loaded=True)
+        handler=s.H.__new__(s.H);handler.path='/generate'
+        raw=json.dumps({'prompt':'fixture','request_id':'fixture-ok'}).encode()
+        handler.headers={'Content-Length':str(len(raw))};handler.rfile=io.BytesIO(raw)
+        handler._send=lambda status,data:reply.append((status,data))
+        with patch.object(s, 'authorize_values', return_value=True):
+            handler.do_POST()
+        return reply
+
+    def test_finished_take_trims_stage2_cache_before_the_next_admission(self):
+        calls=[]
+        class Stage2:
+            def call(self, op, **kw): calls.append((op, kw)); return {'status':'PASS'}
+        reply=self._generate_ok(Stage2())
+        self.assertEqual(reply[0][0],200)
+        self.assertEqual(calls,[('release_idle_cache',{'qwen_resident':True})])
+        self.assertFalse(self.s.safety_latched())
+
+    def test_failed_idle_trim_is_not_a_safety_event(self):
+        class Stage2:
+            def call(self, op, **kw): raise RuntimeError('cache release requires an idle session')
+        reply=self._generate_ok(Stage2())
+        self.assertEqual(reply[0][0],200)
+        self.assertFalse(self.s.safety_latched())
+
     def test_generation_without_exact_gpu_lease_is_rejected(self):
         import io,json
         s=self.s;reply=[]

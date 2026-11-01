@@ -9,7 +9,7 @@ import {SpriteInspector} from '@/components/sprite-inspector';
 import {readProjectSprite, type ProjectSprite} from '@/lib/project-sprite';
 import { ModelInspector } from '@/components/model-inspector';
 import { Button } from '@/components/ui/button';
-import { Fonts, Spacing } from '@/constants/theme';
+import { Fonts, Radii, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { createModelPlacement, modelPlacementPath, readModelPlacement, type ModelRotation } from '@/lib/model-placement';
 import { deleteFile, isBinaryPath, listFiles, readFile, writeFile } from '@/lib/storage/projects';
@@ -222,7 +222,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.three,
-    borderRadius: 14,
+    borderRadius: Radii.md,
     padding: Spacing.three,
   },
   fileIcon: {

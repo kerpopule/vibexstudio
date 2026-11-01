@@ -1,4 +1,4 @@
-import {useEffect,useRef,useState,useSyncExternalStore} from 'react';
+import {useRef,useState,useSyncExternalStore} from 'react';
 import {ThemedText} from '@/components/themed-text';
 import {Glass} from '@/components/ui/glass';
 import {Button} from '@/components/ui/button';
@@ -11,7 +11,12 @@ export function PairedServerStorage({pairedHere=false}:{pairedHere?:boolean}={})
  const [busy,setBusy]=useState(false),[url,setUrl]=useState<string|null>(null),[message,setMessage]=useState(''),[conflicts,setConflicts]=useState<string[]>([]);
  const [identity,setIdentity]=useState<string|null>(null),[automatic,setAutomatic]=useState(false);
  const autoStatus=useSyncExternalStore(subscribeAutoServer,getAutoServerStatus,getAutoServerStatus);
- useEffect(()=>{if(identity&&autoStatus.identity===identity&&autoStatus.result)setConflicts(autoStatus.result.conflicts);},[identity,autoStatus]);
+ // Each new automatic-sync result for this server replaces the conflict list, as a manual sync does.
+ const [seenAuto,setSeenAuto]=useState({identity,autoStatus});
+ if(seenAuto.identity!==identity||seenAuto.autoStatus!==autoStatus){
+  setSeenAuto({identity,autoStatus});
+  if(identity&&autoStatus.identity===identity&&autoStatus.result)setConflicts(autoStatus.result.conflicts);
+ }
  async function run(action:()=>Promise<void>){if(lock.current)return;lock.current=true;setBusy(true);try{await action();}catch(error){setMessage(error instanceof Error?error.message:String(error));}finally{lock.current=false;setBusy(false);}}
  return <Glass style={{padding:Spacing.three,gap:Spacing.two}}>
   <ThemedText type="heading">Sync through your paired server</ThemedText>

@@ -244,6 +244,29 @@ export const Spacing = {
   six: 64,
 } as const;
 
+/**
+ * Type scale (px). `ThemedText` types cover most text; these name the few
+ * sizes used directly. See app/DESIGN.md.
+ */
+export const TypeScale = {
+  /** Uppercase micro labels (tab labels, badges, group eyebrows). */
+  micro: 10,
+  /** Code, captions. */
+  code: 12,
+  /** ThemedText `small` / `smallBold`. */
+  small: 14,
+  /** ThemedText `default`. */
+  body: 16,
+  /** ThemedText `heading`. */
+  heading: 17,
+  /** Emoji glyphs inside icon wells. */
+  glyph: 22,
+  /** ThemedText `subtitle`. */
+  subtitle: 26,
+  /** ThemedText `title`. */
+  title: 34,
+} as const;
+
 export const Radii = {
   /** Chips, small controls. */
   sm: 10,

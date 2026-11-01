@@ -306,7 +306,15 @@ def create_paired_app(*, state_root: Path, artifact_root: Path, credentials: Cre
                     # Only map valid project IDs; missing assets/APIs must remain 404.
                     target = ('project/[id].html' if re.fullmatch(r'project/[A-Za-z0-9_-]{1,128}/?', path)
                               else path.rstrip('/') + '.html')
-                    response = await super().get_response(target, scope)
+                    try:
+                        response = await super().get_response(target, scope)
+                    except HTTPException as missing:
+                        # A direct load of an unknown page gets the export's
+                        # branded not-found screen, still with a 404 status.
+                        page = web_root / '+not-found.html'
+                        if missing.status_code != 404 or not page.is_file():
+                            raise
+                        response = FileResponse(str(page), status_code=404)
                 # Exported documents point at revision-specific JS bundles.
                 # Revalidate them after updates instead of letting browsers
                 # heuristically reuse an old entry point. Apply to 304s too.

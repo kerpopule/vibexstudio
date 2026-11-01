@@ -28,7 +28,7 @@ it('never treats an old server cookie response as a library connection',async()=
 it('does not send a request when this host has no saved ticket',async()=>{
  vi.mocked(getLibraryToken).mockResolvedValue(null);
  vi.stubGlobal('fetch',vi.fn());
- await expect(listRemoteLibrary(asset.serverUrl)).rejects.toThrow('access code');
+ await expect(listRemoteLibrary(asset.serverUrl)).rejects.toThrow('family code');
  expect(fetch).not.toHaveBeenCalled();
 });
 it('downloads only the scoped ID endpoint and verifies bytes',async()=>{

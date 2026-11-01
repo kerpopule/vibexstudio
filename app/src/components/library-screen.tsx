@@ -74,8 +74,13 @@ export default function LibraryScreen({ inTab = false }: { inTab?: boolean }) {
   const [items, setItems] = useState<LibraryEntry[]>([]);
   const [query, setQuery] = useState('');
   const [folder, setFolder] = useState('');
+  // Folder paths belong to one server: switching servers starts at the top level.
+  const [folderServer, setFolderServer] = useState(serverUrl);
+  if (folderServer !== serverUrl) {
+    setFolderServer(serverUrl);
+    setFolder('');
+  }
   const [foldersOpen, setFoldersOpen] = useState(false);
-  useEffect(() => {setFolder('');}, [serverUrl]);
   const folderItems = items.filter(item => !item.remote || loadedServerUrl === serverUrl);
   const childFolders = childLibraryFolders(folderItems, folder);
   const [kind, setKind] = useState<'all' | LibraryEntry['kind']>(() =>
@@ -193,26 +198,35 @@ export default function LibraryScreen({ inTab = false }: { inTab?: boolean }) {
     finally {setBusy(null);}
   };
 
-  const refresh = () => {
-    setRefreshVersion(version => version + 1);
-  };
-  useFocusEffect(useCallback(() => {
-    let active = true;
+  // Loads this device's creations and the paired server's Library. Focus and
+  // refresh both call it; each call supersedes the one before.
+  const loadEpoch = useRef(0);
+  const loadLibrary = useCallback(() => {
+    const current = ++loadEpoch.current;
     setLoading(true);
     setError(null);
     setDeviceError(null);
     setRemoteError(null);
     setSpriteFrames([]);
     loadEntries(serverUrl).then((result) => {
-      if (!active) return;
+      if (current !== loadEpoch.current) return;
       setItems(result.items);
       setLoadedServerUrl(serverUrl);
       setRemoteError(result.remoteError);
       setDeviceError(result.deviceError);
-    }).catch(() => { if (active) setError('Your library could not be loaded. Try again.'); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [serverUrl,refreshVersion]));
+    }).catch(() => { if (current === loadEpoch.current) setError('Your library could not be loaded. Try again.'); })
+      .finally(() => { if (current === loadEpoch.current) setLoading(false); });
+    // setSpriteFrames never changes; it is listed because the React Compiler
+    // cannot prove that here and would otherwise skip this whole screen.
+  }, [serverUrl, setSpriteFrames]);
+  useFocusEffect(useCallback(() => {
+    loadLibrary();
+    return () => { loadEpoch.current++; };
+  }, [loadLibrary]));
+  const refresh = () => {
+    setRefreshVersion(version => version + 1);
+    loadLibrary();
+  };
 
   const exportAsset=async(item:LibraryEntry)=>{
     if(busy||exporting.current)return;
@@ -282,13 +296,13 @@ export default function LibraryScreen({ inTab = false }: { inTab?: boolean }) {
             style={[styles.search, {color:theme.text, backgroundColor:theme.backgroundElement}]} />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
             {([['all','All'],['image','Images'],['video','Video'],['audio','Audio'],['model','3D']] as const).map(([value,label]) =>
-              <Pressable key={value} accessibilityRole="button" accessibilityLabel={`Filter ${label}`} accessibilityState={{selected:kind===value}}
+              <Pressable key={value} accessibilityRole="button" accessibilityLabel={`Filter ${label}`} aria-selected={kind===value}
                 onPress={() => {setFocusedAsset(null);setKind(value);}} style={[styles.filter, {backgroundColor:kind===value ? theme.tintSoft : theme.backgroundElement}]}>
                 <ThemedText type="smallBold" style={{color:kind===value ? theme.tint : theme.textSecondary}}>{label}</ThemedText>
               </Pressable>)}
           </ScrollView>
           <Button title={foldersOpen ? 'Hide folders' : folder ? `Folder: ${folder}` : 'Browse folders'} variant="secondary"
-            accessibilityState={{expanded:foldersOpen}} onPress={() => setFoldersOpen(value => !value)} />
+            aria-expanded={foldersOpen} onPress={() => setFoldersOpen(value => !value)} />
           {foldersOpen ? <View style={styles.intro}>
             <ThemedText type="smallBold">{folder || 'All folders'}</ThemedText>
             {folder ? <Button title="Back to parent folder" variant="secondary" onPress={() => setFolder(folder.split('/').slice(0,-1).join('/'))} /> : null}
@@ -301,7 +315,7 @@ export default function LibraryScreen({ inTab = false }: { inTab?: boolean }) {
           {serverUrl ? <LibraryUpload key={serverUrl} origin={serverUrl} onUploaded={()=>setRefreshVersion(value=>value+1)}/> : null}
           {!serverUrl ? <Button title="Connect a server library" variant="secondary" onPress={() => router.push('/connect-media-lab')} /> : null}
           {serverUrl ? <Button title={toolsOpen ? 'Hide creation tools' : 'Creation tools'} variant="secondary"
-            accessibilityState={{expanded:toolsOpen}} onPress={() => setToolsOpen(value => !value)} /> : null}
+            aria-expanded={toolsOpen} onPress={() => setToolsOpen(value => !value)} /> : null}
           <View style={toolsOpen ? styles.intro : styles.hiddenTools} onLayout={event => {toolsOffset.current = event.nativeEvent.layout.y;}}>
           {serverUrl ? <View style={styles.intro}>
             <ThemedText type="heading">Background removal</ThemedText>

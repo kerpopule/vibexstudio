@@ -1,5 +1,6 @@
 import {useMemo} from 'react';
-import {View,useWindowDimensions} from 'react-native';
+import {View} from 'react-native';
+import { useWindowDimensions } from '@/hooks/use-window-dimensions';
 import {toQR} from 'toqr';
 /** Integer-sized modules and a four-module quiet zone, rendered locally on every platform. */
 export function TransferQR({value}:{value:string}){

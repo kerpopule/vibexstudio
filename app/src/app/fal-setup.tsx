@@ -5,6 +5,7 @@ import { useRef, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { pressFeedback } from '@/components/ui/press-feedback';
 import { ThemedView } from '@/components/themed-view';
 import { Button } from '@/components/ui/button';
 import { TextField } from '@/components/ui/text-field';
@@ -92,7 +93,7 @@ export default function FalSetupScreen() {
             <Pressable
               accessibilityRole="button"
               onPress={() => Linking.openURL(step.url).catch(() => {})}
-              style={[styles.openBtn, { backgroundColor: theme.tintSoft }]}
+              style={(state) => [styles.openBtn, { backgroundColor: theme.tintSoft }, pressFeedback(state)]}
               hitSlop={6}>
               <ThemedText type="smallBold" style={{ color: theme.tint }}>
                 Open
@@ -180,13 +181,16 @@ function ModelPicker({
           return (
             <Pressable
               key={entry.id}
+              accessibilityRole="radio"
+              aria-checked={active}
               onPress={() => onChange(entry.id)}
-              style={[
+              style={(state) => [
                 styles.chip,
                 {
                   backgroundColor: active ? theme.tintSoft : theme.backgroundElement,
                   borderColor: active ? theme.tint : 'transparent',
                 },
+                pressFeedback(state),
               ]}>
               <ThemedText type="smallBold" style={active ? { color: theme.tint } : undefined}>
                 {entry.name}
@@ -247,8 +251,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     borderRadius: Radii.pill,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 7,
+    minHeight: 44,
   },
   pickerBlock: {
     gap: Spacing.one,

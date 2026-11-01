@@ -10,7 +10,7 @@ and charge for generation. Engine support and licenses vary; see the
 [capability status](../docs/CAPABILITY-STATUS.md).
 
 <p align="center">
-  <img src="docs/screenshots/media-lab-desktop.png" width="640" alt="Media Lab — a real studio: Sparky, the maker panel, and a gallery of generated talking-head films">
+  <img src="docs/screenshots/media-lab-desktop.png" width="640" alt="Media Lab — Sparky, the maker panel and a gallery of generated clips; licence-restricted engines are greyed out on a fresh install">
   &nbsp;
   <img src="docs/screenshots/media-lab-mobile.png" width="200" alt="Media Lab — phone">
 </p>
@@ -21,11 +21,17 @@ and charge for generation. Engine support and licenses vary; see the
   text-to-video, image-to-video, reference-identity, v2v motion transfer),
   long-form via segment chaining, 500+ curated style templates.
 - **Music & music videos** — full songs and storyboarded MVs. Screenshot songs default to Exact Auto-fit: reviewed words remain immutable, text is reflowed into short melodic phrases, Auto chooses each part's runtime, and long inputs split into ordered queue-owned songs plus matching screenshot videos. Director checks both the words and measurable pitch movement, so read/recited takes are retried instead of published. See [docs/screenshot-songs.md](docs/screenshot-songs.md).
+- **Duet direction (planning)** — a reusable two-lead music-video recipe with an authored schematic GIF, natural expressions, varied camera coverage, original-audio preservation and isolated repairs. Local duet performance and CQ enhancement remain unqualified. See [docs/DUET-MUSIC-VIDEO.md](docs/DUET-MUSIC-VIDEO.md).
 - **Images** — generation, SAM-powered tap-to-select editing, Qwen-Image-2.1,
   and a big template library.
 - **Characters** — reusable identities with consistent look and voice
   (Voicebox voice cloning included).
 - **Sparky** — a chat director that plans, queues, and narrates the work.
+- **Director school** — storyboards carry a continuity bible, shot sizes, screen
+  sides and a transition per cut; the plan is graded before any GPU time; Assemble
+  trims dead frames, matches colour and loudness, crossfades every seam (J/L cuts),
+  cuts on the beat and encodes once; a critic checks every seam and names the shots
+  to re-film. See [docs/DIRECTOR-SCHOOL.md](docs/DIRECTOR-SCHOOL.md).
 - **Automatic Storyboards** — every completed Media Lab production with more
   than one scene is persisted as an editable Storyboard and linked from its
   queue/gallery record. This is enforced by the shared backend for paired
@@ -41,7 +47,7 @@ One command, then scan the QR it prints with the VibeXStudio phone app:
 ./install.sh
 ```
 
-It creates `.venv`, mints your access code, starts the server (a `systemd
+It creates `.venv`, mints your family code and admin code, starts the server (a `systemd
 --user` service on Linux; foreground on a Mac, `--service` for a launchd
 agent), waits until it answers, and prints the URLs, the code and a pairing
 QR. Re-run it after `git pull` to update. `media-lab status|pair|code|logs`

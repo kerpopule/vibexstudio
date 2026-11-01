@@ -27,12 +27,20 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from media_lab_core import local_config   # config/local.env, stdlib only
+from media_lab_core import local_token    # local-token.txt / MEDIA_LAB_CODE sign-in
 
 # The studio host's ssh target (MEDIA_LAB_SSH) and API; pass --remote/--api to
 # override. The inbox path is relative to the remote user's home.
 DEFAULT_REMOTE = local_config.get("MEDIA_LAB_SSH")
 DEFAULT_API = local_config.studio_url()
 REMOTE_INBOX = "media-lab-simple/inbox"
+
+
+def _candidate_until_approved(board: dict) -> bool:
+    """Same rule as media_lab_core.cut.candidate_until_approved (older boards
+    carry the flag under an owner-named key)."""
+    return any(isinstance(k, str) and k.startswith("candidate_not_final_until_")
+               and k.endswith("_approves") and v is True for k, v in board.items())
 
 
 def sha256_file(path: Path) -> str:
@@ -43,8 +51,13 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+# Set in main(): the local token on the studio box, else a session from the
+# family code in MEDIA_LAB_CODE (the studio trusts no Host header or network).
+OPENER = urllib.request.build_opener(local_token.StudioAuthHandler())
+
+
 def get_json(url: str) -> Any:
-    with urllib.request.urlopen(url, timeout=20) as response:
+    with OPENER.open(url, timeout=20) as response:
         return json.load(response)
 
 
@@ -61,6 +74,8 @@ def main() -> None:
     parser.add_argument("--api", default=DEFAULT_API)
     parser.add_argument("--timeout", type=int, default=240)
     args = parser.parse_args()
+    global OPENER
+    OPENER = local_token.studio_opener(args.api, os.environ.get("MEDIA_LAB_CODE") or None)
 
     source = args.source.expanduser().resolve()
     if not source.is_file() or source.suffix.lower() not in {".mp4", ".mov", ".m4v", ".webm"}:
@@ -80,7 +95,7 @@ def main() -> None:
         "sha256": digest,
         "title": (args.title.strip() or str(board.get("title") or "Storyboard film"))[:120],
         "private_internal_only": True,
-        "candidate_not_final_until_steve_approves": True,
+        "candidate_not_final_until_owner_approves": True,
         "publication_authorized": False,
         "external_sharing_authorized": False,
     }
@@ -123,7 +138,7 @@ def main() -> None:
             "job_storyboard_registered": job.get("storyboard_registered") is True,
             "job_url_matches_board": job.get("url") == live.get("final_url"),
             "board_private": live.get("private_internal_only") is True,
-            "board_not_final": live.get("candidate_not_final_until_steve_approves") is True,
+            "board_not_final": _candidate_until_approved(live),
             "board_not_public": live.get("publication_authorized") is False,
         }
         if all(checks.values()):
